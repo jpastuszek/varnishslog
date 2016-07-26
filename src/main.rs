@@ -7,7 +7,7 @@ use std::io;
 use std::fmt::{self, Display, Debug};
 //use std::io::BufRead;
 //use nom::{Producer, Move, Input, Consumer, ConsumerState};
-use nom::{be_u8, be_u32, rest};
+use nom::{le_u32};
 
 /*
 pub struct BufReadProducer<R: Read + BufRead> {
@@ -54,9 +54,35 @@ impl<'x, R: Read + BufRead> Producer<'x, &'x [u8], Move> for BufReadProducer<R> 
     }
 }
 
-consumer_from_parser!(VslConsumer<VslHeader>, vsl_record_header);
+consumer_from_parser!(VslConsumer<VslRecordHeader>, vsl_record_header);
 consumer_from_parser!(VslTagConsumer<()>, vsl_tag);
 */
+
+/*
+ * Shared memory log format
+ *
+ * The log member points to an array of 32bit unsigned integers containing
+ * log records.
+ *
+ * Each logrecord consist of:
+ *    [n]               = ((type & 0xff) << 24) | (length & 0xffff)
+ *    [n + 1]           = ((marker & 0x03) << 30) | (identifier & 0x3fffffff)
+ *    [n + 2] ... [m]   = content (NUL-terminated)
+ *
+ * Logrecords are NUL-terminated so that string functions can be run
+ * directly on the shmlog data.
+ *
+ * Notice that the constants in these macros cannot be changed without
+ * changing corresponding magic numbers in varnishd/cache/cache_shmlog.c
+ */
+
+const VSL_LENOFFSET: u32 = 24;
+const VSL_LENMASK: u32 = 0xffff;
+const VSL_MARKERMASK: u32 = 0x03;
+const VSL_CLIENTMARKER: u32 = 1 << 30;
+const VSL_BACKENDMARKER: u32 = 1 << 31;
+const VSL_IDENTOFFSET: u32 = 30;
+const VSL_IDENTMASK: u32 = !(3 << VSL_IDENTOFFSET);
 
 #[derive(Debug)]
 enum VslTag {
@@ -70,45 +96,50 @@ named!(vsl_tag<&[u8], VslTag>, chain!(
         }));
 
 #[derive(Debug)]
-struct VslHeader {
+struct VslRecordHeader {
     pub tag: u8,
-    pub len: u32
+    pub len: u16,
+    pub marker: u8,
+    pub ident: u32,
 }
 
-named!(vsl_record_header<&[u8], VslHeader>, chain!(
-        tag: peek!(be_u8)  ~
-        len: be_u32 ,
+fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeader, u32> {
+    chain!(
+        input, r1: le_u32 ~ r2: le_u32,
         || {
-            VslHeader { tag: tag, len: len & 0x00ffffff}
-        }));
+            VslRecordHeader {
+                tag: (r1 >> VSL_LENOFFSET) as u8,
+                len: (r1 & VSL_LENMASK) as u16,
+                marker: (r2 & VSL_MARKERMASK >> VSL_IDENTOFFSET) as u8,
+                ident: r2 & VSL_IDENTMASK,
+            }
+        })
+}
 
 #[derive(Debug)]
 struct VslRecord<'b> {
-    pub xid: u32,
-    pub data: &'b str
+    pub tag: u8,
+    pub marker: u8,
+    pub ident: u32,
+    pub data: &'b str,
+    pub body: &'b[u8]
 }
 
-fn is_zero(i: &u8) -> bool {
-    *i == 0
-}
-fn is_zero2(i: u8) -> bool {
+fn is_zero(i: u8) -> bool {
     i == 0
-}
-
-fn vsl_record_data_s<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], &'b str, u32> {
-    use ::std::str::from_utf8;
-    map_res!(input, take_till!(is_zero), from_utf8)
 }
 
 fn vsl_record<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
     chain!(
         input,
-        xid: be_u32  ~
-        data: vsl_record_data_s ~
-        take_while!(is_zero2),
+        header: vsl_record_header ~ body: take!(header.len) ~ take_while!(is_zero),
         || {
-            VslRecord { xid: xid, data: data }
+            VslRecord { tag: header.tag, marker: header.marker, ident: header.ident, data: "foobar", body: body }
         })
+}
+
+fn vsl_records<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], Vec<VslRecord<'b>>, u32> {
+    many1!(input, vsl_record)
 }
 
 #[derive(Debug)]
@@ -165,21 +196,6 @@ fn read_data_tag<'b, R: Read>(reader: &mut R, buf: &'b mut [u8; 4]) -> Result<Vs
     vsl_tag(buf).into_vsl_result()
 }
 
-fn read_record_header<'b, R: Read>(reader: &mut R, buf: &'b mut [u8; 4]) -> Result<VslHeader, VslError<&'b[u8], u32>> {
-    try!(reader.read_exact(buf));
-    vsl_record_header(buf).into_vsl_result()
-}
-
-fn read_record<'b, R: Read>(reader: &mut R, buf: &'b mut Vec<u8>, len: u32) -> Result<VslRecord<'b>, VslError<&'b[u8], u32>> {
-    try!(reader.take(len as u64).read_to_end(buf));
-
-    let len = buf.len();
-    let vsl_record_bytes: Box<Fn(&'b[u8]) -> nom::IResult<&[u8], &[u8]>> =
-        Box::new(closure!(&'b[u8], take!(len)));
-    let bytes = try!(vsl_record_bytes(buf).into_vsl_result());
-    vsl_record(&bytes).into_vsl_result()
-}
-
 fn main() {
     let stdin = stdin();
     let mut stdin = stdin.lock();
@@ -190,13 +206,11 @@ fn main() {
     println!("Tag: {:?}", &tag);
     match tag {
         VslTag::BinaryVsl => {
-            let header = read_record_header(&mut stdin, &mut buf).expect("Invalid header");
-            println!("Header: {:?}", &header);
+            let mut buf = Vec::new();
+            stdin.read_to_end(&mut buf);
 
-            let mut buf = Vec::with_capacity(header.len as usize);
-            let record = read_record(&mut stdin, &mut buf, header.len).expect("Invalid record");
-            println!("Record: {:?}", &record);
-
+            let records = vsl_records(buf.as_slice()).into_vsl_result();
+            println!("Record: {:?}", &records);
         }
     }
 }
