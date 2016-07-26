@@ -7,7 +7,7 @@ use std::io;
 use std::fmt::{self, Display, Debug};
 //use std::io::BufRead;
 //use nom::{Producer, Move, Input, Consumer, ConsumerState};
-use nom::{le_u8, le_u32};
+use nom::{be_u8, be_u32, rest};
 
 /*
 pub struct BufReadProducer<R: Read + BufRead> {
@@ -59,24 +59,57 @@ consumer_from_parser!(VslTagConsumer<()>, vsl_tag);
 */
 
 #[derive(Debug)]
-enum VSLTag {
-    BinaryVSL
+enum VslTag {
+    BinaryVsl
 }
 
-named!(vsl_tag<&[u8], VSLTag>, chain!(tag!(b"VSL\0"), ||{VSLTag::BinaryVSL}));
+named!(vsl_tag<&[u8], VslTag>, chain!(
+        tag!(b"VSL\0"),
+        || {
+            VslTag::BinaryVsl
+        }));
 
 #[derive(Debug)]
 struct VslHeader {
-    tag: u8,
-    len: u32
+    pub tag: u8,
+    pub len: u32
 }
 
 named!(vsl_record_header<&[u8], VslHeader>, chain!(
-        tag: peek!(le_u8)  ~
-        len: le_u32 ,
-        ||{
+        tag: peek!(be_u8)  ~
+        len: be_u32 ,
+        || {
             VslHeader { tag: tag, len: len & 0x00ffffff}
         }));
+
+#[derive(Debug)]
+struct VslRecord<'b> {
+    pub xid: u32,
+    pub data: &'b str
+}
+
+fn is_zero(i: &u8) -> bool {
+    *i == 0
+}
+fn is_zero2(i: u8) -> bool {
+    i == 0
+}
+
+fn vsl_record_data_s<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], &'b str, u32> {
+    use ::std::str::from_utf8;
+    map_res!(input, take_till!(is_zero), from_utf8)
+}
+
+fn vsl_record<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
+    chain!(
+        input,
+        xid: be_u32  ~
+        data: vsl_record_data_s ~
+        take_while!(is_zero2),
+        || {
+            VslRecord { xid: xid, data: data }
+        })
+}
 
 #[derive(Debug)]
 enum VslError<I, E> {
@@ -127,10 +160,24 @@ impl<I, E> Display for VslError<I, E> where I: Debug, E: Debug {
     }
 }
 
-
-fn read_data_tag<'b, R: Read>(reader: &mut R, buf: &'b mut [u8; 4]) -> Result<VSLTag, VslError<&'b[u8], u32>> {
+fn read_data_tag<'b, R: Read>(reader: &mut R, buf: &'b mut [u8; 4]) -> Result<VslTag, VslError<&'b[u8], u32>> {
     try!(reader.read_exact(buf));
     vsl_tag(buf).into_vsl_result()
+}
+
+fn read_record_header<'b, R: Read>(reader: &mut R, buf: &'b mut [u8; 4]) -> Result<VslHeader, VslError<&'b[u8], u32>> {
+    try!(reader.read_exact(buf));
+    vsl_record_header(buf).into_vsl_result()
+}
+
+fn read_record<'b, R: Read>(reader: &mut R, buf: &'b mut Vec<u8>, len: u32) -> Result<VslRecord<'b>, VslError<&'b[u8], u32>> {
+    try!(reader.take(len as u64).read_to_end(buf));
+
+    let len = buf.len();
+    let vsl_record_bytes: Box<Fn(&'b[u8]) -> nom::IResult<&[u8], &[u8]>> =
+        Box::new(closure!(&'b[u8], take!(len)));
+    let bytes = try!(vsl_record_bytes(buf).into_vsl_result());
+    vsl_record(&bytes).into_vsl_result()
 }
 
 fn main() {
@@ -140,5 +187,16 @@ fn main() {
     let mut buf = [0u8; 4];
     let tag = read_data_tag(&mut stdin, &mut buf).expect("Failed to parse data tag");
 
-    println!("Tag: {:?}", tag);
+    println!("Tag: {:?}", &tag);
+    match tag {
+        VslTag::BinaryVsl => {
+            let header = read_record_header(&mut stdin, &mut buf).expect("Invalid header");
+            println!("Header: {:?}", &header);
+
+            let mut buf = Vec::with_capacity(header.len as usize);
+            let record = read_record(&mut stdin, &mut buf, header.len).expect("Invalid record");
+            println!("Record: {:?}", &record);
+
+        }
+    }
 }
