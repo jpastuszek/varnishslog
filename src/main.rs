@@ -152,8 +152,10 @@ fn vsl_record<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
         })
 }
 
-fn vsl_records<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], Vec<VslRecord<'b>>, u32> {
-    many1!(input, vsl_record)
+fn binary_vsl_records<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], Vec<VslRecord<'b>>, u32> {
+    chain!(
+        input, vsl_tag ~ records: many1!(vsl_record),
+        || { records })
 }
 
 #[derive(Debug)]
@@ -205,26 +207,15 @@ impl<I, E> Display for VslError<I, E> where I: Debug, E: Debug {
     }
 }
 
-fn read_data_tag<'b, R: Read>(reader: &mut R, buf: &'b mut [u8; 4]) -> Result<VslTag, VslError<&'b[u8], u32>> {
-    try!(reader.read_exact(buf));
-    vsl_tag(buf).into_vsl_result()
-}
-
 fn main() {
     let stdin = stdin();
     let mut stdin = stdin.lock();
 
-    let mut buf = [0u8; 4];
-    let tag = read_data_tag(&mut stdin, &mut buf).expect("Failed to parse data tag");
+    let mut buf = Vec::new();
+    stdin.read_to_end(&mut buf).unwrap();
 
-    println!("Tag: {:?}", &tag);
-    match tag {
-        VslTag::BinaryVsl => {
-            let mut buf = Vec::new();
-            stdin.read_to_end(&mut buf).unwrap();
-
-            let records = vsl_records(buf.as_slice()).into_vsl_result();
-            println!("Record: {:?}", &records);
-        }
+    let records = binary_vsl_records(buf.as_slice()).into_vsl_result().unwrap();
+    for record in records {
+        println!("{:?}", &record);
     }
 }
