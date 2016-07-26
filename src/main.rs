@@ -85,16 +85,7 @@ const VSL_MARKERMASK: u32 = 0x03;
 const VSL_IDENTOFFSET: u32 = 30;
 const VSL_IDENTMASK: u32 = !(3 << VSL_IDENTOFFSET);
 
-#[derive(Debug)]
-enum VslTag {
-    BinaryVsl
-}
-
-named!(vsl_tag<&[u8], VslTag>, chain!(
-        tag!(b"VSL\0"),
-        || {
-            VslTag::BinaryVsl
-        }));
+named!(binary_vsl_tag<&[u8], &[u8]>, tag!(b"VSL\0"));
 
 #[derive(Debug)]
 struct VslRecordHeader {
@@ -154,7 +145,7 @@ fn vsl_record<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
 
 fn binary_vsl_records<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], Vec<VslRecord<'b>>, u32> {
     chain!(
-        input, vsl_tag ~ records: many1!(vsl_record),
+        input, binary_vsl_tag ~ records: many1!(vsl_record),
         || { records })
 }
 
