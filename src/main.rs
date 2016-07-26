@@ -85,6 +85,17 @@ const VSL_MARKERMASK: u32 = 0x03;
 const VSL_IDENTOFFSET: u32 = 30;
 const VSL_IDENTMASK: u32 = !(3 << VSL_IDENTOFFSET);
 
+// https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
+// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags.h
+// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags_http.h
+/* TODO: generate with build.rs from the header files
+enum VslTag {
+    SLT__Bogus = 0,
+    SLT__Reserved = 254,
+    SLT__Batch = 255
+}
+*/
+
 named!(binary_vsl_tag<&[u8], &[u8]>, tag!(b"VSL\0"));
 
 #[derive(Debug)]
