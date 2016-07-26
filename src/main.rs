@@ -5,6 +5,7 @@ use std::io::stdin;
 use std::io::Read;
 use std::io;
 use std::fmt::{self, Display, Debug};
+use std::ffi::{CStr, FromBytesWithNulError};
 //use std::io::BufRead;
 //use nom::{Producer, Move, Input, Consumer, ConsumerState};
 use nom::{le_u32};
@@ -79,8 +80,8 @@ consumer_from_parser!(VslTagConsumer<()>, vsl_tag);
 const VSL_LENOFFSET: u32 = 24;
 const VSL_LENMASK: u32 = 0xffff;
 const VSL_MARKERMASK: u32 = 0x03;
-const VSL_CLIENTMARKER: u32 = 1 << 30;
-const VSL_BACKENDMARKER: u32 = 1 << 31;
+//const VSL_CLIENTMARKER: u32 = 1 << 30;
+//const VSL_BACKENDMARKER: u32 = 1 << 31;
 const VSL_IDENTOFFSET: u32 = 30;
 const VSL_IDENTMASK: u32 = !(3 << VSL_IDENTOFFSET);
 
@@ -116,25 +117,38 @@ fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeade
         })
 }
 
-#[derive(Debug)]
 struct VslRecord<'b> {
     pub tag: u8,
     pub marker: u8,
     pub ident: u32,
-    pub data: &'b str,
-    pub body: &'b[u8]
+    pub data: &'b[u8],
 }
 
-fn is_zero(i: u8) -> bool {
-    i == 0
+impl<'b> VslRecord<'b> {
+    fn body(&'b self) -> Result<&'b CStr, FromBytesWithNulError> {
+        CStr::from_bytes_with_nul(self.data)
+    }
 }
+
+impl<'b> Debug for VslRecord<'b> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        f.debug_struct("VSL Record")
+            .field("tag", &self.tag)
+            .field("marker", &self.marker)
+            .field("ident", &self.ident)
+            .field("body", &self.body())
+            .finish()
+    }
+}
+
+fn is_zero(i: u8) -> bool { i == 0 }
 
 fn vsl_record<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
     chain!(
         input,
-        header: vsl_record_header ~ body: take!(header.len) ~ take_while!(is_zero),
+        header: vsl_record_header ~ data: take!(header.len) ~ take_while!(is_zero),
         || {
-            VslRecord { tag: header.tag, marker: header.marker, ident: header.ident, data: "foobar", body: body }
+            VslRecord { tag: header.tag, marker: header.marker, ident: header.ident, data: data }
         })
 }
 
@@ -207,7 +221,7 @@ fn main() {
     match tag {
         VslTag::BinaryVsl => {
             let mut buf = Vec::new();
-            stdin.read_to_end(&mut buf);
+            stdin.read_to_end(&mut buf).unwrap();
 
             let records = vsl_records(buf.as_slice()).into_vsl_result();
             println!("Record: {:?}", &records);
