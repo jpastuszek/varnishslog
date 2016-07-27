@@ -217,10 +217,19 @@ trait StreamBuf<O> {
     fn recycle(&mut self);
     fn consume(&mut self, count: usize);
     fn data<'b>(&'b self) -> &'b[O];
-    fn needed<C, CO>(&self, combinator: C) -> Option<usize>
-         where C: Fn(&[O]) -> nom::IResult<&[O], CO>;
-    fn apply<'b, C, CO>(&'b mut  self, combinator: C) -> Result<CO, ()>
-        where O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO>;
+    fn needed<'b, C, CO>(&'b self, combinator: C) -> Option<usize> where
+        O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO>;
+    fn apply<'b, C, CO>(&'b mut  self, combinator: C) -> Result<CO, ()> where
+        O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO>;
+
+    /*
+    fn fill_and_apply<'b, C, CO>(&'b mut  self, combinator: C) -> Result<CO, ()>
+        where O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO> {
+        let needed = self.needed(combinator);
+        self.fill(needed.unwrap()).unwrap();
+        self.apply(combinator)
+    }
+    */
 }
 
 struct ReadStreamBuf<R: Read> {
@@ -288,8 +297,8 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         &self.buf[self.offset.get()..self.buf.len()]
     }
 
-    fn needed<C, CO>(&self, combinator: C) -> Option<usize>
-         where C: Fn(&[u8]) -> nom::IResult<&[u8], CO> {
+    fn needed<'b, C, CO>(&'b self, combinator: C) -> Option<usize> where
+        C: Fn(&'b [u8]) -> nom::IResult<&'b [u8], CO> {
         let result = combinator(self.data());
         if result.is_incomplete() {
             match result.unwrap_inc() {
@@ -300,8 +309,8 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         None
     }
 
-    fn apply<'b, C, CO>(&'b mut self, combinator: C) -> Result<CO, ()>
-        where C: Fn(&'b [u8]) -> nom::IResult<&'b [u8], CO> {
+    fn apply<'b, C, CO>(&'b mut self, combinator: C) -> Result<CO, ()> where
+        C: Fn(&'b [u8]) -> nom::IResult<&'b [u8], CO> {
         // TODO: error handling
         let data = self.data();
         let (left, out) = combinator(data).unwrap();
@@ -352,7 +361,7 @@ fn main() {
 }
 
 #[cfg(test)]
-mod resd_stream_buf_test {
+mod resd_stream_buf_tests {
     use super::StreamBuf;
     use super::ReadStreamBuf;
     use super::nom::IResult;
@@ -454,11 +463,39 @@ mod resd_stream_buf_test {
     #[test]
     fn apply_custom_fuction_with_refs() {
         let mut rsb = subject_with_default_data();
-        fn tag<'i>(input: &'i [u8]) -> IResult<&'i [u8], &[u8]> {
+        fn comb(input: &[u8]) -> IResult<&[u8], &[u8]> {
             tag!(input, [0, 1, 2])
         }
 
         rsb.fill(3).unwrap();
-        assert_eq!(rsb.apply(tag), Ok([0, 1, 2].as_ref()));
+        assert_eq!(rsb.apply(comb), Ok([0, 1, 2].as_ref()));
     }
+
+    #[test]
+    fn needed_with_apply() {
+        let mut rsb = subject_with_default_data();
+
+        fn comb<'a>(input: &'a[u8]) -> IResult<&'a[u8], &'a[u8]> {
+            tag!(input, [0, 1, 2])
+        }
+
+        let needed = rsb.needed(comb);
+        assert_eq!(needed, Some(3));
+
+        rsb.fill(needed.unwrap()).unwrap();
+        assert_eq!(rsb.apply(comb), Ok([0, 1, 2].as_ref()));
+    }
+
+    /*
+    #[test]
+    fn fill_and_apply() {
+        let mut rsb = subject_with_default_data();
+
+        fn comb(input: &[u8]) -> IResult<&[u8], &[u8]> {
+            tag!(input, [0, 1, 2])
+        }
+
+        assert_eq!(rsb.fill_and_apply(comb), Ok([0, 1, 2].as_ref()));
+    }
+    */
 }
