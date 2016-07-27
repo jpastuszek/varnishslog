@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate nom;
 
+use std::cell::Cell;
 use std::io::stdin;
 use std::io::Read;
 use std::io;
@@ -209,6 +210,109 @@ impl<I, E> Display for VslError<I, E> where I: Debug, E: Debug {
     }
 }
 
+const DEFAULT_BUF_SIZE: usize = 8 * 1024;
+
+trait StreamBuf<O> {
+    fn need(&mut self, count: usize) -> Result<(), io::Error>;
+    fn recycle(&mut self);
+    fn consume(&mut self, count: usize);
+    fn data<'b>(&'b self) -> &'b[O];
+    fn apply<C, CO>(&mut self, combinator: C) -> Result<CO, nom::IResult<&[O], CO>> where C: Fn(&[O]) -> nom::IResult<&[O], CO>;
+}
+
+struct ReadStreamBuf<R: Read> {
+    reader: R,
+    buf: Vec<u8>,
+    cap: usize,
+    offset: Cell<usize>,
+}
+
+impl<R: Read> ReadStreamBuf<R> {
+    fn new(reader: R) -> ReadStreamBuf<R> {
+        ReadStreamBuf::with_capacity(reader, DEFAULT_BUF_SIZE)
+    }
+
+    fn with_capacity(reader: R, cap: usize) -> ReadStreamBuf<R> {
+        ReadStreamBuf {
+            reader: reader,
+            buf: Vec::with_capacity(cap),
+            cap: cap,
+            offset: Cell::new(0),
+        }
+    }
+}
+
+impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
+    fn need(&mut self, count: usize) -> Result<(), io::Error> {
+        let len = self.buf.len();
+        let have = len - self.offset.get();
+        let need_more = count - have;
+
+        if have >= count {
+            return Ok(())
+        }
+
+        //TODO: enforce cap
+        self.buf.resize(len + need_more, 0);
+        let result = self.reader.read_exact(&mut self.buf[len..len + need_more]);
+
+        if result.is_err() {
+            self.buf.resize(len, 0);
+        }
+        result
+    }
+
+    fn recycle(&mut self) {
+        if self.offset.get() == 0 {
+            return
+        }
+        self.buf = self.buf.split_off(self.offset.get());
+        self.offset.set(0);
+    }
+
+    fn consume(&mut self, count: usize) {
+        let len = self.buf.len();
+
+        let consume = if self.offset.get() + count > len {
+            len - self.offset.get()
+        } else {
+            count
+        };
+        self.offset.set(self.offset.get() + consume);
+    }
+
+    fn data<'b>(&'b self) -> &'b[u8] {
+        &self.buf[self.offset.get()..self.buf.len()]
+    }
+
+    fn apply<C, CO>(&mut self, combinator: C) -> Result<CO, nom::IResult<&[u8], CO>> where C: Fn(&[u8]) -> nom::IResult<&[u8], CO> {
+        use nom::{IResult, Needed};
+        let need;
+        {
+            let data = self.data();
+            match combinator(data) {
+                IResult::Done(left, out) => {
+                    let consumed = data.len() - left.len();
+                    //Need Cell
+                    self.offset.set(self.offset.get() + consumed);
+                    return Ok(out)
+                },
+                IResult::Incomplete(Needed::Size(needed)) => need = needed,
+                //TODO should I just return it?
+                IResult::Incomplete(Needed::Unknown) => panic!("ReadStreamBuf does not know how much data to reed for stream!"),
+                result => panic!("TODO: can't provide borrow of data here") //return Err(result)
+            }
+        }
+
+        assert!(need > 0, "ReadStreamBuf does not make any progress applying combinator (need(0))");
+        //TODO: how to signal IO errors?
+        self.need(need).unwrap();
+
+        //TODO: use loop
+        self.apply(combinator)
+    }
+}
+
 fn main() {
     let stdin = stdin();
     let mut stdin = stdin.lock();
@@ -220,4 +324,67 @@ fn main() {
     for record in records {
         println!("{:?}", &record);
     }
+}
+
+#[test]
+fn read_strem_buf_reading() {
+    use std::io::Cursor;
+    let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 9];
+    let mut rsb = ReadStreamBuf::new(Cursor::new(data.clone()));
+
+    assert_eq!(rsb.data(), &data[0..0]);
+
+    rsb.need(2).unwrap();
+    assert_eq!(rsb.data(), &data[0..2]);
+
+    rsb.need(3).unwrap();
+    assert_eq!(rsb.data(), &data[0..3]);
+}
+
+#[test]
+fn read_strem_buf_recycle() {
+    use std::io::Cursor;
+    let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 9];
+    let mut rsb = ReadStreamBuf::new(Cursor::new(data.clone()));
+
+    rsb.need(3).unwrap();
+    assert_eq!(rsb.data(), &data[0..3]);
+
+    rsb.recycle();
+    assert_eq!(rsb.data(), &data[0..3]);
+
+    rsb.need(5).unwrap();
+    rsb.need(7).unwrap();
+    assert_eq!(rsb.data(), &data[0..7]);
+}
+
+#[test]
+fn read_strem_buf_consume() {
+    use std::io::Cursor;
+    let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 9];
+    let mut rsb = ReadStreamBuf::new(Cursor::new(data.clone()));
+
+    rsb.need(5).unwrap();
+    assert_eq!(rsb.data(), &data[0..5]);
+
+    rsb.consume(2);
+    assert_eq!(rsb.data(), &data[2..5]);
+
+    rsb.need(7).unwrap();
+    assert_eq!(rsb.data(), &data[2..9]);
+}
+
+#[test]
+fn read_strem_buf_apply() {
+    use std::io::Cursor;
+    use nom::be_u8;
+    let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 9];
+    let mut rsb = ReadStreamBuf::new(Cursor::new(data.clone()));
+
+    assert_eq!(rsb.apply(be_u8), Ok(0));
+    assert_eq!(rsb.apply(be_u8), Ok(1));
+    assert_eq!(rsb.apply(be_u8), Ok(2));
+
+    //let tag = closure!(tag!(b"345"));
+    //assert_eq!(rsb.apply(tag), Ok(b"345"));
 }
