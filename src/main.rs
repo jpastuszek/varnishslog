@@ -213,11 +213,14 @@ impl<I, E> Display for VslError<I, E> where I: Debug, E: Debug {
 const DEFAULT_BUF_SIZE: usize = 8 * 1024;
 
 trait StreamBuf<O> {
-    fn need(&mut self, count: usize) -> Result<(), io::Error>;
+    fn fill(&mut self, count: usize) -> Result<(), io::Error>;
     fn recycle(&mut self);
     fn consume(&mut self, count: usize);
     fn data<'b>(&'b self) -> &'b[O];
-    fn apply<C, CO>(&mut self, combinator: C) -> Result<CO, nom::IResult<&[O], CO>> where C: Fn(&[O]) -> nom::IResult<&[O], CO>;
+    fn needed<C, CO>(&self, combinator: C) -> Option<usize>
+         where C: Fn(&[O]) -> nom::IResult<&[O], CO>;
+    fn apply<'b, C, CO>(&'b mut  self, combinator: C) -> Result<CO, ()>
+        where O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO>;
 }
 
 struct ReadStreamBuf<R: Read> {
@@ -243,7 +246,7 @@ impl<R: Read> ReadStreamBuf<R> {
 }
 
 impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
-    fn need(&mut self, count: usize) -> Result<(), io::Error> {
+    fn fill(&mut self, count: usize) -> Result<(), io::Error> {
         let len = self.buf.len();
         let have = len - self.offset.get();
         let need_more = count - have;
@@ -285,10 +288,31 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         &self.buf[self.offset.get()..self.buf.len()]
     }
 
-    fn apply<C, CO>(&mut self, combinator: C) -> Result<CO, nom::IResult<&[u8], CO>> where C: Fn(&[u8]) -> nom::IResult<&[u8], CO> {
-        use nom::{IResult, Needed};
+    fn needed<C, CO>(&self, combinator: C) -> Option<usize>
+         where C: Fn(&[u8]) -> nom::IResult<&[u8], CO> {
+        let result = combinator(self.data());
+        if result.is_incomplete() {
+            match result.unwrap_inc() {
+                nom::Needed::Size(needed) => return Some(needed),
+                nom::Needed::Unknown => panic!("ReadStreamBuf does not know how much data to read for stream!"),
+            }
+        }
+        None
+    }
+
+    fn apply<'b, C, CO>(&'b mut self, combinator: C) -> Result<CO, ()>
+        where C: Fn(&'b [u8]) -> nom::IResult<&'b [u8], CO> {
+        // TODO: error handling
+        let data = self.data();
+        let (left, out) = combinator(data).unwrap();
+        let consumed = data.len() - left.len();
+        // Need Cell to modify offset after parsing is done
+        self.offset.set(self.offset.get() + consumed);
+        return Ok(out)
+        /*
         let need;
         {
+            use nom::{IResult, Needed};
             let data = self.data();
             match combinator(data) {
                 IResult::Done(left, out) => {
@@ -306,10 +330,11 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
 
         assert!(need > 0, "ReadStreamBuf does not make any progress applying combinator (need(0))");
         //TODO: how to signal IO errors?
-        self.need(need).unwrap();
+        self.fill(need).unwrap();
 
         //TODO: use loop
         self.apply(combinator)
+        */
     }
 }
 
@@ -326,65 +351,114 @@ fn main() {
     }
 }
 
-#[test]
-fn read_strem_buf_reading() {
+#[cfg(test)]
+mod resd_stream_buf_test {
+    use super::StreamBuf;
+    use super::ReadStreamBuf;
+    use super::nom::IResult;
     use std::io::Cursor;
-    let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 9];
-    let mut rsb = ReadStreamBuf::new(Cursor::new(data.clone()));
 
-    assert_eq!(rsb.data(), &data[0..0]);
+    fn subject(data: Vec<u8>) -> ReadStreamBuf<Cursor<Vec<u8>>> {
+        ReadStreamBuf::new(Cursor::new(data))
+    }
 
-    rsb.need(2).unwrap();
-    assert_eq!(rsb.data(), &data[0..2]);
+    fn subject_with_default_data() -> ReadStreamBuf<Cursor<Vec<u8>>> {
+        subject(vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    }
 
-    rsb.need(3).unwrap();
-    assert_eq!(rsb.data(), &data[0..3]);
-}
+    #[test]
+    fn reading() {
+        let mut rsb = subject_with_default_data();
+        assert_eq!(rsb.data(), [].as_ref());
 
-#[test]
-fn read_strem_buf_recycle() {
-    use std::io::Cursor;
-    let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 9];
-    let mut rsb = ReadStreamBuf::new(Cursor::new(data.clone()));
+        rsb.fill(2).unwrap();
+        assert_eq!(rsb.data(), [0, 1].as_ref());
 
-    rsb.need(3).unwrap();
-    assert_eq!(rsb.data(), &data[0..3]);
+        rsb.fill(3).unwrap();
+        assert_eq!(rsb.data(), [0, 1, 2].as_ref());
+    }
 
-    rsb.recycle();
-    assert_eq!(rsb.data(), &data[0..3]);
+    #[test]
+    fn recycle() {
+        let mut rsb = subject_with_default_data();
 
-    rsb.need(5).unwrap();
-    rsb.need(7).unwrap();
-    assert_eq!(rsb.data(), &data[0..7]);
-}
+        rsb.fill(3).unwrap();
+        assert_eq!(rsb.data(), [0, 1, 2].as_ref());
 
-#[test]
-fn read_strem_buf_consume() {
-    use std::io::Cursor;
-    let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 9];
-    let mut rsb = ReadStreamBuf::new(Cursor::new(data.clone()));
+        rsb.recycle();
+        assert_eq!(rsb.data(), [0, 1, 2].as_ref());
 
-    rsb.need(5).unwrap();
-    assert_eq!(rsb.data(), &data[0..5]);
+        rsb.fill(5).unwrap();
+        rsb.fill(7).unwrap();
+        assert_eq!(rsb.data(), [0, 1, 2, 3, 4, 5, 6].as_ref());
+    }
 
-    rsb.consume(2);
-    assert_eq!(rsb.data(), &data[2..5]);
+    #[test]
+    fn consume() {
+        let mut rsb = subject_with_default_data();
 
-    rsb.need(7).unwrap();
-    assert_eq!(rsb.data(), &data[2..9]);
-}
+        rsb.fill(5).unwrap();
+        assert_eq!(rsb.data(), [0, 1, 2, 3, 4].as_ref());
 
-#[test]
-fn read_strem_buf_apply() {
-    use std::io::Cursor;
-    use nom::be_u8;
-    let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 9];
-    let mut rsb = ReadStreamBuf::new(Cursor::new(data.clone()));
+        rsb.consume(2);
+        assert_eq!(rsb.data(), [2, 3, 4].as_ref());
+    }
 
-    assert_eq!(rsb.apply(be_u8), Ok(0));
-    assert_eq!(rsb.apply(be_u8), Ok(1));
-    assert_eq!(rsb.apply(be_u8), Ok(2));
+    #[test]
+    fn consume_more_than_we_have() {
+        let mut rsb = subject_with_default_data();
 
-    //let tag = closure!(tag!(b"345"));
-    //assert_eq!(rsb.apply(tag), Ok(b"345"));
+        // We don't consume more than we have already in the buffor
+        rsb.fill(2).unwrap();
+        rsb.consume(3);
+        rsb.fill(2).unwrap();
+        assert_eq!(rsb.data(), [2, 3].as_ref());
+    }
+
+    #[test]
+    fn apply_function() {
+        use nom::be_u8;
+        let mut rsb = subject_with_default_data();
+
+        rsb.fill(1).unwrap();
+        assert_eq!(rsb.apply(be_u8), Ok(0));
+    }
+
+    #[test]
+    fn apply_should_consume() {
+        use nom::be_u8;
+        let mut rsb = subject_with_default_data();
+
+        rsb.fill(1).unwrap();
+        assert_eq!(rsb.apply(be_u8), Ok(0));
+        rsb.fill(1).unwrap();
+        assert_eq!(rsb.apply(be_u8), Ok(1));
+    }
+
+    #[test]
+    fn apply_converted_macro() {
+        let mut rsb = subject_with_default_data();
+
+        rsb.fill(2).unwrap();
+        assert_eq!(rsb.apply(closure!(tag!([0, 1]))), Ok([0, 1].as_ref()));
+    }
+
+    #[test]
+    fn apply_closure() {
+        let mut rsb = subject_with_default_data();
+
+        rsb.fill(2).unwrap();
+        assert_eq!(rsb.apply(|i| tag!(i, [0, 1])), Ok([0, 1].as_ref()));
+    }
+
+    #[test]
+    fn apply_custom_fuction_with_refs() {
+        let mut rsb = subject_with_default_data();
+        fn tag<'i>(input: &'i [u8]) -> IResult<&'i [u8], &[u8]> {
+            tag!(input, [0, 1, 2])
+        }
+
+        rsb.fill(3).unwrap();
+        assert_eq!(rsb.apply(tag), Ok([0, 1, 2].as_ref()));
+    }
 }
