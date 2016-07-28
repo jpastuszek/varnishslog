@@ -1,9 +1,8 @@
 #[macro_use]
 extern crate nom;
 
+use std::fmt::{self, Debug};
 use std::io::stdin;
-use std::io;
-use std::fmt::{self, Display, Debug};
 use std::ffi::{CStr, FromBytesWithNulError};
 //use std::io::BufRead;
 //use nom::{Producer, Move, Input, Consumer, ConsumerState};
@@ -157,60 +156,13 @@ fn vsl_record<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
         })
 }
 
+/*
 fn binary_vsl_records<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], Vec<VslRecord<'b>>, u32> {
     chain!(
         input, binary_vsl_tag ~ records: many1!(vsl_record),
         || { records })
 }
-
-#[derive(Debug)]
-enum VslError<I, E> {
-    IO(io::Error),
-    NomErr(nom::Err<I, E>),
-    NomNeeded(nom::Needed)
-}
-
-impl<I, E> From<io::Error> for VslError<I, E> {
-    fn from(e: io::Error) -> VslError<I, E> {
-        VslError::IO(e)
-    }
-}
-
-impl<I, E> From<nom::Err<I, E>> for VslError<I, E> {
-    fn from(e: nom::Err<I, E>) -> VslError<I, E> {
-        VslError::NomErr(e)
-    }
-}
-
-impl<I, E> From<nom::Needed> for VslError<I, E> {
-    fn from(e: nom::Needed) -> VslError<I, E> {
-        VslError::NomNeeded(e)
-    }
-}
-
-trait ToVslResult<I, O, E> {
-    fn into_vsl_result(self) -> Result<O, VslError<I, E>>;
-}
-
-impl<I, O, E> ToVslResult<I, O, E> for nom::IResult<I, O, E> {
-    fn into_vsl_result(self) -> Result<O, VslError<I, E>> {
-        match self {
-            nom::IResult::Done(_, out) => Ok(out),
-            nom::IResult::Error(e) => Err(From::from(e)),
-            nom::IResult::Incomplete(n) => Err(From::from(n)),
-        }
-    }
-}
-
-impl<I, E> Display for VslError<I, E> where I: Debug, E: Debug {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &VslError::IO(ref e) => write!(f, "Failed to read VSL data: {}", e),
-            &VslError::NomErr(ref e) => write!(f, "Failed to parse VSL data: {}", e),
-            &VslError::NomNeeded(ref e) => write!(f, "Not enought data to parse VSL: {:?}", e),
-        }
-    }
-}
+*/
 
 fn main() {
     let stdin = stdin();
