@@ -84,26 +84,35 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
     fn fill(&mut self, min_bytes: usize) -> Result<(), io::Error> {
         let len = self.buf.len();
         let have = len - self.offset.get();
-        let needed = min_bytes - have;
 
         if have >= min_bytes {
             return Ok(())
         }
 
+        let needed = min_bytes - have;
+
         //TODO: enforce cap
-        self.buf.resize(len + needed, 0);
+        self.buf.resize(self.cap, 0);
         //trace!("fill needed: {}", needed);
         //trace!("buf write: {}..{} ({}); have: {} will have: {}", len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
-        let result = self.reader.read_exact(&mut self.buf[len..len + needed]);
-
-        if result.is_err() {
+        if let Err(err) = self.reader.read_exact(&mut self.buf[len..len + needed]) {
             self.buf.resize(len, 0);
+            return Err(err);
+        }
+
+        // Try to read to the end of the buffer if we can
+        match self.reader.read(&mut self.buf[len + needed..self.cap]) {
+            Err(err) => {
+                self.buf.resize(len + needed, 0);
+                return Err(err)
+            },
+            Ok(bytes_read) => {
+                self.buf.resize(len + needed + bytes_read, 0);
+            }
         }
 
         //trace!("buf have: {:?}", self.data());
-
-        //TODO: Try to read all that we have non-blocking in case we have more
-        result
+        Ok(())
     }
 
     fn recycle(&mut self) {
@@ -177,48 +186,38 @@ mod resd_stream_buf_tests {
         let mut rsb = subject_with_default_data();
         assert_eq!(rsb.data(), [].as_ref());
 
-        rsb.fill(2).unwrap();
-        assert_eq!(rsb.data(), [0, 1].as_ref());
-
+        // fill reads as much as it can non-blocking
+        // TODO: how to test blocking streaming?
         rsb.fill(3).unwrap();
-        assert_eq!(rsb.data(), [0, 1, 2].as_ref());
+        assert_eq!(rsb.data(), [0, 1, 2, 3, 4, 5, 6, 7, 8 ,9].as_ref());
     }
 
     #[test]
     fn recycle() {
         let mut rsb = subject_with_default_data();
 
-        rsb.fill(3).unwrap();
-        assert_eq!(rsb.data(), [0, 1, 2].as_ref());
-
+        //TODO: this test does nothing...
+        rsb.fill(10).unwrap();
         rsb.recycle();
-        assert_eq!(rsb.data(), [0, 1, 2].as_ref());
-
-        rsb.fill(5).unwrap();
-        rsb.fill(7).unwrap();
-        assert_eq!(rsb.data(), [0, 1, 2, 3, 4, 5, 6].as_ref());
+        assert_eq!(rsb.data(), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].as_ref());
     }
 
     #[test]
     fn consume() {
         let mut rsb = subject_with_default_data();
 
-        rsb.fill(5).unwrap();
-        assert_eq!(rsb.data(), [0, 1, 2, 3, 4].as_ref());
-
-        rsb.consume(2);
-        assert_eq!(rsb.data(), [2, 3, 4].as_ref());
+        rsb.fill(10).unwrap();
+        rsb.consume(8);
+        assert_eq!(rsb.data(), [8, 9].as_ref());
     }
 
     #[test]
     fn consume_more_than_we_have() {
         let mut rsb = subject_with_default_data();
 
-        // We don't consume more than we have already in the buffor
-        rsb.fill(2).unwrap();
         rsb.consume(3);
-        rsb.fill(2).unwrap();
-        assert_eq!(rsb.data(), [2, 3].as_ref());
+        rsb.fill(10).unwrap();
+        assert_eq!(rsb.data(), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].as_ref());
     }
 
     #[test]
@@ -296,9 +295,9 @@ mod resd_stream_buf_tests {
             tag!(input, [0, 1, 2])
         }
 
-        assert_eq!(rsb.fill_apply(comb).unwrap(), None);
+        //assert_eq!(rsb.fill_apply(comb).unwrap(), None);
         assert_eq!(rsb.fill_apply(comb).unwrap(), Some([0, 1, 2].as_ref()));
-        assert_eq!(rsb.fill_apply(be_u8).unwrap(), None);
+        //assert_eq!(rsb.fill_apply(be_u8).unwrap(), None);
         assert_eq!(rsb.fill_apply(be_u8).unwrap(), Some(3));
     }
 }
