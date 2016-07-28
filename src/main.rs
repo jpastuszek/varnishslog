@@ -10,7 +10,7 @@ use nom::{le_u32};
 
 #[macro_use]
 mod stream_buf;
-use stream_buf::ReadStreamBuf;
+use stream_buf::{StreamBuf, ReadStreamBuf};
 
 /*
 pub struct BufReadProducer<R: Read + BufRead> {
@@ -145,12 +145,10 @@ impl<'b> Debug for VslRecord<'b> {
     }
 }
 
-fn is_zero(i: u8) -> bool { i == 0 }
-
 fn vsl_record<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
     chain!(
         input,
-        header: vsl_record_header ~ data: take!(header.len) ~ take_while!(is_zero),
+        header: vsl_record_header ~ data: take!(header.len) ~ take!((4 - header.len % 4) % 4),
         || {
             VslRecord { tag: header.tag, marker: header.marker, ident: header.ident, data: data }
         })
@@ -169,10 +167,10 @@ fn main() {
     let stdin = stdin.lock();
     let mut rfb = ReadStreamBuf::new(stdin);
 
-    apply_stream!(rfb, binary_vsl_tag).expect("binary stream");
+    while let None = rfb.fill_apply(binary_vsl_tag).expect("binary stream") {}
 
     loop {
-        let record = apply_stream!(rfb, vsl_record).unwrap();
+        let record = rfb.fill_apply(vsl_record).unwrap();
         println!("{:?}", record);
     }
 }

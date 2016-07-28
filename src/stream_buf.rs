@@ -11,11 +11,28 @@ pub trait StreamBuf<O> {
     fn recycle(&mut self);
     fn consume(&mut self, count: usize);
     fn data<'b>(&'b self) -> &'b[O];
-    //fn needed<'b, C, CO, E>(&'b self, combinator: C) -> Option<usize> where
-     //   O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO, E>;
-    fn needed_more(&self) -> Option<nom::Needed>;
+    fn needed(&self) -> Option<nom::Needed>;
     fn apply<'b, C, CO, E>(&'b self, combinator: C) -> Result<CO, ApplyError<&'b [O], E>> where
         O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO, E>;
+
+    fn fill_apply<'b, C, CO, E>(&'b mut self, combinator: C) -> Result<Option<CO>, nom::Err<&'b [O], E>> where
+        C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO, E> {
+        use stream_buf::ApplyError;
+        use nom::{Needed};
+
+        //TODO: io::Error
+        match self.needed() {
+            Some(Needed::Size(bytes)) => self.fill(bytes).expect("IO Error"),
+            Some(Needed::Unknown) => self.fill(1).expect("IO Error"),
+            None => ()
+        }
+
+        match self.apply(combinator) {
+            Ok(out) => Ok(Some(out)),
+            Err(ApplyError::Parser(err)) => Err(err),
+            Err(ApplyError::TryAgain) => Ok(None),
+        }
+    }
 }
 
 // Note: Need to use macro as this cannot be represented in the type system.
@@ -28,7 +45,7 @@ macro_rules! apply_stream (
         use nom::{Needed};
 
         //TODO: io::Error
-        match $sb.needed_more() {
+        match $sb.needed() {
             Some(Needed::Size(bytes)) => $sb.fill(bytes).expect("IO Error"),
             Some(Needed::Unknown) => $sb.fill(1).expect("IO Error"),
             None => ()
@@ -41,6 +58,29 @@ macro_rules! apply_stream (
         }
     })
 );
+
+/*
+#[macro_export]
+macro_rules! fill_and_apply_stream (
+    ($sb:expr, $comb:expr) => ({
+        let result;
+        loop {
+            match apply_stream!($sb, $comb) {
+                Ok(Some(out)) => {
+                    result = out;
+                    break
+                }
+                Err(err) => {
+                    //result = Err(err);
+                    //break
+                }
+                _ => ()
+            }
+        }
+        result
+    })
+);
+*/
 
 #[derive(Debug)]
 pub enum ApplyError<I, E> {
@@ -98,9 +138,10 @@ impl<I, E> Display for ApplyError<I, E> where I: Debug, E: Debug {
 
 pub struct ReadStreamBuf<R: Read> {
     reader: R,
+    //TODO: alignment?
     buf: Vec<u8>,
     cap: usize,
-    needed_more: Cell<Option<nom::Needed>>,
+    needed: Cell<Option<nom::Needed>>,
     offset: Cell<usize>,
 }
 
@@ -114,7 +155,7 @@ impl<R: Read> ReadStreamBuf<R> {
             reader: reader,
             buf: Vec::with_capacity(cap),
             cap: cap,
-            needed_more: Cell::new(Some(nom::Needed::Unknown)),
+            needed: Cell::new(Some(nom::Needed::Unknown)),
             offset: Cell::new(0),
         }
     }
@@ -124,19 +165,23 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
     fn fill(&mut self, min_bytes: usize) -> Result<(), io::Error> {
         let len = self.buf.len();
         let have = len - self.offset.get();
-        let needed_more = min_bytes - have;
+        let needed = min_bytes - have;
 
         if have >= min_bytes {
             return Ok(())
         }
 
         //TODO: enforce cap
-        self.buf.resize(len + needed_more, 0);
-        let result = self.reader.read_exact(&mut self.buf[len..len + needed_more]);
+        self.buf.resize(len + needed, 0);
+        //println!("fill needed: {}", needed);
+        //println!("buf write: {}..{} ({}); have: {} will have: {}", len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
+        let result = self.reader.read_exact(&mut self.buf[len..len + needed]);
 
         if result.is_err() {
             self.buf.resize(len, 0);
         }
+
+        //println!("buf have: {:?}", self.data());
 
         //TODO: Try to read all that we have non-blocking in case we have more
         result
@@ -165,41 +210,29 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         &self.buf[self.offset.get()..self.buf.len()]
     }
 
-    /*
-    fn needed<'b, C, CO, E>(&'b self, combinator: C) -> Option<usize> where
-        C: Fn(&'b [u8]) -> nom::IResult<&'b [u8], CO, E> {
-        let result = combinator(self.data());
-        if result.is_incomplete() {
-            match result.unwrap_inc() {
-                nom::Needed::Size(needed) => return Some(needed),
-                nom::Needed::Unknown => panic!("ReadStreamBuf does not know how much data to read for stream!"),
-            }
-        }
-        None
-    }
-    */
-
-    fn needed_more(&self) -> Option<nom::Needed> {
-        self.needed_more.get().clone()
+    fn needed(&self) -> Option<nom::Needed> {
+        self.needed.get().clone()
     }
 
     fn apply<'b, C, CO, E>(&'b self, combinator: C) -> Result<CO, ApplyError<&'b [u8], E>> where
         C: Fn(&'b [u8]) -> nom::IResult<&'b [u8], CO, E> {
         let data = self.data();
         let (left, out) = match combinator(data) {
-            nom::IResult::Done(left, out) => {
-                self.needed_more.set(None);
-                (left, out)
-            },
+            nom::IResult::Done(left, out) => (left, out),
             nom::IResult::Error(err) => return Err(ApplyError::Parser(err)),
             nom::IResult::Incomplete(needed) => {
-                self.needed_more.set(Some(needed));
+                //println!("incomplete: needed: {:?}", needed);
+                self.needed.set(Some(needed));
                 return Err(ApplyError::TryAgain)
             }
         };
         let consumed = data.len() - left.len();
+        //println!("done: consumed: {}", consumed);
         // Need Cell to modify offset after parsing is done
         self.offset.set(self.offset.get() + consumed);
+
+        // We don't know how much we will need now
+        self.needed.set(None);
         return Ok(out)
     }
 }
@@ -328,7 +361,7 @@ mod resd_stream_buf_tests {
             assert!(false) //TODO: fix
         }
 
-        let needed = rsb.needed_more();
+        let needed = rsb.needed();
         assert_eq!(needed, Some(Needed::Size(3)));
 
         if let Some(Needed::Size(bytes)) = needed {
@@ -338,7 +371,7 @@ mod resd_stream_buf_tests {
     }
 
     #[test]
-    fn fill_and_apply() {
+    fn apply_stream() {
         use nom::be_u8;
         let mut rsb = subject_with_default_data();
 
@@ -346,9 +379,31 @@ mod resd_stream_buf_tests {
             tag!(input, [0, 1, 2])
         }
 
+        /*
         assert_eq!(apply_stream!(rsb, comb), Ok(None));
         assert_eq!(apply_stream!(rsb, comb), Ok(Some([0, 1, 2].as_ref())));
         assert_eq!(apply_stream!(rsb, be_u8), Ok(None));
         assert_eq!(apply_stream!(rsb, be_u8), Ok(Some(3)));
+        */
+
+        assert_eq!(rsb.fill_apply(comb), Ok(None));
+        assert_eq!(rsb.fill_apply(comb), Ok(Some([0, 1, 2].as_ref())));
+        assert_eq!(rsb.fill_apply(be_u8), Ok(None));
+        assert_eq!(rsb.fill_apply(be_u8), Ok(Some(3)));
     }
+
+    /*
+    #[test]
+    fn fill_and_apply_stream() {
+        use nom::be_u8;
+        let mut rsb = subject_with_default_data();
+
+        fn comb(input: &[u8]) -> IResult<&[u8], &[u8]> {
+            tag!(input, [0, 1, 2])
+        }
+        fill_and_apply_stream!(rsb, comb);
+        //assert_eq!(fill_and_apply_stream!(rsb, comb), Ok(Some([0, 1, 2].as_ref())));
+        //assert_eq!(fill_and_apply_stream!(rsb, be_u8), Ok(Some(3)));
+    }
+    */
 }
