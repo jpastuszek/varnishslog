@@ -12,126 +12,45 @@ pub trait StreamBuf<O> {
     fn consume(&mut self, count: usize);
     fn data<'b>(&'b self) -> &'b[O];
     fn needed(&self) -> Option<nom::Needed>;
-    fn apply<'b, C, CO, E>(&'b self, combinator: C) -> Result<CO, ApplyError<&'b [O], E>> where
+    fn apply<'b, C, CO, E>(&'b self, combinator: C) -> Result<Option<CO>, nom::Err<&'b [O], E>> where
         O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO, E>;
 
-    fn fill_apply<'b, C, CO, E>(&'b mut self, combinator: C) -> Result<Option<CO>, nom::Err<&'b [O], E>> where
+    fn fill_apply<'b, C, CO, E>(&'b mut self, combinator: C) -> Result<Option<CO>, FillApplyError<&'b [O], E>> where
         C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO, E> {
-        use stream_buf::ApplyError;
-        use nom::{Needed};
 
-        //TODO: io::Error
         match self.needed() {
-            Some(Needed::Size(bytes)) => self.fill(bytes).expect("IO Error"),
-            Some(Needed::Unknown) => self.fill(1).expect("IO Error"),
+            Some(nom::Needed::Size(bytes)) => try!(self.fill(bytes)),
+            Some(nom::Needed::Unknown) => try!(self.fill(1)),
             None => ()
         }
 
-        match self.apply(combinator) {
-            Ok(out) => Ok(Some(out)),
-            Err(ApplyError::Parser(err)) => Err(err),
-            Err(ApplyError::TryAgain) => Ok(None),
-        }
+        Ok(try!(self.apply(combinator)))
     }
 }
-
-// Note: Need to use macro as this cannot be represented in the type system.
-//       It would require generic combinator outpt parameter to have for<'r> life time
-// TODO: Makie it smarter and able to handle errors and unknown amount of needed data
-#[macro_export]
-macro_rules! apply_stream (
-    ($sb:expr, $comb:expr) => ({
-        use stream_buf::{StreamBuf, ApplyError};
-        use nom::{Needed};
-
-        //TODO: io::Error
-        match $sb.needed() {
-            Some(Needed::Size(bytes)) => $sb.fill(bytes).expect("IO Error"),
-            Some(Needed::Unknown) => $sb.fill(1).expect("IO Error"),
-            None => ()
-        }
-
-        match $sb.apply($comb) {
-            Ok(out) => Ok(Some(out)),
-            Err(ApplyError::Parser(err)) => Err(err),
-            Err(ApplyError::TryAgain) => Ok(None),
-        }
-    })
-);
-
-/*
-#[macro_export]
-macro_rules! fill_and_apply_stream (
-    ($sb:expr, $comb:expr) => ({
-        let result;
-        loop {
-            match apply_stream!($sb, $comb) {
-                Ok(Some(out)) => {
-                    result = out;
-                    break
-                }
-                Err(err) => {
-                    //result = Err(err);
-                    //break
-                }
-                _ => ()
-            }
-        }
-        result
-    })
-);
-*/
 
 #[derive(Debug)]
-pub enum ApplyError<I, E> {
-    //Io(io::Error),
+pub enum FillApplyError<I, E> {
+    Io(io::Error),
     Parser(nom::Err<I, E>),
-    TryAgain
 }
 
-/*
-impl<I, E> From<io::Error> for ApplyError<I, E> {
-    fn from(e: io::Error) -> ApplyError<I, E> {
-        ApplyError::Io(e)
-    }
-}
-*/
-/*
-impl<I, E> From<nom::Err<I, E>> for ApplyError<I, E> {
-    fn from(e: nom::Err<I, E>) -> ApplyError<I, E> {
-        ApplyError::Parser(e)
+impl<I, E> From<io::Error> for FillApplyError<I, E> {
+    fn from(e: io::Error) -> FillApplyError<I, E> {
+        FillApplyError::Io(e)
     }
 }
 
-impl<I, E> From<nom::Needed> for ApplyError<I, E> {
-    fn from(e: nom::Needed) -> ApplyError<I, E> {
-        ApplyError::NeedMore(e)
+impl<I, E> From<nom::Err<I, E>> for FillApplyError<I, E> {
+    fn from(e: nom::Err<I, E>) -> FillApplyError<I, E> {
+        FillApplyError::Parser(e)
     }
 }
-*/
-/*
-trait ToApplyError<I, O, E> {
-    fn into_vsl_result(self) -> Result<O, ApplyError<I, E>>;
-}
 
-impl<I, O, E> ToApplyError<I, O, E> for nom::IResult<I, O, E> {
-    fn into_vsl_result(self) -> Result<O, ApplyError<I, E>> {
-        match self {
-            nom::IResult::Done(_, out) => Ok(out),
-            nom::IResult::Error(e) => Err(From::from(e)),
-            nom::IResult::Incomplete(n) => Err(From::from(n)),
-        }
-    }
-}
-*/
-
-impl<I, E> Display for ApplyError<I, E> where I: Debug, E: Debug {
+impl<I, E> Display for FillApplyError<I, E> where I: Debug, E: Debug {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            //&ApplyError::Io(ref e) => write!(f, "Failed to read VSL data: {}", e),
-            &ApplyError::Parser(ref e) => write!(f, "Failed to parse data: {}", e),
-            //&ApplyError::NeedMore(ref e) => write!(f, "Not enought data to finish parsing: {:?}", e),
-            &ApplyError::TryAgain => write!(f, "Not enought data to finish parsing - try again later"),
+            &FillApplyError::Io(ref e) => write!(f, "Failed to read data (IO error): {}", e),
+            &FillApplyError::Parser(ref e) => write!(f, "Failed to parse data (parser error): {}", e),
         }
     }
 }
@@ -173,15 +92,15 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
 
         //TODO: enforce cap
         self.buf.resize(len + needed, 0);
-        //println!("fill needed: {}", needed);
-        //println!("buf write: {}..{} ({}); have: {} will have: {}", len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
+        //trace!("fill needed: {}", needed);
+        //trace!("buf write: {}..{} ({}); have: {} will have: {}", len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
         let result = self.reader.read_exact(&mut self.buf[len..len + needed]);
 
         if result.is_err() {
             self.buf.resize(len, 0);
         }
 
-        //println!("buf have: {:?}", self.data());
+        //trace!("buf have: {:?}", self.data());
 
         //TODO: Try to read all that we have non-blocking in case we have more
         result
@@ -214,32 +133,33 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         self.needed.get().clone()
     }
 
-    fn apply<'b, C, CO, E>(&'b self, combinator: C) -> Result<CO, ApplyError<&'b [u8], E>> where
+    fn apply<'b, C, CO, E>(&'b self, combinator: C) -> Result<Option<CO>, nom::Err<&'b [u8], E>> where
         C: Fn(&'b [u8]) -> nom::IResult<&'b [u8], CO, E> {
         let data = self.data();
-        let (left, out) = match combinator(data) {
-            nom::IResult::Done(left, out) => (left, out),
-            nom::IResult::Error(err) => return Err(ApplyError::Parser(err)),
-            nom::IResult::Incomplete(needed) => {
-                //println!("incomplete: needed: {:?}", needed);
-                self.needed.set(Some(needed));
-                return Err(ApplyError::TryAgain)
-            }
-        };
-        let consumed = data.len() - left.len();
-        //println!("done: consumed: {}", consumed);
-        // Need Cell to modify offset after parsing is done
-        self.offset.set(self.offset.get() + consumed);
+        match combinator(data) {
+            nom::IResult::Done(left, out) => {
+                let consumed = data.len() - left.len();
+                //trace!("done: consumed: {}", consumed);
 
-        // We don't know how much we will need now
-        self.needed.set(None);
-        return Ok(out)
+                // Move the offset
+                self.offset.set(self.offset.get() + consumed);
+                // We don't know how much we will need now
+                self.needed.set(None);
+                Ok(Some(out))
+            },
+            nom::IResult::Error(err) => Err(err),
+            nom::IResult::Incomplete(needed) => {
+                //trace!("incomplete: needed: {:?}", needed);
+                self.needed.set(Some(needed));
+                Ok(None)
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod resd_stream_buf_tests {
-    use super::{StreamBuf, ApplyError};
+    use super::StreamBuf;
     use super::ReadStreamBuf;
     use nom::{IResult, Needed};
     use std::io::Cursor;
@@ -307,7 +227,7 @@ mod resd_stream_buf_tests {
         let mut rsb = subject_with_default_data();
 
         rsb.fill(1).unwrap();
-        assert_eq!(rsb.apply(be_u8).unwrap(), 0);
+        assert_eq!(rsb.apply(be_u8).unwrap(), Some(0));
     }
 
     #[test]
@@ -316,9 +236,9 @@ mod resd_stream_buf_tests {
         let mut rsb = subject_with_default_data();
 
         rsb.fill(1).unwrap();
-        assert_eq!(rsb.apply(be_u8).unwrap(), 0);
+        assert_eq!(rsb.apply(be_u8).unwrap(), Some(0));
         rsb.fill(1).unwrap();
-        assert_eq!(rsb.apply(be_u8).unwrap(), 1);
+        assert_eq!(rsb.apply(be_u8).unwrap(), Some(1));
     }
 
     #[test]
@@ -326,7 +246,7 @@ mod resd_stream_buf_tests {
         let mut rsb = subject_with_default_data();
 
         rsb.fill(2).unwrap();
-        assert_eq!(rsb.apply(closure!(tag!([0, 1]))).unwrap(), [0, 1].as_ref());
+        assert_eq!(rsb.apply(closure!(tag!([0, 1]))).unwrap(), Some([0, 1].as_ref()));
     }
 
     #[test]
@@ -334,7 +254,7 @@ mod resd_stream_buf_tests {
         let mut rsb = subject_with_default_data();
 
         rsb.fill(2).unwrap();
-        assert_eq!(rsb.apply(|i| tag!(i, [0, 1])).unwrap(), [0, 1].as_ref());
+        assert_eq!(rsb.apply(|i| tag!(i, [0, 1])).unwrap(), Some([0, 1].as_ref()));
     }
 
     #[test]
@@ -345,7 +265,7 @@ mod resd_stream_buf_tests {
         }
 
         rsb.fill(3).unwrap();
-        assert_eq!(rsb.apply(comb).unwrap(), [0, 1, 2].as_ref());
+        assert_eq!(rsb.apply(comb).unwrap(), Some([0, 1, 2].as_ref()));
     }
 
     #[test]
@@ -356,22 +276,19 @@ mod resd_stream_buf_tests {
             tag!(input, [0, 1, 2])
         }
 
-        if let ApplyError::TryAgain = rsb.apply(comb).unwrap_err() {
-        } else {
-            assert!(false) //TODO: fix
-        }
+        assert!(rsb.apply(comb).unwrap().is_none());
 
-        let needed = rsb.needed();
-        assert_eq!(needed, Some(Needed::Size(3)));
+        let needed = rsb.needed().unwrap();
+        assert_eq!(needed, Needed::Size(3));
 
-        if let Some(Needed::Size(bytes)) = needed {
+        if let Needed::Size(bytes) = needed {
             rsb.fill(bytes).unwrap();
-            assert_eq!(rsb.apply(comb).unwrap(), [0, 1, 2].as_ref());
+            assert_eq!(rsb.apply(comb).unwrap(), Some([0, 1, 2].as_ref()));
         }
     }
 
     #[test]
-    fn apply_stream() {
+    fn fill_apply() {
         use nom::be_u8;
         let mut rsb = subject_with_default_data();
 
@@ -379,31 +296,9 @@ mod resd_stream_buf_tests {
             tag!(input, [0, 1, 2])
         }
 
-        /*
-        assert_eq!(apply_stream!(rsb, comb), Ok(None));
-        assert_eq!(apply_stream!(rsb, comb), Ok(Some([0, 1, 2].as_ref())));
-        assert_eq!(apply_stream!(rsb, be_u8), Ok(None));
-        assert_eq!(apply_stream!(rsb, be_u8), Ok(Some(3)));
-        */
-
-        assert_eq!(rsb.fill_apply(comb), Ok(None));
-        assert_eq!(rsb.fill_apply(comb), Ok(Some([0, 1, 2].as_ref())));
-        assert_eq!(rsb.fill_apply(be_u8), Ok(None));
-        assert_eq!(rsb.fill_apply(be_u8), Ok(Some(3)));
+        assert_eq!(rsb.fill_apply(comb).unwrap(), None);
+        assert_eq!(rsb.fill_apply(comb).unwrap(), Some([0, 1, 2].as_ref()));
+        assert_eq!(rsb.fill_apply(be_u8).unwrap(), None);
+        assert_eq!(rsb.fill_apply(be_u8).unwrap(), Some(3));
     }
-
-    /*
-    #[test]
-    fn fill_and_apply_stream() {
-        use nom::be_u8;
-        let mut rsb = subject_with_default_data();
-
-        fn comb(input: &[u8]) -> IResult<&[u8], &[u8]> {
-            tag!(input, [0, 1, 2])
-        }
-        fill_and_apply_stream!(rsb, comb);
-        //assert_eq!(fill_and_apply_stream!(rsb, comb), Ok(Some([0, 1, 2].as_ref())));
-        //assert_eq!(fill_and_apply_stream!(rsb, be_u8), Ok(Some(3)));
-    }
-    */
 }
