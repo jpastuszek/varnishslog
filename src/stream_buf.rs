@@ -304,9 +304,10 @@ mod resd_stream_buf_tests {
             tag!(input, [0, 1, 2])
         }
 
-        //assert_eq!(rsb.fill_apply(comb).unwrap(), None);
+        //TODO: test None scenario
+
+        rsb.fill(10).unwrap();
         assert_eq!(rsb.fill_apply(comb).unwrap(), Some([0, 1, 2].as_ref()));
-        //assert_eq!(rsb.fill_apply(be_u8).unwrap(), None);
         assert_eq!(rsb.fill_apply(be_u8).unwrap(), Some(3));
     }
 
