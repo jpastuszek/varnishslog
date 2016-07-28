@@ -91,7 +91,16 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
 
         let needed = min_bytes - have;
 
-        //TODO: enforce cap
+        if min_bytes > self.cap {
+            panic!("Cannot fit {} B of data in {} B buffer", min_bytes, self.cap)
+        }
+        if len + needed > self.cap {
+            self.recycle();
+            assert_eq!(self.offset.get(), 0);
+            assert_eq!(self.buf.len(), have);
+            return self.fill(min_bytes)
+        }
+
         self.buf.resize(self.cap, 0);
         //trace!("fill needed: {}", needed);
         //trace!("buf write: {}..{} ({}); have: {} will have: {}", len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
@@ -299,5 +308,12 @@ mod resd_stream_buf_tests {
         assert_eq!(rsb.fill_apply(comb).unwrap(), Some([0, 1, 2].as_ref()));
         //assert_eq!(rsb.fill_apply(be_u8).unwrap(), None);
         assert_eq!(rsb.fill_apply(be_u8).unwrap(), Some(3));
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot fit 8193 B of data in 8192 B buffer")]
+    fn fill_over_buf() {
+        let mut rsb = subject_with_default_data();
+        rsb.fill(super::DEFAULT_BUF_SIZE + 1).ok();
     }
 }
