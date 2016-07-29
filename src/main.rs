@@ -11,10 +11,18 @@ use std::fmt::{self, Debug};
 use std::io::{self, stdin};
 use std::str::Utf8Error;
 use nom::{le_u32};
+use std::mem;
 
 #[macro_use]
 mod stream_buf;
 use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
+
+// Generated with ./mk_vsl_tag from Varnish headers: include/tbl/vsl_tags.h include/tbl/vsl_tags_http.h include/vsl_int.h
+// https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
+// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags.h
+// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags_http.h
+mod vsl_tag_e;
+use vsl_tag_e::VSL_tag_e as VslRecordTag;
 
 /*
  * Shared memory log format
@@ -42,17 +50,6 @@ const VSL_MARKERMASK: u32 = 0x03;
 const VSL_IDENTOFFSET: u32 = 30;
 const VSL_IDENTMASK: u32 = !(3 << VSL_IDENTOFFSET);
 
-// https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
-// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags.h
-// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags_http.h
-/* TODO: generate with build.rs from the header files
-enum VslTag {
-    SLT__Bogus = 0,
-    SLT__Reserved = 254,
-    SLT__Batch = 255
-}
-*/
-
 named!(binary_vsl_tag<&[u8], &[u8]>, tag!(b"VSL\0"));
 
 #[derive(Debug)]
@@ -77,7 +74,7 @@ fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeade
 }
 
 struct VslRecord<'b> {
-    pub tag: u8,
+    pub tag: VslRecordTag,
     pub marker: u8,
     pub ident: u32,
     pub data: &'b[u8],
@@ -100,12 +97,22 @@ impl<'b> Debug for VslRecord<'b> {
     }
 }
 
+fn to_vsl_record_tag(num: u8) -> VslRecordTag {
+    // Tend to work even for missing tags as they end up as SLT__Bogus (0)
+    unsafe { mem::transmute(num as u32) }
+}
+
 fn vsl_record_v3<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
     chain!(
         input,
         header: vsl_record_header ~ data: take!(header.len) ~ take!((4 - header.len % 4) % 4),
         || {
-            VslRecord { tag: header.tag, marker: header.marker, ident: header.ident, data: data }
+            VslRecord {
+                tag: to_vsl_record_tag(header.tag),
+                marker: header.marker,
+                ident: header.ident,
+                data: data
+            }
         })
 }
 
@@ -114,7 +121,12 @@ fn vsl_record_v4<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32
         input,
         header: vsl_record_header ~ data: take!(header.len - 1) ~ take!(1) ~ take!((4 - header.len % 4) % 4),
         || {
-            VslRecord { tag: header.tag, marker: header.marker, ident: header.ident, data: data }
+            VslRecord {
+                tag: to_vsl_record_tag(header.tag),
+                marker: header.marker,
+                ident: header.ident,
+                data: data
+            }
         })
 }
 
@@ -204,6 +216,7 @@ fn main() {
             Ok(None) => continue,
             Ok(Some(record)) => record,
         };
+
         println!("{:?}", record);
     }
 }
