@@ -101,6 +101,6 @@ fn main() {
             Ok(Some(record)) => record,
         };
 
-        println!("{:?}", record);
+        println!("{}", record);
     }
 }

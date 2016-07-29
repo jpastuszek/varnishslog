@@ -1,4 +1,4 @@
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::str::{from_utf8, Utf8Error};
 use nom::{self, le_u32};
 use std::mem;
@@ -75,6 +75,13 @@ impl<'b> Debug for VslRecord<'b> {
             .field("ident", &self.ident)
             .field("body", &self.body())
             .finish()
+    }
+}
+
+impl<'b> Display for VslRecord<'b> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let tag = format!("{:?}", self.tag);
+        write!(f, "{:5} {:18} {}", self.ident, tag, self.body().unwrap_or("<non valid UTF-8>"))
     }
 }
 
