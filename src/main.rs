@@ -9,7 +9,7 @@ use clap::{Arg, App};
 
 use std::fmt::{self, Debug};
 use std::io::{self, stdin};
-use std::ffi::{CStr, FromBytesWithNulError};
+use std::str::Utf8Error;
 use nom::{le_u32};
 
 #[macro_use]
@@ -84,8 +84,8 @@ struct VslRecord<'b> {
 }
 
 impl<'b> VslRecord<'b> {
-    fn body(&'b self) -> Result<&'b CStr, FromBytesWithNulError> {
-        CStr::from_bytes_with_nul(self.data)
+    fn body(&'b self) -> Result<&'b str, Utf8Error> {
+        std::str::from_utf8(self.data)
     }
 }
 
@@ -100,10 +100,19 @@ impl<'b> Debug for VslRecord<'b> {
     }
 }
 
-fn vsl_record<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
+fn vsl_record_v3<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
     chain!(
         input,
         header: vsl_record_header ~ data: take!(header.len) ~ take!((4 - header.len % 4) % 4),
+        || {
+            VslRecord { tag: header.tag, marker: header.marker, ident: header.ident, data: data }
+        })
+}
+
+fn vsl_record_v4<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
+    chain!(
+        input,
+        header: vsl_record_header ~ data: take!(header.len - 1) ~ take!(1) ~ take!((4 - header.len % 4) % 4),
         || {
             VslRecord { tag: header.tag, marker: header.marker, ident: header.ident, data: data }
         })
@@ -122,6 +131,10 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Reads binary VSL log entreis, correlates them togeter and emits JSON log entry to syslog")
+        .arg(Arg::with_name("v3")
+             .long("varnish-v3")
+             .short("3")
+             .help("Parse Varnish v3 binary log"))
         .arg(Arg::with_name("quiet")
              .long("quiet")
              .short("q")
@@ -143,22 +156,29 @@ fn main() {
     let stdin = stdin();
     let stdin = stdin.lock();
     // for testing
-    let mut rfb = ReadStreamBuf::with_capacity(stdin, 123);
-    //let mut rfb = ReadStreamBuf::new(stdin);
+    //let mut rfb = ReadStreamBuf::with_capacity(stdin, 123);
+    let mut rfb = ReadStreamBuf::new(stdin);
 
-    loop {
-        match rfb.fill_apply(binary_vsl_tag) {
-            Err(FillApplyError::Parser(_)) => {
-                error!("Input is not Varnish v4 VSL binary format");
-                panic!("Bad input format")
+    let vsl_record: fn(&[u8]) -> nom::IResult<&[u8], VslRecord>;
+
+    if ! arguments.is_present("v3") {
+        loop {
+            match rfb.fill_apply(binary_vsl_tag) {
+                Err(FillApplyError::Parser(_)) => {
+                    error!("Input is not Varnish v4 VSL binary format");
+                    panic!("Bad input format")
+                }
+                Err(err) => {
+                    error!("Error while reading VSL tag: {}", err);
+                    panic!("VSL tag error")
+                }
+                Ok(None) => continue,
+                Ok(Some(_)) => break,
             }
-            Err(err) => {
-                error!("Error while reading VSL tag: {}", err);
-                panic!("VSL tag error")
-            }
-            Ok(None) => continue,
-            Ok(Some(_)) => break,
         }
+        vsl_record = vsl_record_v4;
+    } else {
+        vsl_record = vsl_record_v3;
     }
 
     rfb.recycle(); // TODO: VSL should benefit from alignment - bench test it
