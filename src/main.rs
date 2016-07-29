@@ -3,6 +3,9 @@ extern crate nom;
 #[macro_use]
 extern crate log;
 extern crate stderrlog;
+#[macro_use]
+extern crate clap;
+use clap::{Arg, App};
 
 use std::fmt::{self, Debug};
 use std::io::{self, stdin};
@@ -115,10 +118,25 @@ fn binary_vsl_records<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], Vec<VslRecord
 */
 
 fn main() {
+    let arguments = App::new("Varnish VSL log to syslog logger")
+        .version(crate_version!())
+        .author(crate_authors!())
+        .about("Reads binary VSL log entreis, correlates them togeter and emits JSON log entry to syslog")
+        .arg(Arg::with_name("quiet")
+             .long("quiet")
+             .short("q")
+             .help("Don't log anything"))
+        .arg(Arg::with_name("verbose")
+             .long("verbose")
+             .short("v")
+             .multiple(true)
+             .help("Sets the level of verbosity; e.g. -vv for INFO level, -vvvv for TRACE level"))
+        .get_matches();
+
     stderrlog::new()
         .module(module_path!())
-        .quiet(false)
-        .verbosity(4)
+        .quiet(arguments.is_present("quiet"))
+        .verbosity(arguments.occurrences_of("verbose") as usize)
         .init()
         .unwrap();
 
