@@ -1,13 +1,16 @@
 use std::fmt::{self, Display, Debug};
+use std::error::Error;
+use std::any::Any;
 use std::cell::Cell;
 use std::io::Read;
 use std::io;
 use nom;
 
-pub const DEFAULT_BUF_SIZE: usize = 64 * 1024;
+#[allow(dead_code)]
+pub const DEFAULT_BUF_SIZE: usize = 256 * 1024;
 
 pub trait StreamBuf<O> {
-    fn fill(&mut self, min_count: usize) -> Result<(), io::Error>;
+    fn fill(&mut self, min_count: usize) -> Result<(), FillError>;
     fn recycle(&mut self);
     fn consume(&mut self, count: usize);
     fn data<'b>(&'b self) -> &'b[O];
@@ -29,15 +32,45 @@ pub trait StreamBuf<O> {
 }
 
 #[derive(Debug)]
-pub enum FillApplyError<I, E> {
+pub enum FillError {
     Io(io::Error),
-    Parser(nom::Err<I, E>),
+    BufferOverflow(usize, usize),
 }
 
-impl<I, E> From<io::Error> for FillApplyError<I, E> {
-    fn from(e: io::Error) -> FillApplyError<I, E> {
-        FillApplyError::Io(e)
+impl From<io::Error> for FillError {
+    fn from(e: io::Error) -> FillError {
+        FillError::Io(e)
     }
+}
+
+impl Display for FillError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &FillError::Io(ref e) => write!(f, "Failed to read data: {}", e),
+            &FillError::BufferOverflow(needed, capacity) => write!(f, "Cannot fill buffer of size {} bytes with {} bytes of data", capacity, needed),
+        }
+    }
+}
+
+impl Error for FillError {
+    fn description(&self) -> &str {
+        match self {
+            &FillError::Io(_) => "I/O error",
+            &FillError::BufferOverflow(_, _) => "buffer overflow",
+        }
+    }
+    fn cause(&self) -> Option<&Error> {
+        match self {
+            &FillError::Io(ref e) => Some(e),
+            &FillError::BufferOverflow(_, _) => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum FillApplyError<I, E> {
+    Parser(nom::Err<I, E>),
+    FillError(FillError),
 }
 
 impl<I, E> From<nom::Err<I, E>> for FillApplyError<I, E> {
@@ -46,11 +79,32 @@ impl<I, E> From<nom::Err<I, E>> for FillApplyError<I, E> {
     }
 }
 
+impl<I, E> From<FillError> for FillApplyError<I, E> {
+    fn from(e: FillError) -> FillApplyError<I, E> {
+        FillApplyError::FillError(e)
+    }
+}
+
 impl<I, E> Display for FillApplyError<I, E> where I: Debug, E: Debug {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &FillApplyError::Io(ref e) => write!(f, "Failed to read data (IO error): {}", e),
-            &FillApplyError::Parser(ref e) => write!(f, "Failed to parse data (parser error): {}", e),
+            &FillApplyError::Parser(ref e) => write!(f, "Failed to parse data: {}", e),
+            &FillApplyError::FillError(ref e) => write!(f, "Failed to fill buffer with amout of data requested by parser: {}", e),
+        }
+    }
+}
+
+impl<I, E> Error for FillApplyError<I, E> where I: Debug + Display + Any, E: Error {
+    fn description(&self) -> &str {
+        match self {
+            &FillApplyError::Parser(_) => "parsing faield",
+            &FillApplyError::FillError(_) => "buffer fill error",
+        }
+    }
+    fn cause(&self) -> Option<&Error> {
+        match self {
+            &FillApplyError::Parser(_) => None, // e contains reference to data
+            &FillApplyError::FillError(ref e) => Some(e),
         }
     }
 }
@@ -65,6 +119,7 @@ pub struct ReadStreamBuf<R: Read> {
 }
 
 impl<R: Read> ReadStreamBuf<R> {
+    #[allow(dead_code)]
     pub fn new(reader: R) -> ReadStreamBuf<R> {
         ReadStreamBuf::with_capacity(reader, DEFAULT_BUF_SIZE)
     }
@@ -81,7 +136,7 @@ impl<R: Read> ReadStreamBuf<R> {
 }
 
 impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
-    fn fill(&mut self, min_bytes: usize) -> Result<(), io::Error> {
+    fn fill(&mut self, min_bytes: usize) -> Result<(), FillError> {
         let len = self.buf.len();
         let have = len - self.offset.get();
 
@@ -92,7 +147,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         let needed = min_bytes - have;
 
         if min_bytes > self.cap {
-            panic!("Cannot fit {} B of data in {} B buffer", min_bytes, self.cap)
+            return Err(FillError::BufferOverflow(min_bytes, self.cap))
         }
         if len + needed > self.cap {
             self.recycle();
@@ -105,7 +160,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         trace!("reading exactly {} bytes into buf blocking: {}..{} ({}); have: {} will have: {}", needed, len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
         if let Err(err) = self.reader.read_exact(&mut self.buf[len..len + needed]) {
             self.buf.resize(len, 0);
-            return Err(err);
+            return Err(From::from(err));
         }
 
         // Try to read to the end of the buffer if we can
@@ -113,7 +168,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         match self.reader.read(&mut self.buf[len + needed..self.cap]) {
             Err(err) => {
                 self.buf.resize(len + needed, 0);
-                return Err(err)
+                return Err(From::from(err));
             },
             Ok(bytes_read) => {
                 trace!("got extra {} bytes", bytes_read);
@@ -181,6 +236,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
 mod resd_stream_buf_tests {
     use super::StreamBuf;
     use super::ReadStreamBuf;
+    use super::FillError;
     use nom::{IResult, Needed};
     use std::io::Cursor;
 
@@ -313,9 +369,14 @@ mod resd_stream_buf_tests {
     }
 
     #[test]
-    #[should_panic(expected = "Cannot fit 8193 B of data in 8192 B buffer")]
     fn fill_over_buf() {
         let mut rsb = subject_with_default_data();
-        rsb.fill(super::DEFAULT_BUF_SIZE + 1).ok();
+        let error = rsb.fill(super::DEFAULT_BUF_SIZE + 1).unwrap_err();
+        if let FillError::BufferOverflow(needed, capacity) = error {
+            assert_eq!(needed, super::DEFAULT_BUF_SIZE + 1);
+            assert_eq!(capacity, super::DEFAULT_BUF_SIZE);
+        } else {
+            panic!("was expecing BufferOverflow error");
+        }
     }
 }

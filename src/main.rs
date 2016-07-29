@@ -14,7 +14,7 @@ use nom::{le_u32};
 
 #[macro_use]
 mod stream_buf;
-use stream_buf::{StreamBuf, ReadStreamBuf, FillApplyError};
+use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
 
 /*
  * Shared memory log format
@@ -143,28 +143,46 @@ fn main() {
     let stdin = stdin();
     let stdin = stdin.lock();
     // for testing
-    //let mut rfb = ReadStreamBuf::with_capacity(stdin, 123);
-    let mut rfb = ReadStreamBuf::new(stdin);
+    let mut rfb = ReadStreamBuf::with_capacity(stdin, 123);
+    //let mut rfb = ReadStreamBuf::new(stdin);
 
-    while let None = rfb.fill_apply(binary_vsl_tag).expect("binary stream") {}
+    loop {
+        match rfb.fill_apply(binary_vsl_tag) {
+            Err(FillApplyError::Parser(_)) => {
+                error!("Input is not Varnish v4 VSL binary format");
+                panic!("Bad input format")
+            }
+            Err(err) => {
+                error!("Error while reading VSL tag: {}", err);
+                panic!("VSL tag error")
+            }
+            Ok(None) => continue,
+            Ok(Some(_)) => break,
+        }
+    }
+
     rfb.recycle(); // TODO: VSL should benefit from alignment - bench test it
 
     loop {
         let record = match rfb.fill_apply(vsl_record) {
-            Err(FillApplyError::Io(err)) => {
+            Err(FillApplyError::FillError(FillError::Io(err))) => {
                 if err.kind() == io::ErrorKind::UnexpectedEof {
                     info!("Reached end of stream; exiting");
                     return
                 }
                 error!("Got IO Error while reading stream: {}", err);
-                panic!("Boom!")
+                panic!("Stream IO error")
             },
+            Err(FillApplyError::FillError(err)) => {
+                error!("Failed to fill parsing buffer: {}", err);
+                panic!("Fill error")
+            }
             Err(FillApplyError::Parser(err)) => {
                 error!("Failed to parse VSL record: {}", err);
-                panic!("Boom!")
+                panic!("Parser error")
             },
             Ok(None) => continue,
-            Ok(Some(record)) => record
+            Ok(Some(record)) => record,
         };
         println!("{:?}", record);
     }
