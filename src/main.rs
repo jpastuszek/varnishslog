@@ -1,65 +1,17 @@
 #[macro_use]
 extern crate nom;
+#[macro_use]
+extern crate log;
+extern crate stderrlog;
 
 use std::fmt::{self, Debug};
-use std::io::stdin;
+use std::io::{self, stdin};
 use std::ffi::{CStr, FromBytesWithNulError};
-//use std::io::BufRead;
-//use nom::{Producer, Move, Input, Consumer, ConsumerState};
 use nom::{le_u32};
 
 #[macro_use]
 mod stream_buf;
-use stream_buf::{StreamBuf, ReadStreamBuf};
-
-/*
-pub struct BufReadProducer<R: Read + BufRead> {
-    reader: R
-}
-
-impl<R: Read + BufRead> BufReadProducer<R> {
-    pub fn new(reader: R) -> BufReadProducer<R> {
-        BufReadProducer { reader: reader }
-    }
-}
-
-impl<'x, R: Read + BufRead> Producer<'x, &'x [u8], Move> for BufReadProducer<R> {
-    fn apply<'a,O,E>(&'x mut self, consumer: &'a mut Consumer<&'x[u8],O,E,Move>) -> &'a ConsumerState<O,E,Move> {
-        match consumer.state() {
-            &ConsumerState::Continue(ref m) => {
-                println!("{:?}", m);
-                match *m {
-                    Move::Await(_) => (),
-                    Move::Consume(bytes) => self.reader.consume(bytes),
-                    Move::Seek(position) => panic!("Can't seek BufReadProducer: {:?}", position)
-                }
-
-            },
-            _  => return consumer.state()
-        }
-
-        match self.reader.fill_buf() {
-            //TODO: it will probably not give any more data if buf is full -
-            //infinite loop!?
-            Ok(ref data) => consumer.handle(Input::Element(data)),
-            Err(_) => consumer.handle(Input::Eof(None))
-        }
-    }
-
-    fn run<'a: 'x,O,E: 'x>(&'x mut self, consumer: &'a mut Consumer<&'x[u8],O,E,Move>)   -> Option<&O> {
-        //TODO: keep calling apply until we get Done or Err
-        //TODO: handle Eof
-        if let &ConsumerState::Done(_,ref o) = self.apply(consumer) {
-            Some(o)
-        } else {
-            None
-        }
-    }
-}
-
-consumer_from_parser!(VslConsumer<VslRecordHeader>, vsl_record_header);
-consumer_from_parser!(VslTagConsumer<()>, vsl_tag);
-*/
+use stream_buf::{StreamBuf, ReadStreamBuf, FillApplyError};
 
 /*
  * Shared memory log format
@@ -163,14 +115,39 @@ fn binary_vsl_records<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], Vec<VslRecord
 */
 
 fn main() {
+    stderrlog::new()
+        .module(module_path!())
+        .quiet(false)
+        .verbosity(4)
+        .init()
+        .unwrap();
+
     let stdin = stdin();
     let stdin = stdin.lock();
+    // for testing
+    //let mut rfb = ReadStreamBuf::with_capacity(stdin, 123);
     let mut rfb = ReadStreamBuf::new(stdin);
 
     while let None = rfb.fill_apply(binary_vsl_tag).expect("binary stream") {}
+    rfb.recycle(); // TODO: VSL should benefit from alignment - bench test it
 
     loop {
-        let record = rfb.fill_apply(vsl_record).unwrap();
+        let record = match rfb.fill_apply(vsl_record) {
+            Err(FillApplyError::Io(err)) => {
+                if err.kind() == io::ErrorKind::UnexpectedEof {
+                    info!("Reached end of stream; exiting");
+                    return
+                }
+                error!("Got IO Error while reading stream: {}", err);
+                panic!("Boom!")
+            },
+            Err(FillApplyError::Parser(err)) => {
+                error!("Failed to parse VSL record: {}", err);
+                panic!("Boom!")
+            },
+            Ok(None) => continue,
+            Ok(Some(record)) => record
+        };
         println!("{:?}", record);
     }
 }

@@ -4,7 +4,7 @@ use std::io::Read;
 use std::io;
 use nom;
 
-const DEFAULT_BUF_SIZE: usize = 8 * 1024;
+pub const DEFAULT_BUF_SIZE: usize = 64 * 1024;
 
 pub trait StreamBuf<O> {
     fn fill(&mut self, min_count: usize) -> Result<(), io::Error>;
@@ -102,25 +102,27 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         }
 
         self.buf.resize(self.cap, 0);
-        //trace!("fill needed: {}", needed);
-        //trace!("buf write: {}..{} ({}); have: {} will have: {}", len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
+        trace!("reading exactly {} bytes into buf blocking: {}..{} ({}); have: {} will have: {}", needed, len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
         if let Err(err) = self.reader.read_exact(&mut self.buf[len..len + needed]) {
             self.buf.resize(len, 0);
             return Err(err);
         }
 
         // Try to read to the end of the buffer if we can
+        trace!("reading up to {} extra bytes into buf non blocking", self.cap - (len + needed));
         match self.reader.read(&mut self.buf[len + needed..self.cap]) {
             Err(err) => {
                 self.buf.resize(len + needed, 0);
                 return Err(err)
             },
             Ok(bytes_read) => {
+                trace!("got extra {} bytes", bytes_read);
                 self.buf.resize(len + needed + bytes_read, 0);
             }
         }
 
-        //trace!("buf have: {:?}", self.data());
+        //trace!("buf has: {:?}", self.data());
+        trace!("buf has {} bytes", self.data().len());
         Ok(())
     }
 
@@ -157,7 +159,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         match combinator(data) {
             nom::IResult::Done(left, out) => {
                 let consumed = data.len() - left.len();
-                //trace!("done: consumed: {}", consumed);
+                trace!("done: consumed: {}", consumed);
 
                 // Move the offset
                 self.offset.set(self.offset.get() + consumed);
@@ -167,7 +169,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
             },
             nom::IResult::Error(err) => Err(err),
             nom::IResult::Incomplete(needed) => {
-                //trace!("incomplete: needed: {:?}", needed);
+                trace!("incomplete: needed: {:?}", needed);
                 self.needed.set(Some(needed));
                 Ok(None)
             }
@@ -305,7 +307,6 @@ mod resd_stream_buf_tests {
         }
 
         //TODO: test None scenario
-
         rsb.fill(10).unwrap();
         assert_eq!(rsb.fill_apply(comb).unwrap(), Some([0, 1, 2].as_ref()));
         assert_eq!(rsb.fill_apply(be_u8).unwrap(), Some(3));

@@ -4,4 +4,6 @@ name = "varnishsyslogger"
 version = "0.1.0"
 
 [dependencies]
+log = "0.3.6"
 nom = "1.2.4"
+stderrlog = "0.2.1"
