@@ -64,17 +64,17 @@ pub struct VslRecord<'b> {
 }
 
 impl<'b> VslRecord<'b> {
-    pub fn body(&'b self) -> Result<&'b str, Utf8Error> {
+    pub fn message(&'b self) -> Result<&'b str, Utf8Error> {
         from_utf8(self.data)
     }
 
     #[cfg(test)]
-    pub fn from_str<'s>(tag: VslRecordTag, ident: VslIdent, body: &'s str) -> VslRecord<'s> {
+    pub fn from_str<'s>(tag: VslRecordTag, ident: VslIdent, message: &'s str) -> VslRecord<'s> {
         VslRecord {
             tag: tag,
             marker: 0,
             ident: ident,
-            data: body.as_ref()
+            data: message.as_ref()
         }
     }
 }
@@ -85,7 +85,7 @@ impl<'b> Debug for VslRecord<'b> {
             .field("tag", &self.tag)
             .field("marker", &self.marker)
             .field("ident", &self.ident)
-            .field("body", &self.body())
+            .field("message", &self.message())
             .finish()
     }
 }
@@ -93,7 +93,7 @@ impl<'b> Debug for VslRecord<'b> {
 impl<'b> Display for VslRecord<'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let tag = format!("{:?}", self.tag);
-        write!(f, "{:5} {:18} {}", self.ident, tag, self.body().unwrap_or("<non valid UTF-8>"))
+        write!(f, "{:5} {:18} {}", self.ident, tag, self.message().unwrap_or("<non valid UTF-8>"))
     }
 }
 

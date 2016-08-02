@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::str::Utf8Error;
-use std::num::ParseFloatError;
-use std::fmt::{self, Display};
+use std::num::{ParseIntError, ParseFloatError};
+use quick_error::ResultExt;
 
 use vsl::{VslRecord, VslRecordTag, VslIdent};
 
-use nom::IResult;
+use nom::{self, IResult};
 
 pub type TimeStamp = f64;
 
@@ -94,15 +94,41 @@ enum RecordBuilderResult {
     Ready(AccessRecord),
 }
 
-#[derive(Debug)]
-enum RecordBuilderError {
-    VslBodyUtf8Error(Utf8Error),
+trait IResultExt<O, E> {
+    fn into_result(self) -> Result<O, E>;
 }
 
-impl Display for RecordBuilderError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<I, O, E> IResultExt<O, nom::Err<I, E>> for IResult<I, O, E> {
+    fn into_result(self) -> Result<O, nom::Err<I, E>> {
         match self {
-            &RecordBuilderError::VslBodyUtf8Error(ref e) => write!(f, "VSL record body is not valid UTF-8 encoded string: {}", e),
+            IResult::Done(_, o) => Ok(o),
+            IResult::Error(err) => Err(err),
+            IResult::Incomplete(_) => panic!("got Incomplete IResult!"),
+        }
+    }
+}
+
+quick_error! {
+    #[derive(Debug)]
+    pub enum RecordBuilderError {
+        NonUtf8VslMessage(err: Utf8Error) {
+            display("VSL record message is not valid UTF-8 encoded string: {}", err)
+            cause(err)
+        }
+        InvalidMessageFormat(message: String, err: String) {
+            display("Failed to parse message '{}': {}", message, err)
+            context(message: &'a str, err: nom::Err<&'a str>)
+                -> (message.to_string(), format!("Nom parser failed: {}", err))
+        }
+        InvalidMessageFieldFormat(message: String, field_name: &'static str, err: String) {
+            display("Failed to parse field '{}' from message '{}': {}", field_name, message, err)
+            context(field_info: (&'a str, &'static str), err: ParseFloatError)
+                -> (field_info.0.to_string(), field_info.1, format!("Float parsing error: {}", err))
+            context(field_info: (&'a str, &'static str), err: ParseIntError)
+                -> (field_info.0.to_string(), field_info.1, format!("Integer parsing error: {}", err))
+        }
+        UnimplementedTransactionType(message: String, transaction_type: String) {
+            display("Unimplemented transaction type '{}' in message: {}", transaction_type, message)
         }
     }
 }
@@ -112,11 +138,16 @@ named!(label<&str, &str>, terminated!(take_until_s!(": "), tag_s!(": ")));
 named!(space_terminated<&str, &str>, terminated!(is_not_s!(" "), space));
 named!(space_terminated_eof<&str, &str>, terminated!(is_not_s!(" "), eof));
 
-named!(SLT_Timestamp<&str, (&str, &str, &str, &str)>, tuple!(
+named!(slt_begin<&str, (&str, &str, &str)>, complete!(tuple!(
+        space_terminated,           // Type ("sess", "req" or "bereq")
+        space_terminated,           // Parent vxid
+        space_terminated_eof)));    // Reason
+
+named!(slt_timestamp<&str, (&str, &str, &str, &str)>, complete!(tuple!(
         label,                      // Event label
         space_terminated,           // Absolute time of event
         space_terminated,           // Time since start of work unit
-        space_terminated_eof));     // Time since last timestamp
+        space_terminated_eof)));    // Time since last timestamp
 
 impl RecordBuilder {
     fn new(ident: VslIdent) -> RecordBuilder {
@@ -135,42 +166,40 @@ impl RecordBuilder {
     }
 
     fn apply<'r>(self, vsl: &'r VslRecord) -> Result<RecordBuilderResult, RecordBuilderError> {
-        let builder = match vsl.body() {
-            Ok(body) => match vsl.tag {
+        let builder = match vsl.message() {
+            Ok(message) => match vsl.tag {
                 VslRecordTag::SLT_Begin => {
-                    // nom?
-                    let mut elements = body.splitn(3, ' ');
-
-                    //TODO: error handling
-                    let transaction_type = elements.next().unwrap();
-                    let parent = elements.next().unwrap();
-                    let reason = elements.next().unwrap();
-
-                    let parent = parent.parse().unwrap();
+                    let (transaction_type, parent, reason) = try!(slt_begin(message).into_result().context(message));
+                    let parent = try!(parent.parse().context((message, "parent vxid")));
 
                     let transaction_type = match transaction_type {
-                        "bereq" => TransactionType::Backend { parent: parent, reason: reason.to_owned() },
-                        _ => panic!("unimpl transaction_type")
+                        "bereq" => TransactionType::Backend {
+                            parent: parent,
+                            reason: reason.to_owned()
+                        },
+                        _ => return Err(RecordBuilderError::UnimplementedTransactionType(message.to_string(), transaction_type.to_string()))
                     };
 
                     RecordBuilder { transaction_type: Some(transaction_type), .. self }
                 }
                 VslRecordTag::SLT_Timestamp => {
-                    if let IResult::Done(_, (label, timestamp, _sice_work_start, _since_last_timestamp)) =  SLT_Timestamp(body) {
-                        match label {
-                            "Start" => RecordBuilder { start: Some(try!(timestamp.parse())), .. self },
+                    let (label, timestamp, _sice_work_start, _since_last_timestamp) = try!(slt_timestamp(message).into_result().context(message));
+                    match label {
+                        "Start" => RecordBuilder {
+                            start: Some(try!(timestamp.parse().context((message, "timestamp")))),
+                            .. self },
                             _ => {
-                                warn!("Unknown SLT_Timestamp label variant: {}", label);
+                                warn!("Ignoring unknown SLT_Timestamp label variant: {}", label);
                                 self
                             }
-                        }
-                    } else {
-                        panic!("foobar!")
                     }
                 }
-                _ => panic!("unimpl tag")
+                _ => {
+                    warn!("Ignoring unknown VSL tag: {:?}", vsl.tag);
+                    self
+                }
             },
-            Err(err) => return Err(RecordBuilderError::VslBodyUtf8Error(err))
+            Err(err) => return Err(RecordBuilderError::NonUtf8VslMessage(err))
         };
 
         Ok(RecordBuilderResult::Building(builder))
@@ -203,8 +232,7 @@ impl State {
                 RecordBuilderResult::Ready(record) => return Some(record),
             },
             Err(err) => {
-                //TODO: define proper error and return to main loop
-                error!("Error while building record with ident {}: {}", vsl.ident, err);
+                println!("Error while building record with ident {}: {}", vsl.ident, err);
                 return None
             }
         }
@@ -222,6 +250,20 @@ mod access_log_state_tests {
     use vsl::{VslRecord, VslRecordTag};
 
     #[test]
+    fn apply_non_utf8() {
+        let mut state = State::new();
+
+        state.apply(&VslRecord {
+            tag: VslRecordTag::SLT_Begin,
+            marker: 0,
+            ident: 123,
+            data: &[255, 0, 1, 2, 3]
+        });
+
+        assert!(state.get(123).is_none());
+    }
+
+    #[test]
     fn apply_begin() {
         let mut state = State::new();
 
@@ -232,6 +274,30 @@ mod access_log_state_tests {
 
         assert_eq!(transaction_type.get_backend_parent(), 321);
         assert_eq!(transaction_type.get_backend_reason(), "fetch");
+    }
+
+    #[test]
+    fn apply_begin_unimpl_transaction_type() {
+        let mut state = State::new();
+
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "foo 231 fetch"));
+        assert!(state.get(123).is_none());
+    }
+
+    #[test]
+    fn apply_begin_parser_fail() {
+        let mut state = State::new();
+
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "foo bar"));
+        assert!(state.get(123).is_none());
+    }
+
+    #[test]
+    fn apply_begin_float_parse_fail() {
+        let mut state = State::new();
+
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "bereq bar fetch"));
+        assert!(state.get(123).is_none());
     }
 
     #[test]

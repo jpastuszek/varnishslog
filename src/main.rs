@@ -7,6 +7,9 @@ extern crate stderrlog;
 extern crate clap;
 use clap::{Arg, App};
 
+#[macro_use]
+extern crate quick_error;
+
 use std::io::{self, stdin};
 
 #[macro_use]
