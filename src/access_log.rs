@@ -85,7 +85,9 @@ struct RecordBuilder {
     protocol: Option<String>,
     status_name: Option<String>,
     status_code: Option<u32>,
-    headers: HashMap<String, String>,
+    reason: Option<String>,
+    req_headers: HashMap<String, String>,
+    resp_headers: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -134,7 +136,7 @@ quick_error! {
     }
 }
 
-use nom::{space, eof};
+use nom::{rest_s, space, eof};
 named!(label<&str, &str>, terminated!(take_until_s!(": "), tag_s!(": ")));
 named!(space_terminated<&str, &str>, terminated!(is_not_s!(" "), space));
 named!(space_terminated_eof<&str, &str>, terminated!(is_not_s!(" "), eof));
@@ -150,6 +152,14 @@ named!(slt_timestamp<&str, (&str, &str, &str, &str)>, complete!(tuple!(
         space_terminated,           // Time since start of work unit
         space_terminated_eof)));    // Time since last timestamp
 
+named!(slt_method<&str, &str>, complete!(rest_s));
+named!(slt_url<&str, &str>, complete!(rest_s));
+named!(slt_protocol<&str, &str>, complete!(rest_s));
+
+named!(slt_header<&str, (&str, &str)>, complete!(tuple!(
+        label,      // Header name
+        rest_s)));  // Header value
+
 impl RecordBuilder {
     fn new(ident: VslIdent) -> RecordBuilder {
         RecordBuilder {
@@ -162,7 +172,9 @@ impl RecordBuilder {
             protocol: None,
             status_name: None,
             status_code: None,
-            headers: HashMap::new()
+            reason: None,
+            req_headers: HashMap::new(),
+            resp_headers: HashMap::new()
         }
     }
 
@@ -181,18 +193,57 @@ impl RecordBuilder {
                         _ => return Err(RecordBuilderError::UnimplementedTransactionType(transaction_type.to_string()))
                     };
 
-                    RecordBuilder { transaction_type: Some(transaction_type), .. self }
+                    RecordBuilder {
+                        transaction_type: Some(transaction_type),
+                        .. self
+                    }
                 }
                 VslRecordTag::SLT_Timestamp => {
                     let (label, timestamp, _sice_work_start, _since_last_timestamp) = try!(slt_timestamp(message).into_result().context(vsl.tag));
                     match label {
                         "Start" => RecordBuilder {
-                            start: Some(try!(timestamp.parse().context("timestamp"))),
-                            .. self },
+                                start: Some(try!(timestamp.parse().context("timestamp"))),
+                                .. self
+                            },
                             _ => {
                                 warn!("Ignoring unknown SLT_Timestamp label variant: {}", label);
                                 self
                             }
+                    }
+                }
+                VslRecordTag::SLT_BereqMethod | VslRecordTag::SLT_ReqMethod => {
+                    let method = try!(slt_method(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        method: Some(method.to_string()),
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BereqProtocol | VslRecordTag::SLT_ReqProtocol => {
+                    let protocol = try!(slt_protocol(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        protocol: Some(protocol.to_string()),
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BereqURL | VslRecordTag::SLT_ReqURL => {
+                    let url = try!(slt_url(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        url: Some(url.to_string()),
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BereqHeader | VslRecordTag::SLT_ReqHeader => {
+                    let (name, value) = try!(slt_header(message).into_result().context(vsl.tag));
+
+                    let mut headers = self.req_headers;
+                    headers.insert(name.to_string(), value.to_string());
+
+                    RecordBuilder {
+                        req_headers: headers,
+                        .. self
                     }
                 }
                 _ => {
@@ -233,7 +284,7 @@ impl State {
                 RecordBuilderResult::Ready(record) => return Some(record),
             },
             Err(err) => {
-                println!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
+                error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
                 return None
             }
         }
@@ -309,5 +360,25 @@ mod access_log_state_tests {
 
         let builder = state.get(123).unwrap().clone();
         assert_eq!(builder.start, Some(1469180762.484544));
+    }
+
+    #[test]
+    fn apply_backend_request() {
+        let mut state = State::new();
+
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqMethod, 123, "GET"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqURL, 123, "/foobar"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqProtocol, 123, "HTTP/1.1"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 123, "Host: localhost:8080"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 123, "User-Agent: curl/7.40.0"));
+
+        let builder = state.get(123).unwrap().clone();
+        assert_eq!(builder.start, Some(1469180762.484544));
+        assert_eq!(builder.method, Some("GET".to_string()));
+        assert_eq!(builder.url, Some("/foobar".to_string()));
+        assert_eq!(builder.protocol, Some("HTTP/1.1".to_string()));
+        assert_eq!(builder.req_headers.get("Host"), Some(&"localhost:8080".to_string()));
+        assert_eq!(builder.req_headers.get("User-Agent"), Some(&"curl/7.40.0".to_string()));
     }
 }
