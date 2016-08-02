@@ -115,20 +115,21 @@ quick_error! {
             display("VSL record message is not valid UTF-8 encoded string: {}", err)
             cause(err)
         }
-        InvalidMessageFormat(message: String, err: String) {
-            display("Failed to parse message '{}': {}", message, err)
-            context(message: &'a str, err: nom::Err<&'a str>)
-                -> (message.to_string(), format!("Nom parser failed: {}", err))
+        UnimplementedTransactionType(transaction_type: String) {
+            display("Unimplemented transaction type '{}'", transaction_type)
         }
-        InvalidMessageFieldFormat(message: String, field_name: &'static str, err: String) {
-            display("Failed to parse field '{}' from message '{}': {}", field_name, message, err)
-            context(field_info: (&'a str, &'static str), err: ParseFloatError)
-                -> (field_info.0.to_string(), field_info.1, format!("Float parsing error: {}", err))
-            context(field_info: (&'a str, &'static str), err: ParseIntError)
-                -> (field_info.0.to_string(), field_info.1, format!("Integer parsing error: {}", err))
+        InvalidMessageFormat(err: String) {
+            display("Failed to parse message: {}", err)
+            // Note: using context() since from() does not support lifetimes
+            context(tag: VslRecordTag ,err: nom::Err<&'a str>)
+                -> (format!("Nom parser failed on VSL record {:?}: {}", tag, err))
         }
-        UnimplementedTransactionType(message: String, transaction_type: String) {
-            display("Unimplemented transaction type '{}' in message: {}", transaction_type, message)
+        InvalidMessageFieldFormat(field_name: &'static str, err: String) {
+            display("Failed to parse message field '{}': {}", field_name, err)
+            context(field_name: &'static str, err: ParseFloatError)
+                -> (field_name, format!("Float parsing error: {}", err))
+            context(field_name: &'static str, err: ParseIntError)
+                -> (field_name, format!("Integer parsing error: {}", err))
         }
     }
 }
@@ -169,24 +170,24 @@ impl RecordBuilder {
         let builder = match vsl.message() {
             Ok(message) => match vsl.tag {
                 VslRecordTag::SLT_Begin => {
-                    let (transaction_type, parent, reason) = try!(slt_begin(message).into_result().context(message));
-                    let parent = try!(parent.parse().context((message, "parent vxid")));
+                    let (transaction_type, parent, reason) = try!(slt_begin(message).into_result().context(vsl.tag));
+                    let parent = try!(parent.parse().context("parent vxid"));
 
                     let transaction_type = match transaction_type {
                         "bereq" => TransactionType::Backend {
                             parent: parent,
                             reason: reason.to_owned()
                         },
-                        _ => return Err(RecordBuilderError::UnimplementedTransactionType(message.to_string(), transaction_type.to_string()))
+                        _ => return Err(RecordBuilderError::UnimplementedTransactionType(transaction_type.to_string()))
                     };
 
                     RecordBuilder { transaction_type: Some(transaction_type), .. self }
                 }
                 VslRecordTag::SLT_Timestamp => {
-                    let (label, timestamp, _sice_work_start, _since_last_timestamp) = try!(slt_timestamp(message).into_result().context(message));
+                    let (label, timestamp, _sice_work_start, _since_last_timestamp) = try!(slt_timestamp(message).into_result().context(vsl.tag));
                     match label {
                         "Start" => RecordBuilder {
-                            start: Some(try!(timestamp.parse().context((message, "timestamp")))),
+                            start: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self },
                             _ => {
                                 warn!("Ignoring unknown SLT_Timestamp label variant: {}", label);
@@ -232,7 +233,7 @@ impl State {
                 RecordBuilderResult::Ready(record) => return Some(record),
             },
             Err(err) => {
-                println!("Error while building record with ident {}: {}", vsl.ident, err);
+                println!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
                 return None
             }
         }
