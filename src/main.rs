@@ -20,7 +20,9 @@ use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
 mod vsl_tag_e;
 mod vsl;
 use vsl::{binary_vsl_tag, vsl_record_v3, vsl_record_v4};
-use vsl::{VslRecord, VslRecordTag};
+use vsl::VslRecord;
+
+mod access_log;
 
 fn main() {
     let arguments = App::new("Varnish VSL log to syslog logger")

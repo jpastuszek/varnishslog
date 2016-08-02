@@ -31,6 +31,8 @@ const VSL_MARKERMASK: u32 = 0x03;
 const VSL_IDENTOFFSET: u32 = 30;
 const VSL_IDENTMASK: u32 = !(3 << VSL_IDENTOFFSET);
 
+pub type VslIdent = u32;
+
 named!(pub binary_vsl_tag<&[u8], &[u8]>, tag!(b"VSL\0"));
 
 #[derive(Debug)]
@@ -38,7 +40,7 @@ pub struct VslRecordHeader {
     pub tag: u8,
     pub len: u16,
     pub marker: u8,
-    pub ident: u32,
+    pub ident: VslIdent,
 }
 
 fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeader, u32> {
@@ -57,13 +59,23 @@ fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeade
 pub struct VslRecord<'b> {
     pub tag: VslRecordTag,
     pub marker: u8,
-    pub ident: u32,
+    pub ident: VslIdent,
     pub data: &'b[u8],
 }
 
 impl<'b> VslRecord<'b> {
-    fn body(&'b self) -> Result<&'b str, Utf8Error> {
+    pub fn body(&'b self) -> Result<&'b str, Utf8Error> {
         from_utf8(self.data)
+    }
+
+    #[cfg(test)]
+    pub fn from_str<'s>(tag: VslRecordTag, ident: VslIdent, body: &'s str) -> VslRecord<'s> {
+        VslRecord {
+            tag: tag,
+            marker: 0,
+            ident: ident,
+            data: body.as_ref()
+        }
     }
 }
 

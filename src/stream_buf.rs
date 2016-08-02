@@ -11,6 +11,7 @@ pub const DEFAULT_BUF_SIZE: usize = 256 * 1024;
 
 pub trait StreamBuf<O> {
     fn fill(&mut self, min_count: usize) -> Result<(), FillError>;
+    //TODO: rename to relocate
     fn recycle(&mut self);
     fn consume(&mut self, count: usize);
     fn data<'b>(&'b self) -> &'b[O];
@@ -187,6 +188,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         }
         self.buf = self.buf.split_off(self.offset.get());
         self.offset.set(0);
+        //TODO: expand buffer OR use memcpy - bench test it
     }
 
     fn consume(&mut self, bytes: usize) {
