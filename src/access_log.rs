@@ -202,13 +202,13 @@ impl RecordBuilder {
                     let (label, timestamp, _sice_work_start, _since_last_timestamp) = try!(slt_timestamp(message).into_result().context(vsl.tag));
                     match label {
                         "Start" => RecordBuilder {
-                                start: Some(try!(timestamp.parse().context("timestamp"))),
-                                .. self
-                            },
-                            _ => {
-                                warn!("Ignoring unknown SLT_Timestamp label variant: {}", label);
-                                self
-                            }
+                            start: Some(try!(timestamp.parse().context("timestamp"))),
+                            .. self
+                        },
+                        _ => {
+                            warn!("Ignoring unknown SLT_Timestamp label variant: {}", label);
+                            self
+                        }
                     }
                 }
                 VslRecordTag::SLT_BereqMethod | VslRecordTag::SLT_ReqMethod => {
