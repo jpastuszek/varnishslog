@@ -14,6 +14,8 @@ pub type TimeStamp = f64;
 pub struct AccessRecord {
     pub ident: VslIdent,
     pub start: TimeStamp,
+    // TODO: store duration (use relative timing (?) from log as TS can go backwards)
+    // check Varnish code to see if relative timing is immune to clock going backwards
     pub end: TimeStamp,
     pub transaction_type: TransactionType,
     pub http_transaction: HttpTransaction,
@@ -21,7 +23,10 @@ pub struct AccessRecord {
 
 #[derive(Debug, Clone)]
 pub enum TransactionType {
-    Client,
+    Client {
+        parent: VslIdent,
+        reason: String,
+    },
     Backend {
         parent: VslIdent,
         reason: String,
@@ -29,6 +34,13 @@ pub enum TransactionType {
 }
 
 impl TransactionType {
+    #[allow(dead_code)]
+    pub fn is_client(&self) -> bool {
+        match self {
+            &TransactionType::Client { parent: _, reason: _ } => true,
+            _ => false
+        }
+    }
     #[allow(dead_code)]
     pub fn is_backend(&self) -> bool {
         match self {
@@ -197,6 +209,10 @@ impl RecordBuilder {
                             parent: parent,
                             reason: reason.to_owned()
                         },
+                        "req" => TransactionType::Client {
+                            parent: parent,
+                            reason: reason.to_owned()
+                        },
                         _ => return Err(RecordBuilderError::UnimplementedTransactionType(transaction_type.to_string()))
                     };
 
@@ -213,6 +229,10 @@ impl RecordBuilder {
                             .. self
                         },
                         "Beresp" => RecordBuilder {
+                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            .. self
+                        },
+                        "Resp" => RecordBuilder {
                             resp_end: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
                         },
@@ -248,6 +268,7 @@ impl RecordBuilder {
                         .. self
                     }
                 }
+                //TODO: lock header manip after request/response was sent
                 VslRecordTag::SLT_BereqHeader | VslRecordTag::SLT_ReqHeader => {
                     let (name, value) = try!(slt_header(message).into_result().context(vsl.tag));
 
@@ -369,6 +390,7 @@ pub struct State {
 
 impl State {
     pub fn new() -> State {
+        //TODO: some sort of expirity mechanism like LRU
         State { builders: HashMap::new() }
     }
 
@@ -388,7 +410,7 @@ impl State {
                 RecordBuilderResult::Complete(record) => return Some(record),
             },
             Err(err) => {
-                println!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
+                error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
                 return None
             }
         }
@@ -549,6 +571,58 @@ mod access_log_state_tests {
         assert_eq!(record.start, 1469180762.484544);
         assert_eq!(record.end, 1469180763.484544);
         assert!(record.transaction_type.is_backend());
+
+        assert_eq!(record.http_transaction.request.method, "GET".to_string());
+        assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
+        assert_eq!(record.http_transaction.request.protocol, "HTTP/1.1".to_string());
+        assert_eq!(record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
+        assert_eq!(record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
+        assert_eq!(record.http_transaction.request.headers.get(2), None);
+        assert_eq!(record.http_transaction.response.protocol, "HTTP/1.1".to_string());
+        assert_eq!(record.http_transaction.response.status, 503);
+        assert_eq!(record.http_transaction.response.reason, "Backend fetch failed".to_string());
+        assert_eq!(record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(3), None);
+    }
+
+    #[test]
+    fn apply_client_transaction() {
+        let mut state = State::new();
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "req 321 rxreq")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqMethod, 123, "GET")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqURL, 123, "/foobar")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqProtocol, 123, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "Host: localhost:8080")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "User-Agent: curl/7.40.0")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "Accept-Encoding: gzip")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqUnset, 123, "Accept-Encoding: gzip")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespProtocol, 123, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespStatus, 123, "503")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespReason, 123, "Service Unavailable")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespReason, 123, "Backend fetch failed")).is_none()); // TODO precedence ??
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Server: Varnish")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespUnset, 123, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Content-Type: text/html; charset=utf-8")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Resp: 1469180763.484544 0.000000 0.000000")).is_none());
+
+        let record = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 123, ""));
+
+        assert!(record.is_some());
+        assert!(state.get(123).is_none());
+
+        let record = record.unwrap();
+
+        assert_eq!(record.ident, 123);
+        assert_eq!(record.start, 1469180762.484544);
+        assert_eq!(record.end, 1469180763.484544);
+        assert!(record.transaction_type.is_client());
 
         assert_eq!(record.http_transaction.request.method, "GET".to_string());
         assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
