@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::Utf8Error;
 use std::num::{ParseIntError, ParseFloatError};
 use quick_error::ResultExt;
@@ -363,12 +364,12 @@ impl RecordBuilder {
 
 #[derive(Debug)]
 pub struct State {
-    builders: LinkedHashMap<VslIdent, RecordBuilder>
+    builders: HashMap<VslIdent, RecordBuilder>
 }
 
 impl State {
     pub fn new() -> State {
-        State { builders: LinkedHashMap::new() }
+        State { builders: HashMap::new() }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<AccessRecord> {
