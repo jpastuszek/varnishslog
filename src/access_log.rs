@@ -486,69 +486,69 @@ impl RecordBuilder {
 
                 // Final
                 VslRecordTag::SLT_End => {
-                    if let None = self.record_type {
-                        return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                    let record_type = try!(self.record_type.ok_or(RecordBuilderError::RecordIncomplete("record_type")));
+                    match record_type {
+                        RecordType::Session => {
+                            // Try to build SessionRecord
+                            let record = SessionRecord {
+                                ident: self.ident,
+                                open: try!(self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))),
+                                duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
+                                local: self.sess_local,
+                                remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
+                                requests: self.sess_requests,
+                            };
+
+                            return Ok(RecordBuilderResult::Complete(Record::Session(record)))
+                        },
+                        RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
+                            // Try to build AccessRecord
+                            let request = HttpRequest {
+                                protocol: try!(self.req_protocol.ok_or(RecordBuilderError::RecordIncomplete("req_protocol"))),
+                                method: try!(self.req_method.ok_or(RecordBuilderError::RecordIncomplete("req_method"))),
+                                url: try!(self.req_url.ok_or(RecordBuilderError::RecordIncomplete("req_url"))),
+                                headers: self.req_headers.into_iter().collect(),
+                            };
+
+                            let response = HttpResponse {
+                                protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
+                                status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
+                                reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
+                                headers: self.resp_headers.into_iter().collect(),
+                            };
+
+                            let http_transaction = HttpTransaction {
+                                start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                                end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+                                request: request,
+                                response: response,
+                            };
+
+                            match record_type {
+                                RecordType::ClientAccess { session, reason } => {
+                                    let record = ClientAccessRecord {
+                                        ident: self.ident,
+                                        session: session,
+                                        reason: reason,
+                                        http_transaction: http_transaction
+                                    };
+
+                                    return Ok(RecordBuilderResult::Complete(Record::ClientAccess(record)))
+                                },
+                                RecordType::BackendAccess { parent, reason } => {
+                                    let record = BackendAccessRecord {
+                                        ident: self.ident,
+                                        parent: parent,
+                                        reason: reason,
+                                        http_transaction: http_transaction
+                                    };
+
+                                    return Ok(RecordBuilderResult::Complete(Record::BackendAccess(record)))
+                                },
+                                _ => unreachable!(),
+                            }
+                        },
                     }
-                    if let Some(RecordType::Session) = self.record_type {
-                        // Try to build SessionRecord
-                        let record = SessionRecord {
-                            ident: self.ident,
-                            open: try!(self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))),
-                            duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
-                            local: self.sess_local,
-                            remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
-                            requests: self.sess_requests,
-                        };
-
-                        return Ok(RecordBuilderResult::Complete(Record::Session(record)))
-                    }
-
-                    // Try to build AccessRecord
-                    let request = HttpRequest {
-                        protocol: try!(self.req_protocol.ok_or(RecordBuilderError::RecordIncomplete("req_protocol"))),
-                        method: try!(self.req_method.ok_or(RecordBuilderError::RecordIncomplete("req_method"))),
-                        url: try!(self.req_url.ok_or(RecordBuilderError::RecordIncomplete("req_url"))),
-                        headers: self.req_headers.into_iter().collect(),
-                    };
-
-                    let response = HttpResponse {
-                        protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
-                        status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
-                        reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
-                        headers: self.resp_headers.into_iter().collect(),
-                    };
-
-                    let http_transaction = HttpTransaction {
-                        start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                        end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
-                        request: request,
-                        response: response,
-                    };
-
-                    if let Some(RecordType::ClientAccess { session, reason }) = self.record_type {
-                        let record = ClientAccessRecord {
-                            ident: self.ident,
-                            session: session,
-                            reason: reason,
-                            http_transaction: http_transaction
-                        };
-
-                        return Ok(RecordBuilderResult::Complete(Record::ClientAccess(record)))
-                    }
-
-                    if let Some(RecordType::BackendAccess { parent, reason }) = self.record_type {
-                        let record = BackendAccessRecord {
-                            ident: self.ident,
-                            parent: parent,
-                            reason: reason,
-                            http_transaction: http_transaction
-                        };
-
-                        return Ok(RecordBuilderResult::Complete(Record::BackendAccess(record)))
-                    }
-
-                    // TODO: should not need this
-                    unreachable!("more RecordTypes?")
                 }
                 _ => {
                     warn!("Ignoring unknown VSL tag: {:?}", vsl.tag);
