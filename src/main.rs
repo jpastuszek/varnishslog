@@ -15,7 +15,7 @@ use clap::{Arg, App};
 #[macro_use]
 mod stream_buf;
 use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
-use access_log::State;
+use access_log::RecordState;
 
 // Generated with ./mk_vsl_tag from Varnish headers: include/tbl/vsl_tags.h include/tbl/vsl_tags_http.h include/vsl_int.h
 // https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
@@ -95,7 +95,7 @@ fn main() {
 
     rfb.recycle(); // TODO: VSL should benefit from alignment - bench test it
 
-    let mut state = State::new();
+    let mut state = RecordState::new();
 
     loop {
         let record = match rfb.fill_apply(vsl_record) {

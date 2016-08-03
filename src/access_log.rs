@@ -534,14 +534,14 @@ impl RecordBuilder {
 }
 
 #[derive(Debug)]
-pub struct State {
+pub struct RecordState {
     builders: HashMap<VslIdent, RecordBuilder>
 }
 
-impl State {
-    pub fn new() -> State {
+impl RecordState {
+    pub fn new() -> RecordState {
         //TODO: some sort of expirity mechanism like LRU
-        State { builders: HashMap::new() }
+        RecordState { builders: HashMap::new() }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {
@@ -579,7 +579,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_non_utf8() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         state.apply(&VslRecord {
             tag: VslRecordTag::SLT_Begin,
@@ -593,7 +593,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_begin() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "bereq 321 fetch"));
 
@@ -606,7 +606,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_begin_unimpl_transaction_type() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "foo 231 fetch"));
         assert!(state.get(123).is_none());
@@ -614,7 +614,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_begin_parser_fail() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "foo bar"));
         assert!(state.get(123).is_none());
@@ -622,7 +622,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_begin_float_parse_fail() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "bereq bar fetch"));
         assert!(state.get(123).is_none());
@@ -630,7 +630,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_timestamp() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"));
 
@@ -640,7 +640,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_backend_request() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"));
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqMethod, 123, "GET"));
@@ -663,7 +663,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_backend_response() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Beresp: 1469180762.484544 0.000000 0.000000"));
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespProtocol, 123, "HTTP/1.1"));
@@ -687,7 +687,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_backend_transaction() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "bereq 321 fetch")).is_none());
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
@@ -742,7 +742,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_client_transaction() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "req 321 rxreq")).is_none());
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
@@ -797,7 +797,7 @@ mod access_log_state_tests {
 
     #[test]
     fn apply_session() {
-        let mut state = State::new();
+        let mut state = RecordState::new();
 
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "sess 0 HTTP/1")).is_none());
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_SessOpen, 123, "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18")).is_none());
