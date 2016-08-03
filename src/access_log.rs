@@ -24,17 +24,18 @@ pub type Address = (String, u16);
 // * Byte counts: SLT_ReqAcct
 #[derive(Debug, Clone)]
 pub struct ClientAccessRecord {
+    pub ident: VslIdent,
     pub session: VslIdent,
     pub reason: String,
-    pub ident: VslIdent,
+    pub backend_requests: Vec<VslIdent>,
     pub http_transaction: HttpTransaction,
 }
 
 #[derive(Debug, Clone)]
 pub struct BackendAccessRecord {
+    pub ident: VslIdent,
     pub parent: VslIdent,
     pub reason: String,
-    pub ident: VslIdent,
     pub http_transaction: HttpTransaction,
 }
 
@@ -92,7 +93,8 @@ struct RecordBuilder {
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
     sess_local: Option<Address>,
-    sess_client_requests: Vec<VslIdent>
+    client_requests: Vec<VslIdent>,
+    backend_requests: Vec<VslIdent>,
 }
 
 #[derive(Debug, Clone)]
@@ -286,7 +288,8 @@ impl RecordBuilder {
             sess_duration: None,
             sess_remote: None,
             sess_local: None,
-            sess_client_requests: Vec::new(),
+            client_requests: Vec::new(),
+            backend_requests: Vec::new(),
         }
     }
 
@@ -461,11 +464,20 @@ impl RecordBuilder {
 
                     match reason {
                         "req" => {
-                            let mut client_requests = self.sess_client_requests;
+                            let mut client_requests = self.client_requests;
                             client_requests.push(vxid);
 
                             RecordBuilder {
-                                sess_client_requests: client_requests,
+                                client_requests: client_requests,
+                                .. self
+                            }
+                        },
+                        "bereq" => {
+                            let mut backend_requests = self.backend_requests;
+                            backend_requests.push(vxid);
+
+                            RecordBuilder {
+                                backend_requests: backend_requests,
                                 .. self
                             }
                         },
@@ -496,7 +508,7 @@ impl RecordBuilder {
                                 duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
                                 local: self.sess_local,
                                 remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
-                                client_requests: self.sess_client_requests,
+                                client_requests: self.client_requests,
                             };
 
                             return Ok(RecordBuilderResult::Complete(Record::Session(record)))
@@ -530,6 +542,7 @@ impl RecordBuilder {
                                         ident: self.ident,
                                         session: session,
                                         reason: reason,
+                                        backend_requests: self.backend_requests,
                                         http_transaction: http_transaction
                                     };
 
@@ -632,17 +645,22 @@ impl SessionState {
                     let client_access_records = record.client_requests.iter().map(|ident| {
                         match self.client_access_records.remove(ident) {
                             Some(access_record) => access_record,
-                            None => panic!("Record with ident {} not forund!", ident) // warn!
+                            None => panic!("ClientRequestRecord with ident {} not forund!", ident) // warn!
                         }
-                    });
+                    }).collect::<Vec<_>>();
 
-                    // TODO: link client_access_records to backend requests
-                    //client_access_records.iter().map(|record| record.backend_requests
-                    //
-                    client_access_records.map(|client| ProxyTransaction {
-                        client_access_record: client,
-                        backend_access_records: Vec::new(), //TODO
-                    }).collect()
+                    client_access_records.into_iter().map(|client_access_record| {
+                        let backend_access_records = client_access_record.backend_requests.iter().map(|ident| {
+                            match self.backend_access_records.remove(ident) {
+                                Some(access_record) => access_record,
+                                None => panic!("BackendRequestRecord with ident {} not forund!", ident) // warn!
+                            }
+                        }).collect();
+
+                        ProxyTransaction {
+                            client_access_record: client_access_record,
+                            backend_access_records: backend_access_records,
+                        }}).collect()
                 };
 
                 Some(Session {
@@ -773,6 +791,65 @@ mod access_log_request_state_tests {
     }
 
     #[test]
+    fn apply_client_transaction() {
+        let mut state = RecordState::new();
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "req 321 rxreq")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqMethod, 123, "GET")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqURL, 123, "/foobar")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqProtocol, 123, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "Host: localhost:8080")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "User-Agent: curl/7.40.0")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "Accept-Encoding: gzip")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqUnset, 123, "Accept-Encoding: gzip")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Link, 123, "bereq 32774 fetch")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespProtocol, 123, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespStatus, 123, "503")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespReason, 123, "Service Unavailable")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespReason, 123, "Backend fetch failed")).is_none()); // TODO precedence ??
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Server: Varnish")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespUnset, 123, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Content-Type: text/html; charset=utf-8")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Resp: 1469180763.484544 0.000000 0.000000")).is_none());
+
+        let record = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 123, ""));
+
+        assert!(state.get(123).is_none());
+
+        assert!(record.is_some());
+        let record = record.unwrap();
+
+        assert!(record.is_client_access());
+        let record = record.unwrap_client_access();
+
+        assert_eq!(record.ident, 123);
+        assert_eq!(record.session, 321);
+        assert_eq!(record.reason, "rxreq".to_string());
+        assert_eq!(record.backend_requests.get(0), Some(&32774));
+        assert_eq!(record.backend_requests.get(1), None);
+        assert_eq!(record.http_transaction.start, 1469180762.484544);
+        assert_eq!(record.http_transaction.end, 1469180763.484544);
+        assert_eq!(record.http_transaction.request.method, "GET".to_string());
+        assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
+        assert_eq!(record.http_transaction.request.protocol, "HTTP/1.1".to_string());
+        assert_eq!(record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
+        assert_eq!(record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
+        assert_eq!(record.http_transaction.request.headers.get(2), None);
+        assert_eq!(record.http_transaction.response.protocol, "HTTP/1.1".to_string());
+        assert_eq!(record.http_transaction.response.status, 503);
+        assert_eq!(record.http_transaction.response.reason, "Backend fetch failed".to_string());
+        assert_eq!(record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(3), None);
+    }
+
+    #[test]
     fn apply_backend_transaction() {
         let mut state = RecordState::new();
 
@@ -829,61 +906,6 @@ mod access_log_request_state_tests {
     }
 
     #[test]
-    fn apply_client_transaction() {
-        let mut state = RecordState::new();
-
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "req 321 rxreq")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqMethod, 123, "GET")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqURL, 123, "/foobar")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqProtocol, 123, "HTTP/1.1")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "Host: localhost:8080")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "User-Agent: curl/7.40.0")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader, 123, "Accept-Encoding: gzip")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqUnset, 123, "Accept-Encoding: gzip")).is_none());
-
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespProtocol, 123, "HTTP/1.1")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespStatus, 123, "503")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespReason, 123, "Service Unavailable")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespReason, 123, "Backend fetch failed")).is_none()); // TODO precedence ??
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Server: Varnish")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespUnset, 123, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader, 123, "Content-Type: text/html; charset=utf-8")).is_none());
-        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Resp: 1469180763.484544 0.000000 0.000000")).is_none());
-
-        let record = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 123, ""));
-
-        assert!(state.get(123).is_none());
-
-        assert!(record.is_some());
-        let record = record.unwrap();
-
-        assert!(record.is_client_access());
-        let record = record.unwrap_client_access();
-
-        assert_eq!(record.ident, 123);
-        assert_eq!(record.session, 321);
-        assert_eq!(record.reason, "rxreq".to_string());
-        assert_eq!(record.http_transaction.start, 1469180762.484544);
-        assert_eq!(record.http_transaction.end, 1469180763.484544);
-        assert_eq!(record.http_transaction.request.method, "GET".to_string());
-        assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
-        assert_eq!(record.http_transaction.request.protocol, "HTTP/1.1".to_string());
-        assert_eq!(record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
-        assert_eq!(record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
-        assert_eq!(record.http_transaction.request.headers.get(2), None);
-        assert_eq!(record.http_transaction.response.protocol, "HTTP/1.1".to_string());
-        assert_eq!(record.http_transaction.response.status, 503);
-        assert_eq!(record.http_transaction.response.reason, "Backend fetch failed".to_string());
-        assert_eq!(record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(3), None);
-    }
-
-    #[test]
     fn apply_session() {
         let mut state = RecordState::new();
 
@@ -909,5 +931,121 @@ mod access_log_request_state_tests {
         assert_eq!(record.remote, ("192.168.1.10".to_string(), 40078));
         assert_eq!(record.client_requests.get(0), Some(&32773));
         assert_eq!(record.client_requests.get(1), None);
+    }
+
+    #[test]
+    fn apply_session_state() {
+        let mut state = SessionState::new();
+
+        // TODO: macro this!
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin,           100, "req 10 rxreq")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp,       100, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqMethod,       100, "GET")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqURL,          100, "/foobar")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqProtocol,     100, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader,       100, "Host: localhost:8080")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader,       100, "User-Agent: curl/7.40.0")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqHeader,       100, "Accept-Encoding: gzip")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_ReqUnset,        100, "Accept-Encoding: gzip")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Link,            100, "bereq 1000 fetch")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespProtocol,    100, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespStatus,     100, "503")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespReason,     100, "Service Unavailable")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespReason,     100, "Backend fetch failed")).is_none()); // TODO precedence ??
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader,     100, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader,     100, "Server: Varnish")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader,     100, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespUnset,      100, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_RespHeader,     100, "Content-Type: text/html; charset=utf-8")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp,      100, "Resp: 1469180763.484544 0.000000 0.000000")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_End,            100, "")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin,           1000, "bereq 100 fetch")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp,       1000, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqMethod,     1000, "GET")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqURL,        1000, "/foobar")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqProtocol,   1000, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 1000, "Host: localhost:8080")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 1000, "User-Agent: curl/7.40.0")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 1000, "Accept-Encoding: gzip")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqUnset, 1000, "Accept-Encoding: gzip")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 1000, "Beresp: 1469180763.484544 0.000000 0.000000")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespProtocol, 1000, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespStatus, 1000, "503")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespReason, 1000, "Service Unavailable")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespReason, 1000, "Backend fetch failed")).is_none()); // TODO precedence ??
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 1000, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 1000, "Server: Varnish")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 1000, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespUnset, 1000, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 1000, "Content-Type: text/html; charset=utf-8")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 1000, "")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 10, "sess 0 HTTP/1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_SessOpen, 10, "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Link, 10, "req 100 rxreq")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_SessClose, 10, "REM_CLOSE 0.001")).is_none());
+
+        let session = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 10, ""));
+
+        assert!(session.is_some());
+        let session = session.unwrap();
+
+        let client_access_record = session.proxy_transactions.get(0).unwrap().client_access_record.clone();
+        assert_eq!(client_access_record.ident, 100);
+        assert_eq!(client_access_record.session, 10);
+        assert_eq!(client_access_record.reason, "rxreq".to_string());
+        assert_eq!(client_access_record.backend_requests.get(0), Some(&1000));
+        assert_eq!(client_access_record.backend_requests.get(1), None);
+        assert_eq!(client_access_record.http_transaction.start, 1469180762.484544);
+        assert_eq!(client_access_record.http_transaction.end, 1469180763.484544);
+        assert_eq!(client_access_record.http_transaction.request.method, "GET".to_string());
+        assert_eq!(client_access_record.http_transaction.request.url, "/foobar".to_string());
+        assert_eq!(client_access_record.http_transaction.request.protocol, "HTTP/1.1".to_string());
+        assert_eq!(client_access_record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
+        assert_eq!(client_access_record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
+        assert_eq!(client_access_record.http_transaction.request.headers.get(2), None);
+        assert_eq!(client_access_record.http_transaction.response.protocol, "HTTP/1.1".to_string());
+        assert_eq!(client_access_record.http_transaction.response.status, 503);
+        assert_eq!(client_access_record.http_transaction.response.reason, "Backend fetch failed".to_string());
+        assert_eq!(client_access_record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
+        assert_eq!(client_access_record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
+        assert_eq!(client_access_record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
+        assert_eq!(client_access_record.http_transaction.response.headers.get(3), None);
+
+        let backend_access_record = session.proxy_transactions.get(0).unwrap().backend_access_records.get(0).unwrap();
+        assert_eq!(backend_access_record.ident, 1000);
+        assert_eq!(backend_access_record.parent, 100);
+        assert_eq!(backend_access_record.reason, "fetch".to_string());
+        assert_eq!(backend_access_record.http_transaction.start, 1469180762.484544);
+        assert_eq!(backend_access_record.http_transaction.end, 1469180763.484544);
+
+        assert_eq!(backend_access_record.http_transaction.request.method, "GET".to_string());
+        assert_eq!(backend_access_record.http_transaction.request.url, "/foobar".to_string());
+        assert_eq!(backend_access_record.http_transaction.request.protocol, "HTTP/1.1".to_string());
+        assert_eq!(backend_access_record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
+        assert_eq!(backend_access_record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
+        assert_eq!(backend_access_record.http_transaction.request.headers.get(2), None);
+        assert_eq!(backend_access_record.http_transaction.response.protocol, "HTTP/1.1".to_string());
+        assert_eq!(backend_access_record.http_transaction.response.status, 503);
+        assert_eq!(backend_access_record.http_transaction.response.reason, "Backend fetch failed".to_string());
+        assert_eq!(backend_access_record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
+        assert_eq!(backend_access_record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
+        assert_eq!(backend_access_record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
+        assert_eq!(backend_access_record.http_transaction.response.headers.get(3), None);
+
+        let session_record = session.session_record;
+        assert_eq!(session_record.ident, 10);
+        assert_eq!(session_record.open, 1469180762.484344);
+        assert_eq!(session_record.duration, 0.001);
+        assert_eq!(session_record.local, Some(("127.0.0.1".to_string(), 1080)));
+        assert_eq!(session_record.remote, ("192.168.1.10".to_string(), 40078));
+        assert_eq!(session_record.client_requests.get(0), Some(&100));
+        assert_eq!(session_record.client_requests.get(1), None);
     }
 }
