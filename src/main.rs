@@ -15,6 +15,7 @@ use clap::{Arg, App};
 #[macro_use]
 mod stream_buf;
 use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
+use access_log::State;
 
 // Generated with ./mk_vsl_tag from Varnish headers: include/tbl/vsl_tags.h include/tbl/vsl_tags_http.h include/vsl_int.h
 // https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
@@ -45,6 +46,16 @@ fn main() {
              .short("v")
              .multiple(true)
              .help("Sets the level of verbosity; e.g. -vv for INFO level, -vvvv for TRACE level"))
+        .arg(Arg::with_name("output-log")
+             .long("output-log")
+             .short("l")
+             .conflicts_with_all(&["output-debug"])
+             .help("Output log content"))
+        .arg(Arg::with_name("output-debug")
+             .long("output-debug")
+             .short("d")
+             .conflicts_with_all(&["output-log"])
+             .help("Output debug format access records"))
         .get_matches();
 
     stderrlog::new()
@@ -84,6 +95,8 @@ fn main() {
 
     rfb.recycle(); // TODO: VSL should benefit from alignment - bench test it
 
+    let mut state = State::new();
+
     loop {
         let record = match rfb.fill_apply(vsl_record) {
             Err(FillApplyError::FillError(FillError::Io(err))) => {
@@ -106,6 +119,14 @@ fn main() {
             Ok(Some(record)) => record,
         };
 
-        println!("{}", record);
+        if arguments.is_present("output-log") {
+            println!("{}", record);
+        } else if arguments.is_present("output-debug") {
+            if let Some(access_record) = state.apply(&record) {
+                println!("{:#?}", access_record)
+            }
+        } else {
+            panic!("default output unipl")
+        }
     }
 }

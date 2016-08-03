@@ -10,6 +10,16 @@ use nom::{self, IResult};
 
 pub type TimeStamp = f64;
 
+// TODO:
+// * Collect Log messages
+// * Collect errors: SLT_FetchError
+// * Collect Debug messages: SLT_Debug
+// * miss/hit etc
+// * client IP: SLT_SessOpen
+// * Call trace
+// * ACL trace
+// * Linking information: SLT_Link
+// * Byte counts: SLT_ReqAcct
 #[derive(Debug, Clone)]
 pub struct AccessRecord {
     pub ident: VslIdent,
