@@ -45,7 +45,7 @@ pub struct SessionRecord {
     pub duration: Duration,
     pub local: Option<Address>,
     pub remote: Address,
-    pub requests: Vec<VslIdent>
+    pub client_requests: Vec<VslIdent>
 }
 
 // TODO: store duration (use relative timing (?) from log as TS can go backwards)
@@ -92,7 +92,7 @@ struct RecordBuilder {
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
     sess_local: Option<Address>,
-    sess_requests: Vec<VslIdent>
+    sess_client_requests: Vec<VslIdent>
 }
 
 #[derive(Debug, Clone)]
@@ -163,15 +163,15 @@ impl Record {
 
 #[derive(Debug)]
 pub struct ProxyTransaction {
-    client: ClientAccessRecord,
-    backend: Vec<BackendAccessRecord>, // multiple ESI requests?
+    client_access_record: ClientAccessRecord,
+    backend_access_records: Vec<BackendAccessRecord>, // multiple ESI requests?
 }
 
 //TODO: what about graced async backend fetches on miss
 #[derive(Debug)]
 pub struct Session {
     proxy_transactions: Vec<ProxyTransaction>,
-    session: SessionRecord,
+    session_record: SessionRecord,
 }
 
 #[derive(Debug)]
@@ -286,7 +286,7 @@ impl RecordBuilder {
             sess_duration: None,
             sess_remote: None,
             sess_local: None,
-            sess_requests: Vec::new(),
+            sess_client_requests: Vec::new(),
         }
     }
 
@@ -461,11 +461,11 @@ impl RecordBuilder {
 
                     match reason {
                         "req" => {
-                            let mut requests = self.sess_requests;
-                            requests.push(vxid);
+                            let mut client_requests = self.sess_client_requests;
+                            client_requests.push(vxid);
 
                             RecordBuilder {
-                                sess_requests: requests,
+                                sess_client_requests: client_requests,
                                 .. self
                             }
                         },
@@ -496,7 +496,7 @@ impl RecordBuilder {
                                 duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
                                 local: self.sess_local,
                                 remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
-                                requests: self.sess_requests,
+                                client_requests: self.sess_client_requests,
                             };
 
                             return Ok(RecordBuilderResult::Complete(Record::Session(record)))
@@ -600,63 +600,60 @@ impl RecordState {
     }
 }
 
-/*
 #[derive(Debug)]
 pub struct SessionState {
     record_state: RecordState,
-    access_records: HashMap<VslIdent, AccessRecord>,
+    client_access_records: HashMap<VslIdent, ClientAccessRecord>,
+    backend_access_records: HashMap<VslIdent, BackendAccessRecord>,
 }
 
 impl SessionState {
-    pub fn new() -> RecordState {
+    pub fn new() -> SessionState {
         //TODO: some sort of expirity mechanism like LRU
-        RecordState {
+        SessionState {
             record_state: RecordState::new(),
-            access_records: HashMap::new(),
+            client_access_records: HashMap::new(),
+            backend_access_records: HashMap::new(),
         }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Session> {
         match self.record_state.apply(vsl) {
-            Some(Record::Access(access_record)) => self.access_records.insert(access_record.ident, access_record),
-            Some(Record::Session(session_record)) => {
-                let client_access_records = session_record.requests.map(|ident| {
-                    match self.access_records.remove(ident) {
-                        Some(access_record) => access_record,
-                        None => panic!("Record with ident {} not forund!", ident) // warn!
-                    }
-                });
-
-                // TODO: link client_access_records to backend requests
+            Some(Record::ClientAccess(record)) => {
+                self.client_access_records.insert(record.ident, record);
+                None
             }
-        }
+            Some(Record::BackendAccess(record)) => {
+                self.backend_access_records.insert(record.ident, record);
+                None
+            }
+            Some(Record::Session(record)) => {
+                let proxy_transactions = {
+                    let client_access_records = record.client_requests.iter().map(|ident| {
+                        match self.client_access_records.remove(ident) {
+                            Some(access_record) => access_record,
+                            None => panic!("Record with ident {} not forund!", ident) // warn!
+                        }
+                    });
 
-        let builder = match self.builders.remove(&vsl.ident) {
-            Some(builder) => builder,
-            None => RecordBuilder::new(vsl.ident),
-        };
+                    // TODO: link client_access_records to backend requests
+                    //client_access_records.iter().map(|record| record.backend_requests
+                    //
+                    client_access_records.map(|client| ProxyTransaction {
+                        client_access_record: client,
+                        backend_access_records: Vec::new(), //TODO
+                    }).collect()
+                };
 
-        match builder.apply(vsl) {
-            Ok(result) => match result {
-                RecordBuilderResult::Building(builder) => {
-                    self.builders.insert(vsl.ident, builder);
-                    return None
-                }
-                RecordBuilderResult::Complete(record) => return Some(record),
+                Some(Session {
+                    proxy_transactions: proxy_transactions,
+                    session_record: record,
+                })
             },
-            Err(err) => {
-                error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
-                return None
-            }
+            None => None,
         }
-    }
-
-    #[cfg(test)]
-    fn get(&self, ident: VslIdent) -> Option<&RecordBuilder> {
-        self.builders.get(&ident)
     }
 }
-*/
 
 #[cfg(test)]
 mod access_log_request_state_tests {
@@ -910,7 +907,7 @@ mod access_log_request_state_tests {
         assert_eq!(record.duration, 0.001);
         assert_eq!(record.local, Some(("127.0.0.1".to_string(), 1080)));
         assert_eq!(record.remote, ("192.168.1.10".to_string(), 40078));
-        assert_eq!(record.requests.get(0), Some(&32773));
-        assert_eq!(record.requests.get(1), None);
+        assert_eq!(record.client_requests.get(0), Some(&32773));
+        assert_eq!(record.client_requests.get(1), None);
     }
 }

@@ -15,7 +15,7 @@ use clap::{Arg, App};
 #[macro_use]
 mod stream_buf;
 use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
-use access_log::RecordState;
+use access_log::{RecordState, SessionState};
 
 // Generated with ./mk_vsl_tag from Varnish headers: include/tbl/vsl_tags.h include/tbl/vsl_tags_http.h include/vsl_int.h
 // https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
@@ -49,13 +49,18 @@ fn main() {
         .arg(Arg::with_name("output-log")
              .long("output-log")
              .short("l")
-             .conflicts_with_all(&["output-debug"])
+             .conflicts_with_all(&["output-debug-records", "output-debug-sessions"])
              .help("Output log content"))
-        .arg(Arg::with_name("output-debug")
-             .long("output-debug")
-             .short("d")
-             .conflicts_with_all(&["output-log"])
-             .help("Output debug format access records"))
+        .arg(Arg::with_name("output-debug-records")
+             .long("output-debug-records")
+             .short("r")
+             .conflicts_with_all(&["output-log", "output-debug-sessions"])
+             .help("Output debug format records"))
+        .arg(Arg::with_name("output-debug-sessions")
+             .long("output-debug-session")
+             .short("s")
+             .conflicts_with_all(&["output-log", "output-debug-records"]) // TODO: use Set
+             .help("Output debug format sessions"))
         .get_matches();
 
     stderrlog::new()
@@ -95,7 +100,8 @@ fn main() {
 
     rfb.recycle(); // TODO: VSL should benefit from alignment - bench test it
 
-    let mut state = RecordState::new();
+    let mut record_state = RecordState::new();
+    let mut session_state = SessionState::new();
 
     loop {
         let record = match rfb.fill_apply(vsl_record) {
@@ -121,9 +127,13 @@ fn main() {
 
         if arguments.is_present("output-log") {
             println!("{}", record);
-        } else if arguments.is_present("output-debug") {
-            if let Some(access_record) = state.apply(&record) {
-                println!("{:#?}", access_record)
+        } else if arguments.is_present("output-debug-records") {
+            if let Some(record) = record_state.apply(&record) {
+                println!("{:#?}", record)
+            }
+        } else if arguments.is_present("output-debug-sessions") {
+            if let Some(session) = session_state.apply(&record) {
+                println!("{:#?}", session)
             }
         } else {
             panic!("default output unipl")
