@@ -15,7 +15,7 @@ pub struct AccessRecord {
     pub start: TimeStamp,
     pub end: TimeStamp,
     pub transaction_type: TransactionType,
-    pub transaction: HttpTransaction,
+    pub http_transaction: HttpTransaction,
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +94,7 @@ struct RecordBuilder {
 #[derive(Debug)]
 enum RecordBuilderResult {
     Building(RecordBuilder),
-    Ready(AccessRecord),
+    Complete(AccessRecord),
 }
 
 trait IResultExt<O, E> {
@@ -133,6 +133,9 @@ quick_error! {
                 -> (field_name, format!("Float parsing error: {}", err))
             context(field_name: &'static str, err: ParseIntError)
                 -> (field_name, format!("Integer parsing error: {}", err))
+        }
+        RecordIncomplete(field_name: &'static str) {
+            display("Failed to construct final access record due to missing field '{}'", field_name)
         }
     }
 }
@@ -314,6 +317,38 @@ impl RecordBuilder {
                         .. self
                     }
                 }
+
+                // Final
+                VslRecordTag::SLT_End => {
+                    let request = HttpRequest {
+                        protocol: try!(self.req_protocol.ok_or(RecordBuilderError::RecordIncomplete("req_protocol"))),
+                        method: try!(self.req_method.ok_or(RecordBuilderError::RecordIncomplete("req_method"))),
+                        url: try!(self.req_url.ok_or(RecordBuilderError::RecordIncomplete("req_url"))),
+                        headers: self.req_headers.into_iter().collect(),
+                    };
+
+                    let response = HttpResponse {
+                        protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
+                        status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
+                        reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
+                        headers: self.resp_headers.into_iter().collect(),
+                    };
+
+                    let http_transaction = HttpTransaction {
+                        request: request,
+                        response: response,
+                    };
+
+                    let record = AccessRecord {
+                        ident: self.ident,
+                        start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                        end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+                        transaction_type: try!(self.transaction_type.ok_or(RecordBuilderError::RecordIncomplete("transaction_type"))),
+                        http_transaction: http_transaction
+                    };
+
+                    return Ok(RecordBuilderResult::Complete(record))
+                }
                 _ => {
                     warn!("Ignoring unknown VSL tag: {:?}", vsl.tag);
                     self
@@ -349,10 +384,10 @@ impl State {
                     self.builders.insert(vsl.ident, builder);
                     return None
                 }
-                RecordBuilderResult::Ready(record) => return Some(record),
+                RecordBuilderResult::Complete(record) => return Some(record),
             },
             Err(err) => {
-                error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
+                println!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
                 return None
             }
         }
@@ -475,5 +510,55 @@ mod access_log_state_tests {
         assert_eq!(builder.resp_headers.get("Date"), Some(&"Fri, 22 Jul 2016 09:46:02 GMT".to_string()));
         assert_eq!(builder.resp_headers.get("Server"), Some(&"Varnish".to_string()));
         assert_eq!(builder.resp_headers.get("Cache-Control: no-store"), None);
+    }
+
+    #[test]
+    fn apply_backend_transaction() {
+        let mut state = State::new();
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "bereq 321 fetch")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqMethod, 123, "GET")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqURL, 123, "/foobar")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqProtocol, 123, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 123, "Host: localhost:8080")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 123, "User-Agent: curl/7.40.0")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 123, "Accept-Encoding: gzip")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqUnset, 123, "Accept-Encoding: gzip")).is_none());
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Beresp: 1469180763.484544 0.000000 0.000000")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespProtocol, 123, "HTTP/1.1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespStatus, 123, "503")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespReason, 123, "Service Unavailable")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespReason, 123, "Backend fetch failed")).is_none()); // TODO precedence ??
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Server: Varnish")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespUnset, 123, "Cache-Control: no-store")).is_none());
+
+        let record = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 123, ""));
+
+        assert!(record.is_some());
+        assert!(state.get(123).is_none());
+
+        let record = record.unwrap();
+
+        assert_eq!(record.ident, 123);
+        assert_eq!(record.start, 1469180762.484544);
+        assert_eq!(record.end, 1469180763.484544);
+        assert!(record.transaction_type.is_backend());
+
+        assert_eq!(record.http_transaction.request.method, "GET".to_string());
+        assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
+        assert_eq!(record.http_transaction.request.protocol, "HTTP/1.1".to_string());
+        //assert_eq!(record.http_transaction.request.headers.get("Host"), Some(&"localhost:8080".to_string()));
+        //assert_eq!(hrecord.http_transaction.request.eaders.get("User-Agent"), Some(&"curl/7.40.0".to_string()));
+        //assert_eq!(record.http_transaction.request.headers.get("Accept-Encoding"), None);
+        assert_eq!(record.http_transaction.response.protocol, "HTTP/1.1".to_string());
+        assert_eq!(record.http_transaction.response.status, 503);
+        assert_eq!(record.http_transaction.response.reason, "Backend fetch failed".to_string());
+        //assert_eq!(record.http_transaction.response.headers.get("Date"), Some(&"Fri, 22 Jul 2016 09:46:02 GMT".to_string()));
+        //assert_eq!(record.http_transaction.response.headers.get("Server"), Some(&"Varnish".to_string()));
+        //assert_eq!(record.http_transaction.response.headers.get("Cache-Control: no-store"), None);
     }
 }
