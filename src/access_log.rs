@@ -9,6 +9,8 @@ use vsl::{VslRecord, VslRecordTag, VslIdent};
 use nom::{self, IResult};
 
 pub type TimeStamp = f64;
+pub type Duration = f64;
+pub type Address = (String, u16);
 
 // TODO:
 // * Collect Log messages
@@ -32,9 +34,19 @@ pub struct AccessRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct SessionRecord {
+    pub ident: VslIdent,
+    pub open: TimeStamp,
+    pub duration: Duration,
+    pub local: Option<Address>,
+    pub remote: Address,
+    pub requests: Vec<VslIdent>
+}
+
+#[derive(Debug, Clone)]
 pub enum TransactionType {
     Client {
-        parent: VslIdent,
+        session: VslIdent,
         reason: String,
     },
     Backend {
@@ -47,7 +59,7 @@ impl TransactionType {
     #[allow(dead_code)]
     pub fn is_client(&self) -> bool {
         match self {
-            &TransactionType::Client { parent: _, reason: _ } => true,
+            &TransactionType::Client { session: _, reason: _ } => true,
             _ => false
         }
     }
@@ -63,15 +75,14 @@ impl TransactionType {
     pub fn get_backend_parent(&self) -> VslIdent {
         match self {
             &TransactionType::Backend { ref parent, reason: _ } => *parent,
-            _ => panic!("unwrap_backend called on TransactionType that was Backend")
+            _ => panic!("get_backend_parent called on TransactionType that was not Backend")
         }
     }
-
     #[allow(dead_code)]
     pub fn get_backend_reason(&self) -> &str {
         match self {
             &TransactionType::Backend { parent: _, ref reason } => reason,
-            _ => panic!("unwrap_backend called on TransactionType that was Backend")
+            _ => panic!("get_backend_reason called on TransactionType that was not Backend")
         }
     }
 }
@@ -112,12 +123,55 @@ struct RecordBuilder {
     resp_reason: Option<String>,
     resp_headers: LinkedHashMap<String, String>,
     resp_end: Option<TimeStamp>,
+    sess_open: Option<TimeStamp>,
+    sess_duration: Option<Duration>,
+    sess_remote: Option<Address>,
+    sess_local: Option<Address>,
+    sess_requests: Vec<VslIdent>
+}
+
+#[derive(Debug)]
+pub enum Record {
+    Access(AccessRecord),
+    Session(SessionRecord),
+}
+
+impl Record {
+    #[allow(dead_code)]
+    pub fn is_access(&self) -> bool {
+        match self {
+            &Record::Access(_) => true,
+            _ => false,
+        }
+    }
+    #[allow(dead_code)]
+    pub fn is_session(&self) -> bool {
+        match self {
+            &Record::Session(_) => true,
+            _ => false,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn unwrap_access(self) -> AccessRecord {
+        match self {
+            Record::Access(access_record) => access_record,
+            _ => panic!("unwrap_access called on Record that was not Access")
+        }
+    }
+    #[allow(dead_code)]
+    pub fn unwrap_session(self) -> SessionRecord {
+        match self {
+            Record::Session(session_record) => session_record,
+            _ => panic!("unwrap_session called on Record that was not Session")
+        }
+    }
 }
 
 #[derive(Debug)]
 enum RecordBuilderResult {
     Building(RecordBuilder),
-    Complete(AccessRecord),
+    Complete(Record),
 }
 
 trait IResultExt<O, E> {
@@ -189,6 +243,24 @@ named!(slt_header<&str, (&str, &str)>, complete!(tuple!(
         label,      // Header name
         rest_s)));  // Header value
 
+named!(slt_session<&str, (&str, &str, &str, &str, &str, &str, &str)>, complete!(tuple!(
+        space_terminated,           // Remote IPv4/6 address
+        space_terminated,           // Remote TCP port
+        space_terminated,           // Listen socket (-a argument)
+        space_terminated,           // Local IPv4/6 address ('-' if !$log_local_addr)
+        space_terminated,           // Local TCP port ('-' if !$log_local_addr)
+        space_terminated,           // Time stamp (undocumented)
+        space_terminated_eof)));    // File descriptor number
+
+named!(slt_link<&str, (&str, &str, &str)>, complete!(tuple!(
+        space_terminated,           // Child type ("req" or "bereq")
+        space_terminated,           // Child vxid
+        space_terminated_eof)));    // Reason
+
+named!(slt_sess_close<&str, (&str, &str)>, complete!(tuple!(
+        space_terminated,           // Why the connection closed
+        space_terminated_eof)));    // How long the session was open
+
 impl RecordBuilder {
     fn new(ident: VslIdent) -> RecordBuilder {
         RecordBuilder {
@@ -204,6 +276,11 @@ impl RecordBuilder {
             resp_reason: None,
             resp_headers: LinkedHashMap::new(),
             resp_end: None,
+            sess_open: None,
+            sess_duration: None,
+            sess_remote: None,
+            sess_local: None,
+            sess_requests: Vec::new(),
         }
     }
 
@@ -212,23 +289,25 @@ impl RecordBuilder {
             Ok(message) => match vsl.tag {
                 VslRecordTag::SLT_Begin => {
                     let (transaction_type, parent, reason) = try!(slt_begin(message).into_result().context(vsl.tag));
-                    let parent = try!(parent.parse().context("parent vxid"));
+                    let vxid = try!(parent.parse().context("vxid"));
 
-                    let transaction_type = match transaction_type {
-                        "bereq" => TransactionType::Backend {
-                            parent: parent,
-                            reason: reason.to_owned()
+                    match transaction_type {
+                        "bereq" => RecordBuilder {
+                            transaction_type: Some(TransactionType::Backend {
+                                parent: vxid,
+                                reason: reason.to_owned()
+                            }),
+                            .. self
                         },
-                        "req" => TransactionType::Client {
-                            parent: parent,
-                            reason: reason.to_owned()
+                        "req" => RecordBuilder {
+                            transaction_type: Some(TransactionType::Client {
+                                session: vxid,
+                                reason: reason.to_owned()
+                            }),
+                            .. self
                         },
+                        "sess" => self, // nothing usefull
                         _ => return Err(RecordBuilderError::UnimplementedTransactionType(transaction_type.to_string()))
-                    };
-
-                    RecordBuilder {
-                        transaction_type: Some(transaction_type),
-                        .. self
                     }
                 }
                 VslRecordTag::SLT_Timestamp => {
@@ -350,36 +429,97 @@ impl RecordBuilder {
                     }
                 }
 
+                // Session
+                VslRecordTag::SLT_SessOpen => {
+                    let (remote_ip, remote_port, _listen_sock, local_ip, local_port, timestamp, _fd)
+                        = try!(slt_session(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        sess_open: Some(try!(timestamp.parse().context("timestamp"))),
+                        sess_remote: if remote_ip != "-" && remote_port != "-" {
+                            Some((remote_ip.to_string(), try!(remote_port.parse().context("remote_port"))))
+                        } else {
+                            None
+                        },
+                        sess_local: Some((local_ip.to_string(), try!(local_port.parse().context("local_port")))),
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_Link => {
+                    let (reason, child_vxid, _child_type) = try!(slt_link(message).into_result().context(vsl.tag));
+
+                    let vxid = try!(child_vxid.parse().context("vxid"));
+
+                    match reason {
+                        "req" => {
+                            let mut requests = self.sess_requests;
+                            requests.push(vxid);
+
+                            RecordBuilder {
+                                sess_requests: requests,
+                                .. self
+                            }
+                        },
+                        _ => {
+                            warn!("Ignoring unknown SLT_Link reason variant: {}", reason);
+                            self
+                        }
+                    }
+                }
+                VslRecordTag::SLT_SessClose => {
+                    let (_reason, duration) = try!(slt_sess_close(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        sess_duration: Some(try!(duration.parse().context("duration"))),
+                        .. self
+                    }
+                }
+
                 // Final
                 VslRecordTag::SLT_End => {
-                    let request = HttpRequest {
-                        protocol: try!(self.req_protocol.ok_or(RecordBuilderError::RecordIncomplete("req_protocol"))),
-                        method: try!(self.req_method.ok_or(RecordBuilderError::RecordIncomplete("req_method"))),
-                        url: try!(self.req_url.ok_or(RecordBuilderError::RecordIncomplete("req_url"))),
-                        headers: self.req_headers.into_iter().collect(),
-                    };
+                    if self.transaction_type.is_some() {
+                        // Try to build AccessRecord
+                        let request = HttpRequest {
+                            protocol: try!(self.req_protocol.ok_or(RecordBuilderError::RecordIncomplete("req_protocol"))),
+                            method: try!(self.req_method.ok_or(RecordBuilderError::RecordIncomplete("req_method"))),
+                            url: try!(self.req_url.ok_or(RecordBuilderError::RecordIncomplete("req_url"))),
+                            headers: self.req_headers.into_iter().collect(),
+                        };
 
-                    let response = HttpResponse {
-                        protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
-                        status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
-                        reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
-                        headers: self.resp_headers.into_iter().collect(),
-                    };
+                        let response = HttpResponse {
+                            protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
+                            status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
+                            reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
+                            headers: self.resp_headers.into_iter().collect(),
+                        };
 
-                    let http_transaction = HttpTransaction {
-                        request: request,
-                        response: response,
-                    };
+                        let http_transaction = HttpTransaction {
+                            request: request,
+                            response: response,
+                        };
 
-                    let record = AccessRecord {
-                        ident: self.ident,
-                        start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                        end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
-                        transaction_type: try!(self.transaction_type.ok_or(RecordBuilderError::RecordIncomplete("transaction_type"))),
-                        http_transaction: http_transaction
-                    };
+                        let record = AccessRecord {
+                            ident: self.ident,
+                            start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                            end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+                            transaction_type: try!(self.transaction_type.ok_or(RecordBuilderError::RecordIncomplete("transaction_type"))),
+                            http_transaction: http_transaction
+                        };
 
-                    return Ok(RecordBuilderResult::Complete(record))
+                        return Ok(RecordBuilderResult::Complete(Record::Access(record)))
+                    } else {
+                        // Try to build SessionRecord
+                        let record = SessionRecord {
+                            ident: self.ident,
+                            open: try!(self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))),
+                            duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
+                            local: self.sess_local,
+                            remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
+                            requests: self.sess_requests,
+                        };
+
+                        return Ok(RecordBuilderResult::Complete(Record::Session(record)))
+                    }
                 }
                 _ => {
                     warn!("Ignoring unknown VSL tag: {:?}", vsl.tag);
@@ -404,7 +544,7 @@ impl State {
         State { builders: HashMap::new() }
     }
 
-    pub fn apply(&mut self, vsl: &VslRecord) -> Option<AccessRecord> {
+    pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {
         //TODO: use entry API
         let builder = match self.builders.remove(&vsl.ident) {
             Some(builder) => builder,
@@ -572,10 +712,13 @@ mod access_log_state_tests {
 
         let record = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 123, ""));
 
-        assert!(record.is_some());
         assert!(state.get(123).is_none());
 
+        assert!(record.is_some());
         let record = record.unwrap();
+
+        assert!(record.is_access());
+        let record = record.unwrap_access();
 
         assert_eq!(record.ident, 123);
         assert_eq!(record.start, 1469180762.484544);
@@ -624,10 +767,13 @@ mod access_log_state_tests {
 
         let record = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 123, ""));
 
-        assert!(record.is_some());
         assert!(state.get(123).is_none());
 
+        assert!(record.is_some());
         let record = record.unwrap();
+
+        assert!(record.is_access());
+        let record = record.unwrap_access();
 
         assert_eq!(record.ident, 123);
         assert_eq!(record.start, 1469180762.484544);
@@ -647,5 +793,33 @@ mod access_log_state_tests {
         assert_eq!(record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
         assert_eq!(record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
         assert_eq!(record.http_transaction.response.headers.get(3), None);
+    }
+
+    #[test]
+    fn apply_session() {
+        let mut state = State::new();
+
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "sess 0 HTTP/1")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_SessOpen, 123, "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_Link, 123, "req 32773 rxreq")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_SessClose, 123, "REM_CLOSE 0.001")).is_none());
+
+        let record = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 123, ""));
+
+        assert!(state.get(123).is_none());
+
+        assert!(record.is_some());
+        let record = record.unwrap();
+
+        assert!(record.is_session());
+        let record = record.unwrap_session();
+
+        assert_eq!(record.ident, 123);
+        assert_eq!(record.open, 1469180762.484344);
+        assert_eq!(record.duration, 0.001);
+        assert_eq!(record.local, Some(("127.0.0.1".to_string(), 1080)));
+        assert_eq!(record.remote, ("192.168.1.10".to_string(), 40078));
+        assert_eq!(record.requests.get(0), Some(&32773));
+        assert_eq!(record.requests.get(1), None);
     }
 }
