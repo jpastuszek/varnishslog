@@ -23,13 +23,18 @@ pub type Address = (String, u16);
 // * Linking information: SLT_Link
 // * Byte counts: SLT_ReqAcct
 #[derive(Debug, Clone)]
-pub struct AccessRecord {
+pub struct ClientAccessRecord {
+    pub session: VslIdent,
+    pub reason: String,
     pub ident: VslIdent,
-    pub start: TimeStamp,
-    // TODO: store duration (use relative timing (?) from log as TS can go backwards)
-    // check Varnish code to see if relative timing is immune to clock going backwards
-    pub end: TimeStamp,
-    pub transaction_type: TransactionType,
+    pub http_transaction: HttpTransaction,
+}
+
+#[derive(Debug, Clone)]
+pub struct BackendAccessRecord {
+    pub parent: VslIdent,
+    pub reason: String,
+    pub ident: VslIdent,
     pub http_transaction: HttpTransaction,
 }
 
@@ -43,52 +48,12 @@ pub struct SessionRecord {
     pub requests: Vec<VslIdent>
 }
 
-#[derive(Debug, Clone)]
-pub enum TransactionType {
-    Client {
-        session: VslIdent,
-        reason: String,
-    },
-    Backend {
-        parent: VslIdent,
-        reason: String,
-    },
-}
-
-impl TransactionType {
-    #[allow(dead_code)]
-    pub fn is_client(&self) -> bool {
-        match self {
-            &TransactionType::Client { session: _, reason: _ } => true,
-            _ => false
-        }
-    }
-    #[allow(dead_code)]
-    pub fn is_backend(&self) -> bool {
-        match self {
-            &TransactionType::Backend { parent: _, reason: _ } => true,
-            _ => false
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn get_backend_parent(&self) -> VslIdent {
-        match self {
-            &TransactionType::Backend { ref parent, reason: _ } => *parent,
-            _ => panic!("get_backend_parent called on TransactionType that was not Backend")
-        }
-    }
-    #[allow(dead_code)]
-    pub fn get_backend_reason(&self) -> &str {
-        match self {
-            &TransactionType::Backend { parent: _, ref reason } => reason,
-            _ => panic!("get_backend_reason called on TransactionType that was not Backend")
-        }
-    }
-}
-
+// TODO: store duration (use relative timing (?) from log as TS can go backwards)
+// check Varnish code to see if relative timing is immune to clock going backwards
 #[derive(Debug, Clone)]
 pub struct HttpTransaction {
+    pub start: TimeStamp,
+    pub end: TimeStamp,
     pub request: HttpRequest,
     pub response: HttpResponse,
 }
@@ -112,7 +77,7 @@ pub struct HttpResponse {
 #[derive(Debug, Clone)]
 struct RecordBuilder {
     ident: VslIdent,
-    transaction_type: Option<TransactionType>,
+    record_type: Option<RecordType>,
     req_start: Option<TimeStamp>,
     req_protocol: Option<String>,
     req_method: Option<String>,
@@ -130,18 +95,39 @@ struct RecordBuilder {
     sess_requests: Vec<VslIdent>
 }
 
+#[derive(Debug, Clone)]
+pub enum RecordType {
+    ClientAccess {
+        session: VslIdent,
+        reason: String,
+    },
+    BackendAccess {
+        parent: VslIdent,
+        reason: String,
+    },
+    Session
+}
+
 #[derive(Debug)]
 pub enum Record {
-    Access(AccessRecord),
+    ClientAccess(ClientAccessRecord),
+    BackendAccess(BackendAccessRecord),
     Session(SessionRecord),
 }
 
 impl Record {
     #[allow(dead_code)]
-    pub fn is_access(&self) -> bool {
+    pub fn is_client_access(&self) -> bool {
         match self {
-            &Record::Access(_) => true,
-            _ => false,
+            &Record::ClientAccess(_) => true,
+            _ => false
+        }
+    }
+    #[allow(dead_code)]
+    pub fn is_backend_access(&self) -> bool {
+        match self {
+            &Record::BackendAccess(_) => true,
+            _ => false
         }
     }
     #[allow(dead_code)]
@@ -153,10 +139,17 @@ impl Record {
     }
 
     #[allow(dead_code)]
-    pub fn unwrap_access(self) -> AccessRecord {
+    pub fn unwrap_client_access(self) -> ClientAccessRecord {
         match self {
-            Record::Access(access_record) => access_record,
-            _ => panic!("unwrap_access called on Record that was not Access")
+            Record::ClientAccess(access_record) => access_record,
+            _ => panic!("unwrap_client_access called on Record that was not ClientAccess")
+        }
+    }
+    #[allow(dead_code)]
+    pub fn unwrap_backend_access(self) -> BackendAccessRecord {
+        match self {
+            Record::BackendAccess(access_record) => access_record,
+            _ => panic!("unwrap_backend_access called on Record that was not BackendAccess")
         }
     }
     #[allow(dead_code)]
@@ -166,6 +159,19 @@ impl Record {
             _ => panic!("unwrap_session called on Record that was not Session")
         }
     }
+}
+
+#[derive(Debug)]
+pub struct ProxyTransaction {
+    client: ClientAccessRecord,
+    backend: Vec<BackendAccessRecord>, // multiple ESI requests?
+}
+
+//TODO: what about graced async backend fetches on miss
+#[derive(Debug)]
+pub struct Session {
+    proxy_transactions: Vec<ProxyTransaction>,
+    session: SessionRecord,
 }
 
 #[derive(Debug)]
@@ -195,8 +201,8 @@ quick_error! {
             display("VSL record message is not valid UTF-8 encoded string: {}", err)
             cause(err)
         }
-        UnimplementedTransactionType(transaction_type: String) {
-            display("Unimplemented transaction type '{}'", transaction_type)
+        UnimplementedTransactionType(record_type: String) {
+            display("Unimplemented record type '{}'", record_type)
         }
         InvalidMessageFormat(err: String) {
             display("Failed to parse message: {}", err)
@@ -265,7 +271,7 @@ impl RecordBuilder {
     fn new(ident: VslIdent) -> RecordBuilder {
         RecordBuilder {
             ident: ident,
-            transaction_type: None,
+            record_type: None,
             req_start: None,
             req_protocol: None,
             req_method: None,
@@ -288,26 +294,29 @@ impl RecordBuilder {
         let builder = match vsl.message() {
             Ok(message) => match vsl.tag {
                 VslRecordTag::SLT_Begin => {
-                    let (transaction_type, parent, reason) = try!(slt_begin(message).into_result().context(vsl.tag));
+                    let (record_type, parent, reason) = try!(slt_begin(message).into_result().context(vsl.tag));
                     let vxid = try!(parent.parse().context("vxid"));
 
-                    match transaction_type {
+                    match record_type {
                         "bereq" => RecordBuilder {
-                            transaction_type: Some(TransactionType::Backend {
+                            record_type: Some(RecordType::BackendAccess {
                                 parent: vxid,
                                 reason: reason.to_owned()
                             }),
                             .. self
                         },
                         "req" => RecordBuilder {
-                            transaction_type: Some(TransactionType::Client {
+                            record_type: Some(RecordType::ClientAccess {
                                 session: vxid,
                                 reason: reason.to_owned()
                             }),
                             .. self
                         },
-                        "sess" => self, // nothing usefull
-                        _ => return Err(RecordBuilderError::UnimplementedTransactionType(transaction_type.to_string()))
+                        "sess" => RecordBuilder {
+                            record_type: Some(RecordType::Session),
+                            .. self
+                        },
+                        _ => return Err(RecordBuilderError::UnimplementedTransactionType(record_type.to_string()))
                     }
                 }
                 VslRecordTag::SLT_Timestamp => {
@@ -477,37 +486,10 @@ impl RecordBuilder {
 
                 // Final
                 VslRecordTag::SLT_End => {
-                    if self.transaction_type.is_some() {
-                        // Try to build AccessRecord
-                        let request = HttpRequest {
-                            protocol: try!(self.req_protocol.ok_or(RecordBuilderError::RecordIncomplete("req_protocol"))),
-                            method: try!(self.req_method.ok_or(RecordBuilderError::RecordIncomplete("req_method"))),
-                            url: try!(self.req_url.ok_or(RecordBuilderError::RecordIncomplete("req_url"))),
-                            headers: self.req_headers.into_iter().collect(),
-                        };
-
-                        let response = HttpResponse {
-                            protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
-                            status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
-                            reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
-                            headers: self.resp_headers.into_iter().collect(),
-                        };
-
-                        let http_transaction = HttpTransaction {
-                            request: request,
-                            response: response,
-                        };
-
-                        let record = AccessRecord {
-                            ident: self.ident,
-                            start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                            end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
-                            transaction_type: try!(self.transaction_type.ok_or(RecordBuilderError::RecordIncomplete("transaction_type"))),
-                            http_transaction: http_transaction
-                        };
-
-                        return Ok(RecordBuilderResult::Complete(Record::Access(record)))
-                    } else {
+                    if let None = self.record_type {
+                        return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                    }
+                    if let Some(RecordType::Session) = self.record_type {
                         // Try to build SessionRecord
                         let record = SessionRecord {
                             ident: self.ident,
@@ -520,6 +502,53 @@ impl RecordBuilder {
 
                         return Ok(RecordBuilderResult::Complete(Record::Session(record)))
                     }
+
+                    // Try to build AccessRecord
+                    let request = HttpRequest {
+                        protocol: try!(self.req_protocol.ok_or(RecordBuilderError::RecordIncomplete("req_protocol"))),
+                        method: try!(self.req_method.ok_or(RecordBuilderError::RecordIncomplete("req_method"))),
+                        url: try!(self.req_url.ok_or(RecordBuilderError::RecordIncomplete("req_url"))),
+                        headers: self.req_headers.into_iter().collect(),
+                    };
+
+                    let response = HttpResponse {
+                        protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
+                        status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
+                        reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
+                        headers: self.resp_headers.into_iter().collect(),
+                    };
+
+                    let http_transaction = HttpTransaction {
+                        start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                        end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+                        request: request,
+                        response: response,
+                    };
+
+                    if let Some(RecordType::ClientAccess { session, reason }) = self.record_type {
+                        let record = ClientAccessRecord {
+                            ident: self.ident,
+                            session: session,
+                            reason: reason,
+                            http_transaction: http_transaction
+                        };
+
+                        return Ok(RecordBuilderResult::Complete(Record::ClientAccess(record)))
+                    }
+
+                    if let Some(RecordType::BackendAccess { parent, reason }) = self.record_type {
+                        let record = BackendAccessRecord {
+                            ident: self.ident,
+                            parent: parent,
+                            reason: reason,
+                            http_transaction: http_transaction
+                        };
+
+                        return Ok(RecordBuilderResult::Complete(Record::BackendAccess(record)))
+                    }
+
+                    // TODO: should not need this
+                    unreachable!("more RecordTypes?")
                 }
                 _ => {
                     warn!("Ignoring unknown VSL tag: {:?}", vsl.tag);
@@ -545,7 +574,6 @@ impl RecordState {
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {
-        //TODO: use entry API
         let builder = match self.builders.remove(&vsl.ident) {
             Some(builder) => builder,
             None => RecordBuilder::new(vsl.ident),
@@ -572,8 +600,66 @@ impl RecordState {
     }
 }
 
+/*
+#[derive(Debug)]
+pub struct SessionState {
+    record_state: RecordState,
+    access_records: HashMap<VslIdent, AccessRecord>,
+}
+
+impl SessionState {
+    pub fn new() -> RecordState {
+        //TODO: some sort of expirity mechanism like LRU
+        RecordState {
+            record_state: RecordState::new(),
+            access_records: HashMap::new(),
+        }
+    }
+
+    pub fn apply(&mut self, vsl: &VslRecord) -> Option<Session> {
+        match self.record_state.apply(vsl) {
+            Some(Record::Access(access_record)) => self.access_records.insert(access_record.ident, access_record),
+            Some(Record::Session(session_record)) => {
+                let client_access_records = session_record.requests.map(|ident| {
+                    match self.access_records.remove(ident) {
+                        Some(access_record) => access_record,
+                        None => panic!("Record with ident {} not forund!", ident) // warn!
+                    }
+                });
+
+                // TODO: link client_access_records to backend requests
+            }
+        }
+
+        let builder = match self.builders.remove(&vsl.ident) {
+            Some(builder) => builder,
+            None => RecordBuilder::new(vsl.ident),
+        };
+
+        match builder.apply(vsl) {
+            Ok(result) => match result {
+                RecordBuilderResult::Building(builder) => {
+                    self.builders.insert(vsl.ident, builder);
+                    return None
+                }
+                RecordBuilderResult::Complete(record) => return Some(record),
+            },
+            Err(err) => {
+                error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
+                return None
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn get(&self, ident: VslIdent) -> Option<&RecordBuilder> {
+        self.builders.get(&ident)
+    }
+}
+*/
+
 #[cfg(test)]
-mod access_log_state_tests {
+mod access_log_request_state_tests {
     pub use super::*;
     use vsl::{VslRecord, VslRecordTag};
 
@@ -598,10 +684,14 @@ mod access_log_state_tests {
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Begin, 123, "bereq 321 fetch"));
 
         let builder = state.get(123).unwrap().clone();
-        let transaction_type = builder.transaction_type.unwrap();
+        let record_type = builder.record_type.unwrap();
 
-        assert_eq!(transaction_type.get_backend_parent(), 321);
-        assert_eq!(transaction_type.get_backend_reason(), "fetch");
+        if let RecordType::BackendAccess { parent, reason } = record_type {
+            assert_eq!(parent, 321);
+            assert_eq!(reason, "fetch");
+        } else {
+            panic!("expected BackendAccess type")
+        }
     }
 
     #[test]
@@ -717,13 +807,14 @@ mod access_log_state_tests {
         assert!(record.is_some());
         let record = record.unwrap();
 
-        assert!(record.is_access());
-        let record = record.unwrap_access();
+        assert!(record.is_backend_access());
+        let record = record.unwrap_backend_access();
 
         assert_eq!(record.ident, 123);
-        assert_eq!(record.start, 1469180762.484544);
-        assert_eq!(record.end, 1469180763.484544);
-        assert!(record.transaction_type.is_backend());
+        assert_eq!(record.parent, 321);
+        assert_eq!(record.reason, "fetch".to_string());
+        assert_eq!(record.http_transaction.start, 1469180762.484544);
+        assert_eq!(record.http_transaction.end, 1469180763.484544);
 
         assert_eq!(record.http_transaction.request.method, "GET".to_string());
         assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
@@ -772,14 +863,14 @@ mod access_log_state_tests {
         assert!(record.is_some());
         let record = record.unwrap();
 
-        assert!(record.is_access());
-        let record = record.unwrap_access();
+        assert!(record.is_client_access());
+        let record = record.unwrap_client_access();
 
         assert_eq!(record.ident, 123);
-        assert_eq!(record.start, 1469180762.484544);
-        assert_eq!(record.end, 1469180763.484544);
-        assert!(record.transaction_type.is_client());
-
+        assert_eq!(record.session, 321);
+        assert_eq!(record.reason, "rxreq".to_string());
+        assert_eq!(record.http_transaction.start, 1469180762.484544);
+        assert_eq!(record.http_transaction.end, 1469180763.484544);
         assert_eq!(record.http_transaction.request.method, "GET".to_string());
         assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
         assert_eq!(record.http_transaction.request.protocol, "HTTP/1.1".to_string());
