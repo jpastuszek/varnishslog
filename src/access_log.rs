@@ -61,16 +61,17 @@ pub struct HttpTransaction {
 
 #[derive(Debug, Clone)]
 pub struct HttpRequest {
+    pub protocol: String,
     pub method: String,
     pub url: String,
-    pub protocol: String,
     pub headers: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
-    pub status_name: String,
-    pub status_code: u32,
+    pub protocol: String,
+    pub status: u32,
+    pub reason: String,
     pub headers: Vec<(String, String)>,
 }
 
@@ -78,16 +79,16 @@ pub struct HttpResponse {
 struct RecordBuilder {
     ident: VslIdent,
     transaction_type: Option<TransactionType>,
-    start: Option<TimeStamp>,
-    end: Option<TimeStamp>,
-    method: Option<String>,
-    url: Option<String>,
-    protocol: Option<String>,
-    status_name: Option<String>,
-    status_code: Option<u32>,
-    reason: Option<String>,
+    req_start: Option<TimeStamp>,
+    req_protocol: Option<String>,
+    req_method: Option<String>,
+    req_url: Option<String>,
     req_headers: HashMap<String, String>,
+    resp_protocol: Option<String>,
+    resp_status: Option<u32>,
+    resp_reason: Option<String>,
     resp_headers: HashMap<String, String>,
+    resp_end: Option<TimeStamp>,
 }
 
 #[derive(Debug)]
@@ -155,6 +156,8 @@ named!(slt_timestamp<&str, (&str, &str, &str, &str)>, complete!(tuple!(
 named!(slt_method<&str, &str>, complete!(rest_s));
 named!(slt_url<&str, &str>, complete!(rest_s));
 named!(slt_protocol<&str, &str>, complete!(rest_s));
+named!(slt_status<&str, &str>, complete!(rest_s));
+named!(slt_reason<&str, &str>, complete!(rest_s));
 
 named!(slt_header<&str, (&str, &str)>, complete!(tuple!(
         label,      // Header name
@@ -165,16 +168,16 @@ impl RecordBuilder {
         RecordBuilder {
             ident: ident,
             transaction_type: None,
-            start: None,
-            end: None,
-            method: None,
-            url: None,
-            protocol: None,
-            status_name: None,
-            status_code: None,
-            reason: None,
+            req_start: None,
+            req_protocol: None,
+            req_method: None,
+            req_url: None,
             req_headers: HashMap::new(),
-            resp_headers: HashMap::new()
+            resp_protocol: None,
+            resp_status: None,
+            resp_reason: None,
+            resp_headers: HashMap::new(),
+            resp_end: None,
         }
     }
 
@@ -202,7 +205,11 @@ impl RecordBuilder {
                     let (label, timestamp, _sice_work_start, _since_last_timestamp) = try!(slt_timestamp(message).into_result().context(vsl.tag));
                     match label {
                         "Start" => RecordBuilder {
-                            start: Some(try!(timestamp.parse().context("timestamp"))),
+                            req_start: Some(try!(timestamp.parse().context("timestamp"))),
+                            .. self
+                        },
+                        "Beresp" => RecordBuilder {
+                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
                         },
                         _ => {
@@ -211,19 +218,21 @@ impl RecordBuilder {
                         }
                     }
                 }
-                VslRecordTag::SLT_BereqMethod | VslRecordTag::SLT_ReqMethod => {
-                    let method = try!(slt_method(message).into_result().context(vsl.tag));
 
-                    RecordBuilder {
-                        method: Some(method.to_string()),
-                        .. self
-                    }
-                }
+                // Request
                 VslRecordTag::SLT_BereqProtocol | VslRecordTag::SLT_ReqProtocol => {
                     let protocol = try!(slt_protocol(message).into_result().context(vsl.tag));
 
                     RecordBuilder {
-                        protocol: Some(protocol.to_string()),
+                        req_protocol: Some(protocol.to_string()),
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BereqMethod | VslRecordTag::SLT_ReqMethod => {
+                    let method = try!(slt_method(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        req_method: Some(method.to_string()),
                         .. self
                     }
                 }
@@ -231,7 +240,7 @@ impl RecordBuilder {
                     let url = try!(slt_url(message).into_result().context(vsl.tag));
 
                     RecordBuilder {
-                        url: Some(url.to_string()),
+                        req_url: Some(url.to_string()),
                         .. self
                     }
                 }
@@ -243,6 +252,65 @@ impl RecordBuilder {
 
                     RecordBuilder {
                         req_headers: headers,
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BereqUnset | VslRecordTag::SLT_ReqUnset => {
+                    let (name, _) = try!(slt_header(message).into_result().context(vsl.tag));
+
+                    let mut headers = self.req_headers;
+                    headers.remove(name);
+
+                    RecordBuilder {
+                        req_headers: headers,
+                        .. self
+                    }
+                }
+
+                // Response
+                VslRecordTag::SLT_BerespProtocol | VslRecordTag::SLT_RespProtocol => {
+                    let protocol = try!(slt_protocol(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        resp_protocol: Some(protocol.to_string()),
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BerespStatus | VslRecordTag::SLT_RespStatus => {
+                    let status = try!(slt_status(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        resp_status: Some(try!(status.parse().context("status"))),
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BerespReason | VslRecordTag::SLT_RespReason => {
+                    let reason = try!(slt_reason(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        resp_reason: Some(reason.to_string()),
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BerespHeader | VslRecordTag::SLT_RespHeader => {
+                    let (name, value) = try!(slt_header(message).into_result().context(vsl.tag));
+
+                    let mut headers = self.resp_headers;
+                    headers.insert(name.to_string(), value.to_string());
+
+                    RecordBuilder {
+                        resp_headers: headers,
+                        .. self
+                    }
+                }
+                VslRecordTag::SLT_BerespUnset | VslRecordTag::SLT_RespUnset => {
+                    let (name, _) = try!(slt_header(message).into_result().context(vsl.tag));
+
+                    let mut headers = self.resp_headers;
+                    headers.remove(name);
+
+                    RecordBuilder {
+                        resp_headers: headers,
                         .. self
                     }
                 }
@@ -359,7 +427,7 @@ mod access_log_state_tests {
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"));
 
         let builder = state.get(123).unwrap().clone();
-        assert_eq!(builder.start, Some(1469180762.484544));
+        assert_eq!(builder.req_start, Some(1469180762.484544));
     }
 
     #[test]
@@ -372,13 +440,40 @@ mod access_log_state_tests {
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqProtocol, 123, "HTTP/1.1"));
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 123, "Host: localhost:8080"));
         state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 123, "User-Agent: curl/7.40.0"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqHeader, 123, "Accept-Encoding: gzip"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BereqUnset, 123, "Accept-Encoding: gzip"));
 
         let builder = state.get(123).unwrap().clone();
-        assert_eq!(builder.start, Some(1469180762.484544));
-        assert_eq!(builder.method, Some("GET".to_string()));
-        assert_eq!(builder.url, Some("/foobar".to_string()));
-        assert_eq!(builder.protocol, Some("HTTP/1.1".to_string()));
+        assert_eq!(builder.req_start, Some(1469180762.484544));
+        assert_eq!(builder.req_method, Some("GET".to_string()));
+        assert_eq!(builder.req_url, Some("/foobar".to_string()));
+        assert_eq!(builder.req_protocol, Some("HTTP/1.1".to_string()));
         assert_eq!(builder.req_headers.get("Host"), Some(&"localhost:8080".to_string()));
         assert_eq!(builder.req_headers.get("User-Agent"), Some(&"curl/7.40.0".to_string()));
+        assert_eq!(builder.req_headers.get("Accept-Encoding"), None);
+    }
+
+    #[test]
+    fn apply_backend_response() {
+        let mut state = State::new();
+
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_Timestamp, 123, "Beresp: 1469180762.484544 0.000000 0.000000"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespProtocol, 123, "HTTP/1.1"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespStatus, 123, "503"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespReason, 123, "Service Unavailable"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespReason, 123, "Backend fetch failed")); // TODO precedence ??
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Date: Fri, 22 Jul 2016 09:46:02 GMT"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Server: Varnish"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Cache-Control: no-store"));
+        state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespUnset, 123, "Cache-Control: no-store"));
+
+        let builder = state.get(123).unwrap().clone();
+        assert_eq!(builder.resp_end, Some(1469180762.484544));
+        assert_eq!(builder.resp_protocol, Some("HTTP/1.1".to_string()));
+        assert_eq!(builder.resp_status, Some(503));
+        assert_eq!(builder.resp_reason, Some("Backend fetch failed".to_string()));
+        assert_eq!(builder.resp_headers.get("Date"), Some(&"Fri, 22 Jul 2016 09:46:02 GMT".to_string()));
+        assert_eq!(builder.resp_headers.get("Server"), Some(&"Varnish".to_string()));
+        assert_eq!(builder.resp_headers.get("Cache-Control: no-store"), None);
     }
 }
