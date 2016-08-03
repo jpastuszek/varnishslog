@@ -5,12 +5,12 @@ extern crate log;
 extern crate stderrlog;
 #[macro_use]
 extern crate clap;
-use clap::{Arg, App};
-
 #[macro_use]
 extern crate quick_error;
+extern crate linked_hash_map;
 
 use std::io::{self, stdin};
+use clap::{Arg, App};
 
 #[macro_use]
 mod stream_buf;

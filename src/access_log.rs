@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::str::Utf8Error;
 use std::num::{ParseIntError, ParseFloatError};
 use quick_error::ResultExt;
+use linked_hash_map::LinkedHashMap;
 
 use vsl::{VslRecord, VslRecordTag, VslIdent};
 
@@ -83,11 +83,11 @@ struct RecordBuilder {
     req_protocol: Option<String>,
     req_method: Option<String>,
     req_url: Option<String>,
-    req_headers: HashMap<String, String>,
+    req_headers: LinkedHashMap<String, String>,
     resp_protocol: Option<String>,
     resp_status: Option<u32>,
     resp_reason: Option<String>,
-    resp_headers: HashMap<String, String>,
+    resp_headers: LinkedHashMap<String, String>,
     resp_end: Option<TimeStamp>,
 }
 
@@ -175,11 +175,11 @@ impl RecordBuilder {
             req_protocol: None,
             req_method: None,
             req_url: None,
-            req_headers: HashMap::new(),
+            req_headers: LinkedHashMap::new(),
             resp_protocol: None,
             resp_status: None,
             resp_reason: None,
-            resp_headers: HashMap::new(),
+            resp_headers: LinkedHashMap::new(),
             resp_end: None,
         }
     }
@@ -363,12 +363,12 @@ impl RecordBuilder {
 
 #[derive(Debug)]
 pub struct State {
-    builders: HashMap<VslIdent, RecordBuilder>
+    builders: LinkedHashMap<VslIdent, RecordBuilder>
 }
 
 impl State {
     pub fn new() -> State {
-        State { builders: HashMap::new() }
+        State { builders: LinkedHashMap::new() }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<AccessRecord> {
@@ -509,7 +509,7 @@ mod access_log_state_tests {
         assert_eq!(builder.resp_reason, Some("Backend fetch failed".to_string()));
         assert_eq!(builder.resp_headers.get("Date"), Some(&"Fri, 22 Jul 2016 09:46:02 GMT".to_string()));
         assert_eq!(builder.resp_headers.get("Server"), Some(&"Varnish".to_string()));
-        assert_eq!(builder.resp_headers.get("Cache-Control: no-store"), None);
+        assert_eq!(builder.resp_headers.get("Cache-Control"), None);
     }
 
     #[test]
@@ -535,6 +535,7 @@ mod access_log_state_tests {
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Server: Varnish")).is_none());
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Cache-Control: no-store")).is_none());
         assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespUnset, 123, "Cache-Control: no-store")).is_none());
+        assert!(state.apply(&VslRecord::from_str(VslRecordTag::SLT_BerespHeader, 123, "Content-Type: text/html; charset=utf-8")).is_none());
 
         let record = state.apply(&VslRecord::from_str(VslRecordTag::SLT_End, 123, ""));
 
@@ -551,14 +552,15 @@ mod access_log_state_tests {
         assert_eq!(record.http_transaction.request.method, "GET".to_string());
         assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
         assert_eq!(record.http_transaction.request.protocol, "HTTP/1.1".to_string());
-        //assert_eq!(record.http_transaction.request.headers.get("Host"), Some(&"localhost:8080".to_string()));
-        //assert_eq!(hrecord.http_transaction.request.eaders.get("User-Agent"), Some(&"curl/7.40.0".to_string()));
-        //assert_eq!(record.http_transaction.request.headers.get("Accept-Encoding"), None);
+        assert_eq!(record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
+        assert_eq!(record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
+        assert_eq!(record.http_transaction.request.headers.get(2), None);
         assert_eq!(record.http_transaction.response.protocol, "HTTP/1.1".to_string());
         assert_eq!(record.http_transaction.response.status, 503);
         assert_eq!(record.http_transaction.response.reason, "Backend fetch failed".to_string());
-        //assert_eq!(record.http_transaction.response.headers.get("Date"), Some(&"Fri, 22 Jul 2016 09:46:02 GMT".to_string()));
-        //assert_eq!(record.http_transaction.response.headers.get("Server"), Some(&"Varnish".to_string()));
-        //assert_eq!(record.http_transaction.response.headers.get("Cache-Control: no-store"), None);
+        assert_eq!(record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
+        assert_eq!(record.http_transaction.response.headers.get(3), None);
     }
 }
