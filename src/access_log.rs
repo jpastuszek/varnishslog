@@ -56,7 +56,7 @@ pub type Address = (String, u16);
 //     3 SLT_SessClose      RX_TIMEOUT 10.011
 //     3 SLT_End
 //
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
     pub ident: VslIdent,
     pub parent: VslIdent, // Session or anothre Client (ESI)
@@ -66,7 +66,7 @@ pub struct ClientAccessRecord {
     pub http_transaction: HttpTransaction,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BackendAccessRecord {
     pub ident: VslIdent,
     pub parent: VslIdent, // Client
@@ -74,7 +74,7 @@ pub struct BackendAccessRecord {
     pub http_transaction: HttpTransaction,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SessionRecord {
     pub ident: VslIdent,
     pub open: TimeStamp,
@@ -86,7 +86,7 @@ pub struct SessionRecord {
 
 // TODO: store duration (use relative timing (?) from log as TS can go backwards)
 // check Varnish code to see if relative timing is immune to clock going backwards
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HttpTransaction {
     pub start: TimeStamp,
     pub end: TimeStamp,
@@ -94,7 +94,7 @@ pub struct HttpTransaction {
     pub response: HttpResponse,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HttpRequest {
     pub protocol: String,
     pub method: String,
@@ -102,7 +102,7 @@ pub struct HttpRequest {
     pub headers: Vec<(String, String)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponse {
     pub protocol: String,
     pub status: u32,
@@ -920,28 +920,41 @@ mod access_log_request_state_tests {
         assert_none!(state.get(123));
 
         assert!(record.is_client_access());
-        let record = record.unwrap_client_access();
-
-        assert_eq!(record.ident, 123);
-        assert_eq!(record.parent, 321);
-        assert_eq!(record.reason, "rxreq".to_string());
-        assert_eq!(record.backend_requests.get(0), Some(&32774));
-        assert_eq!(record.backend_requests.get(1), None);
-        assert_eq!(record.http_transaction.start, 1469180762.484544);
-        assert_eq!(record.http_transaction.end, 1469180763.484544);
-        assert_eq!(record.http_transaction.request.method, "GET".to_string());
-        assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
-        assert_eq!(record.http_transaction.request.protocol, "HTTP/1.1".to_string());
-        assert_eq!(record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
-        assert_eq!(record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
-        assert_eq!(record.http_transaction.request.headers.get(2), None);
-        assert_eq!(record.http_transaction.response.protocol, "HTTP/1.1".to_string());
-        assert_eq!(record.http_transaction.response.status, 503);
-        assert_eq!(record.http_transaction.response.reason, "Backend fetch failed".to_string());
-        assert_eq!(record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(3), None);
+        let client = record.unwrap_client_access();
+        assert_matches!(client, ClientAccessRecord {
+            ident: 123,
+            parent: 321,
+            ref reason,
+            ref backend_requests,
+            ref esi_requests,
+            ..
+        } if
+            reason == "rxreq" &&
+            backend_requests == &[32774] &&
+            esi_requests.is_empty()
+        );
+        assert_matches!(client.http_transaction, HttpTransaction {
+            start: 1469180762.484544,
+            end: 1469180763.484544,
+            ..
+        });
+        assert_eq!(client.http_transaction.request, HttpRequest {
+            method: "GET".to_string(),
+            url: "/foobar".to_string(),
+            protocol: "HTTP/1.1".to_string(),
+            headers: vec![
+                ("Host".to_string(), "localhost:8080".to_string()),
+                ("User-Agent".to_string(), "curl/7.40.0".to_string())]
+        });
+        assert_eq!(client.http_transaction.response, HttpResponse {
+            protocol: "HTTP/1.1".to_string(),
+            status: 503,
+            reason: "Backend fetch failed".to_string(),
+            headers: vec![
+                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                ("Server".to_string(), "Varnish".to_string()),
+                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+        });
     }
 
     #[test]
@@ -976,27 +989,36 @@ mod access_log_request_state_tests {
         assert_none!(state.get(123));
 
         assert!(record.is_backend_access());
-        let record = record.unwrap_backend_access();
+        let backend = record.unwrap_backend_access();
 
-        assert_eq!(record.ident, 123);
-        assert_eq!(record.parent, 321);
-        assert_eq!(record.reason, "fetch".to_string());
-        assert_eq!(record.http_transaction.start, 1469180762.484544);
-        assert_eq!(record.http_transaction.end, 1469180763.484544);
-
-        assert_eq!(record.http_transaction.request.method, "GET".to_string());
-        assert_eq!(record.http_transaction.request.url, "/foobar".to_string());
-        assert_eq!(record.http_transaction.request.protocol, "HTTP/1.1".to_string());
-        assert_eq!(record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
-        assert_eq!(record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
-        assert_eq!(record.http_transaction.request.headers.get(2), None);
-        assert_eq!(record.http_transaction.response.protocol, "HTTP/1.1".to_string());
-        assert_eq!(record.http_transaction.response.status, 503);
-        assert_eq!(record.http_transaction.response.reason, "Backend fetch failed".to_string());
-        assert_eq!(record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
-        assert_eq!(record.http_transaction.response.headers.get(3), None);
+        assert_matches!(backend, BackendAccessRecord {
+            ident: 123,
+            parent: 321,
+            ref reason,
+            ..
+        } if reason == "fetch");
+        assert_matches!(backend.http_transaction, HttpTransaction {
+            start: 1469180762.484544,
+            end: 1469180763.484544,
+            ..
+        });
+        assert_eq!(backend.http_transaction.request, HttpRequest {
+            method: "GET".to_string(),
+            url: "/foobar".to_string(),
+            protocol: "HTTP/1.1".to_string(),
+            headers: vec![
+                ("Host".to_string(), "localhost:8080".to_string()),
+                ("User-Agent".to_string(), "curl/7.40.0".to_string())]
+        });
+        assert_eq!(backend.http_transaction.response, HttpResponse {
+            protocol: "HTTP/1.1".to_string(),
+            status: 503,
+            reason: "Backend fetch failed".to_string(),
+            headers: vec![
+                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                ("Server".to_string(), "Varnish".to_string()),
+                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+        });
     }
 
     #[test]
@@ -1015,15 +1037,15 @@ mod access_log_request_state_tests {
         assert_none!(state.get(123));
 
         assert!(record.is_session());
-        let record = record.unwrap_session();
-
-        assert_eq!(record.ident, 123);
-        assert_eq!(record.open, 1469180762.484344);
-        assert_eq!(record.duration, 0.001);
-        assert_eq!(record.local, Some(("127.0.0.1".to_string(), 1080)));
-        assert_eq!(record.remote, ("192.168.1.10".to_string(), 40078));
-        assert_eq!(record.client_requests.get(0), Some(&32773));
-        assert_eq!(record.client_requests.get(1), None);
+        let session = record.unwrap_session();
+        assert_eq!(session, SessionRecord {
+            ident: 123,
+            open: 1469180762.484344,
+            duration: 0.001,
+            local: Some(("127.0.0.1".to_string(), 1080)),
+            remote: ("192.168.1.10".to_string(), 40078),
+            client_requests: vec![32773],
+        });
     }
 
     #[test]
@@ -1042,6 +1064,7 @@ mod access_log_request_state_tests {
                100, SLT_ReqUnset,       "Accept-Encoding: gzip";
 
                100, SLT_Link,           "bereq 1000 fetch";
+
                100, SLT_RespProtocol,   "HTTP/1.1";
                100, SLT_RespStatus,     "503";
                100, SLT_RespReason,     "Service Unavailable";
@@ -1085,55 +1108,78 @@ mod access_log_request_state_tests {
         let session = apply_final!(state, 10, SLT_End, "");
 
         let client = session.proxy_transactions.get(0).unwrap().client.clone();
-        assert_eq!(client.ident, 100);
-        assert_eq!(client.parent, 10);
-        assert_eq!(client.reason, "rxreq".to_string());
-        assert_eq!(client.backend_requests.get(0), Some(&1000));
-        assert_eq!(client.backend_requests.get(1), None);
-        assert_eq!(client.http_transaction.start, 1469180762.484544);
-        assert_eq!(client.http_transaction.end, 1469180763.484544);
-        assert_eq!(client.http_transaction.request.method, "GET".to_string());
-        assert_eq!(client.http_transaction.request.url, "/foobar".to_string());
-        assert_eq!(client.http_transaction.request.protocol, "HTTP/1.1".to_string());
-        assert_eq!(client.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
-        assert_eq!(client.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
-        assert_eq!(client.http_transaction.request.headers.get(2), None);
-        assert_eq!(client.http_transaction.response.protocol, "HTTP/1.1".to_string());
-        assert_eq!(client.http_transaction.response.status, 503);
-        assert_eq!(client.http_transaction.response.reason, "Backend fetch failed".to_string());
-        assert_eq!(client.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
-        assert_eq!(client.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
-        assert_eq!(client.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
-        assert_eq!(client.http_transaction.response.headers.get(3), None);
+        assert_matches!(client, ClientAccessRecord {
+            ident: 100,
+            parent: 10,
+            ref reason,
+            ref backend_requests,
+            ref esi_requests,
+            ..
+        } if
+            reason == "rxreq" &&
+            backend_requests == &[1000] &&
+            esi_requests.is_empty()
+        );
+        assert_matches!(client.http_transaction, HttpTransaction {
+            start: 1469180762.484544,
+            end: 1469180763.484544,
+            ..
+        });
+        assert_eq!(client.http_transaction.request, HttpRequest {
+            method: "GET".to_string(),
+            url: "/foobar".to_string(),
+            protocol: "HTTP/1.1".to_string(),
+            headers: vec![
+                ("Host".to_string(), "localhost:8080".to_string()),
+                ("User-Agent".to_string(), "curl/7.40.0".to_string())]
+        });
+        assert_eq!(client.http_transaction.response, HttpResponse {
+            protocol: "HTTP/1.1".to_string(),
+            status: 503,
+            reason: "Backend fetch failed".to_string(),
+            headers: vec![
+                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                ("Server".to_string(), "Varnish".to_string()),
+                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+        });
 
         let backend = session.proxy_transactions.get(0).unwrap().backend.get(0).unwrap();
-        assert_eq!(backend.ident, 1000);
-        assert_eq!(backend.parent, 100);
-        assert_eq!(backend.reason, "fetch".to_string());
-        assert_eq!(backend.http_transaction.start, 1469180762.484544);
-        assert_eq!(backend.http_transaction.end, 1469180763.484544);
+        assert_matches!(backend, &BackendAccessRecord {
+            ident: 1000,
+            parent: 100,
+            ref reason,
+            ..
+        } if reason == "fetch");
+        assert_matches!(backend.http_transaction, HttpTransaction {
+            start: 1469180762.484544,
+            end: 1469180763.484544,
+            ..
+        });
+        assert_eq!(backend.http_transaction.request, HttpRequest {
+            method: "GET".to_string(),
+            url: "/foobar".to_string(),
+            protocol: "HTTP/1.1".to_string(),
+            headers: vec![
+                ("Host".to_string(), "localhost:8080".to_string()),
+                ("User-Agent".to_string(), "curl/7.40.0".to_string())]
+        });
+        assert_eq!(backend.http_transaction.response, HttpResponse {
+            protocol: "HTTP/1.1".to_string(),
+            status: 503,
+            reason: "Backend fetch failed".to_string(),
+            headers: vec![
+                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                ("Server".to_string(), "Varnish".to_string()),
+                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+        });
 
-        assert_eq!(backend.http_transaction.request.method, "GET".to_string());
-        assert_eq!(backend.http_transaction.request.url, "/foobar".to_string());
-        assert_eq!(backend.http_transaction.request.protocol, "HTTP/1.1".to_string());
-        assert_eq!(backend.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
-        assert_eq!(backend.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
-        assert_eq!(backend.http_transaction.request.headers.get(2), None);
-        assert_eq!(backend.http_transaction.response.protocol, "HTTP/1.1".to_string());
-        assert_eq!(backend.http_transaction.response.status, 503);
-        assert_eq!(backend.http_transaction.response.reason, "Backend fetch failed".to_string());
-        assert_eq!(backend.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
-        assert_eq!(backend.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
-        assert_eq!(backend.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
-        assert_eq!(backend.http_transaction.response.headers.get(3), None);
-
-        let session_record = session.session_record;
-        assert_eq!(session_record.ident, 10);
-        assert_eq!(session_record.open, 1469180762.484344);
-        assert_eq!(session_record.duration, 0.001);
-        assert_eq!(session_record.local, Some(("127.0.0.1".to_string(), 1080)));
-        assert_eq!(session_record.remote, ("192.168.1.10".to_string(), 40078));
-        assert_eq!(session_record.client_requests.get(0), Some(&100));
-        assert_eq!(session_record.client_requests.get(1), None);
+        assert_eq!(session.session_record, SessionRecord {
+            ident: 10,
+            open: 1469180762.484344,
+            duration: 0.001,
+            local: Some(("127.0.0.1".to_string(), 1080)),
+            remote: ("192.168.1.10".to_string(), 40078),
+            client_requests: vec![100],
+        });
     }
 }
