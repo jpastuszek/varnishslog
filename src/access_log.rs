@@ -758,14 +758,15 @@ mod access_log_request_state_tests {
     }
 
     macro_rules! apply {
-        ($state:ident, $ident:expr, $tag:ident, $message:expr; $($t_ident:expr, $t_tag:ident, $t_message:expr;)+) => {{
-            apply!($state, $ident, $tag, $message;);
-            apply!($state, $($t_ident, $t_tag, $t_message;)*);
-        }};
-
-        ($state:ident, $ident:expr, $tag:ident, $message:expr;) => {{
+        ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{
             let opt: Option<_> = $state.apply(&vsl($tag, $ident, $message));
-            assert!(opt.is_none(), "expected apply to return None after applying: `{:?}`", $tag);
+            assert!(opt.is_none(), "expected apply to return None after applying: `{}, {:?}, {};`", $ident, $tag, $message);
+        }};
+    }
+
+    macro_rules! apply_all {
+        ($state:ident, $($t_ident:expr, $t_tag:ident, $t_message:expr;)+) => {{
+            $(apply!($state, $t_ident, $t_tag, $t_message);)*
         }};
     }
 
@@ -839,7 +840,7 @@ mod access_log_request_state_tests {
     fn apply_backend_request() {
         let mut state = RecordState::new();
 
-        apply!(state,
+        apply_all!(state,
                123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
                123, SLT_BereqMethod, "GET";
                123, SLT_BereqURL, "/foobar";
@@ -864,7 +865,7 @@ mod access_log_request_state_tests {
     fn apply_backend_response() {
         let mut state = RecordState::new();
 
-        apply!(state,
+        apply_all!(state,
                123, SLT_Timestamp, "Beresp: 1469180762.484544 0.000000 0.000000";
                123, SLT_BerespProtocol, "HTTP/1.1";
                123, SLT_BerespStatus, "503";
@@ -890,7 +891,7 @@ mod access_log_request_state_tests {
     fn apply_client_transaction() {
         let mut state = RecordState::new();
 
-        apply!(state,
+        apply_all!(state,
                123, SLT_Begin, "req 321 rxreq";
                123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
                123, SLT_ReqMethod, "GET";
@@ -961,7 +962,7 @@ mod access_log_request_state_tests {
     fn apply_backend_transaction() {
         let mut state = RecordState::new();
 
-        apply!(state,
+        apply_all!(state,
                123, SLT_Begin, "bereq 321 fetch";
                123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
                123, SLT_BereqMethod, "GET";
@@ -1025,7 +1026,7 @@ mod access_log_request_state_tests {
     fn apply_session() {
         let mut state = RecordState::new();
 
-        apply!(state,
+        apply_all!(state,
                123, SLT_Begin, "sess 0 HTTP/1";
                123, SLT_SessOpen, "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18";
                123, SLT_Link, "req 32773 rxreq";
@@ -1052,7 +1053,7 @@ mod access_log_request_state_tests {
     fn apply_session_state() {
         let mut state = SessionState::new();
 
-        apply!(state,
+        apply_all!(state,
                100, SLT_Begin,          "req 10 rxreq";
                100, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
                100, SLT_ReqMethod,      "GET";
@@ -1187,7 +1188,7 @@ mod access_log_request_state_tests {
     fn apply_session_state_esi() {
         let mut state = SessionState::new();
 
-        apply!(state,
+        apply_all!(state,
                65540, SLT_Begin,        "bereq 65539 fetch";
                65540, SLT_Timestamp,    "Start: 1470304807.390145 0.000000 0.000000";
                65540, SLT_BereqMethod,  "GET";
@@ -1287,7 +1288,7 @@ mod access_log_request_state_tests {
     fn apply_session_state_grace() {
         let mut state = SessionState::new();
 
-        apply!(state,
+        apply_all!(state,
                65540, SLT_Begin,        "req 65539 rxreq";
                65540, SLT_Timestamp,    "Start: 1470304835.059319 0.000000 0.000000";
                65540, SLT_Timestamp,    "Req: 1470304835.059319 0.000000 0.000000";
