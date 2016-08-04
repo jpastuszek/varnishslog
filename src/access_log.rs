@@ -56,6 +56,23 @@ pub type Address = (String, u16);
 //     3 SLT_SessClose      RX_TIMEOUT 10.011
 //     3 SLT_End
 //
+// Restarts (logs/varnish20160804-3752-1h9gf4h5609f5ab778e4a4eb.vsl)
+// ---
+// 32770 SLT_Begin          req 32769 rxreq
+// 32770 SLT_ReqHeader      X-Varnish-Decision: Refresh-NotBuildNumber
+// 32770 SLT_VCL_return     restart
+// // No response info
+// 32770 SLT_Link           req 32771 restart
+// 32770 SLT_Timestamp      Restart: 1470304882.576600 0.000136 0.000136
+// 32770 SLT_End
+//
+// 32771 SLT_Begin          req 32770 restart
+//
+// 32769 SLT_Begin          sess 0 HTTP/1
+// 32769 SLT_SessOpen       127.0.0.1 34560 127.0.0.1:1244 127.0.0.1 1244 1470304882.576266 14
+// 32769 SLT_Link           req 32770 rxreq
+// 32769 SLT_SessClose      REM_CLOSE 0.347
+//
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
     pub ident: VslIdent,
