@@ -636,14 +636,14 @@ impl RecordState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProxyTransaction {
     client: ClientAccessRecord,
     backend: Vec<BackendAccessRecord>,
     esi: Vec<ProxyTransaction>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Session {
     session_record: SessionRecord,
     proxy_transactions: Vec<ProxyTransaction>,
@@ -1182,4 +1182,161 @@ mod access_log_request_state_tests {
             client_requests: vec![100],
         });
     }
+
+    #[test]
+    fn apply_session_state_esi() {
+        let mut state = SessionState::new();
+
+        apply!(state,
+               65540, SLT_Begin,        "bereq 65539 fetch";
+               65540, SLT_Timestamp,    "Start: 1470304807.390145 0.000000 0.000000";
+               65540, SLT_BereqMethod,  "GET";
+               65540, SLT_BereqURL,     "/esi/hello";
+               65540, SLT_BereqProtocol,"HTTP/1.1";
+               65540, SLT_BereqHeader,  "X-Backend-Set-Header-X-Accel-ESI: true";
+               65540, SLT_VCL_return,   "fetch";
+               65540, SLT_BackendOpen,  "19 boot.default 127.0.0.1 42000 127.0.0.1 41744";
+               65540, SLT_BackendStart, "127.0.0.1 42000";
+               65540, SLT_Timestamp,    "Bereq: 1470304807.390223 0.000078 0.000078";
+               65540, SLT_Timestamp,    "Beresp: 1470304807.395378 0.005234 0.005155";
+               65540, SLT_BerespProtocol, "HTTP/1.1";
+               65540, SLT_BerespStatus, "200";
+               65540, SLT_BerespReason, "OK";
+               65540, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
+               65540, SLT_Timestamp,    "BerespBody: 1470304807.435149 0.045005 0.039771";
+               65540, SLT_Length,       "5";
+               65540, SLT_BereqAcct,    "637 0 637 398 5 403";
+               65540, SLT_End,          "";
+
+               65541, SLT_Begin,        "req 65538 esi";
+               65541, SLT_ReqURL,       "/esi/world";
+               65541, SLT_Timestamp,    "Start: 1470304807.435266 0.000000 0.000000";
+               65541, SLT_ReqStart,     "127.0.0.1 57408";
+               65541, SLT_ReqMethod,    "GET";
+               65541, SLT_ReqURL,       "/esi/world";
+               65541, SLT_ReqProtocol,  "HTTP/1.1";
+               65541, SLT_ReqHeader,    "X-Backend-Set-Header-X-Accel-ESI: true";
+               65541, SLT_Link,         "bereq 65542 fetch";
+               65541, SLT_Timestamp,    "Fetch: 1470304807.479151 0.043886 0.043886";
+               65541, SLT_RespProtocol, "HTTP/1.1";
+               65541, SLT_RespStatus,   "200";
+               65541, SLT_RespReason,   "OK";
+               65541, SLT_RespHeader,   "Content-Type: text/html; charset=utf-8";
+               65541, SLT_Timestamp,    "Process: 1470304807.479171 0.043905 0.000019";
+               65541, SLT_RespHeader,   "Accept-Ranges: bytes";
+               65541, SLT_Timestamp,    "Resp: 1470304807.479196 0.043930 0.000025";
+               65541, SLT_ReqAcct,      "0 0 0 0 5 5";
+               65541, SLT_End,          "";
+
+               65542, SLT_Begin,        "bereq 65541 fetch";
+               65542, SLT_Timestamp,    "Start: 1470304807.435378 0.000000 0.000000";
+               65542, SLT_BereqMethod,  "GET";
+               65542, SLT_BereqURL,     "/esi/world";
+               65542, SLT_BereqProtocol, "HTTP/1.1";
+               65542, SLT_BereqHeader,  "X-Backend-Set-Header-X-Accel-ESI: true";
+               65542, SLT_VCL_return,   "fetch";
+               65542, SLT_BackendOpen,  "19 boot.default 127.0.0.1 42000 127.0.0.1 41744";
+               65542, SLT_BackendStart, "127.0.0.1 42000";
+               65542, SLT_Timestamp,    "Bereq: 1470304807.435450 0.000072 0.000072";
+               65542, SLT_Timestamp,    "Beresp: 1470304807.439882 0.004504 0.004432";
+               65542, SLT_BerespProtocol, "HTTP/1.1";
+               65542, SLT_BerespStatus, "200";
+               65542, SLT_BerespReason, "OK";
+               65542, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
+               65542, SLT_Fetch_Body,   "3 length -";
+               65542, SLT_BackendReuse, "19 boot.default";
+               65542, SLT_Timestamp,    "BerespBody: 1470304807.479137 0.043759 0.039255";
+               65542, SLT_Length,       "5";
+               65542, SLT_BereqAcct,    "637 0 637 398 5 403";
+               65542, SLT_End,          "";
+
+               65538, SLT_Begin,        "req 65537 rxreq";
+               65538, SLT_Timestamp,    "Start: 1470304807.389831 0.000000 0.000000";
+               65538, SLT_Timestamp,    "Req: 1470304807.389831 0.000000 0.000000";
+               65538, SLT_ReqStart,     "127.0.0.1 57408";
+               65538, SLT_ReqMethod,    "GET";
+               65538, SLT_ReqURL,       "/esi/index";
+               65538, SLT_ReqProtocol,  "HTTP/1.1";
+               65538, SLT_ReqHeader,    "X-Backend-Set-Header-X-Accel-ESI: true";
+               65538, SLT_VCL_return,   "deliver";
+               65538, SLT_RespProtocol, "HTTP/1.1";
+               65538, SLT_RespStatus,   "200";
+               65538, SLT_RespReason,   "OK";
+               65538, SLT_RespHeader,   "Content-Type: text/html; charset=utf-8";
+               65538, SLT_Link,         "req 65539 esi";
+               65538, SLT_Link,         "req 65541 esi";
+               65538, SLT_Timestamp,    "Resp: 1470304807.479222 0.089391 0.089199";
+               65538, SLT_ReqAcct,      "220 0 220 1423 29 1452";
+               65538, SLT_End,          "";
+
+               65537, SLT_Begin,        "sess 0 HTTP/1";
+               65537, SLT_SessOpen,     "127.0.0.1 57408 127.0.0.1:1221 127.0.0.1 1221 1470304807.389646 20";
+               65537, SLT_Link,         "req 65538 rxreq";
+               65537, SLT_SessClose,    "REM_CLOSE 3.228";
+              );
+
+        let session = apply_final!(state, 65537, SLT_End, "");
+
+        // We will have esi_requests in client request
+        assert_eq!(session.proxy_transactions[0].esi[0].client.reason, "esi".to_string());
+        assert_eq!(session.proxy_transactions[0].esi[0].backend[0].reason, "fetch".to_string());
+        assert!(session.proxy_transactions[0].esi[0].esi.is_empty());
+    }
+
+    #[test]
+    fn apply_session_state_grace() {
+        let mut state = SessionState::new();
+
+        apply!(state,
+               65540, SLT_Begin,        "req 65539 rxreq";
+               65540, SLT_Timestamp,    "Start: 1470304835.059319 0.000000 0.000000";
+               65540, SLT_Timestamp,    "Req: 1470304835.059319 0.000000 0.000000";
+               65540, SLT_ReqStart,     "127.0.0.1 59694";
+               65540, SLT_ReqMethod,    "GET";
+               65540, SLT_ReqURL,       "/test_page/123.html";
+               65540, SLT_ReqProtocol,  "HTTP/1.1";
+               65540, SLT_ReqHeader,    "X-Varnish-Force-Zero-TTL: true";
+               65540, SLT_Hit,          "98307";
+               65540, SLT_ReqHeader,    "X-Varnish-Result: hit/sick_grace";
+               65540, SLT_VCL_return,   "deliver";
+               65540, SLT_Link,         "bereq 65541 bgfetch";
+               65540, SLT_Timestamp,    "Fetch: 1470304835.059472 0.000154 0.000154";
+               65540, SLT_RespProtocol, "HTTP/1.1";
+               65540, SLT_RespStatus,   "200";
+               65540, SLT_RespReason,   "OK";
+               65540, SLT_RespHeader,   "Content-Type: text/html; charset=utf-8";
+               65540, SLT_RespHeader,   "X-Varnish-Privileged-Client: true";
+               65540, SLT_Timestamp,    "Process: 1470304835.059589 0.000270 0.000117";
+               65540, SLT_Timestamp,    "Resp: 1470304835.059629 0.000311 0.000041";
+               65540, SLT_End,          "";
+
+               65541, SLT_Begin,        "bereq 65540 bgfetch";
+               65541, SLT_Timestamp,    "Start: 1470304835.059425 0.000000 0.000000";
+               65541, SLT_BereqMethod,  "GET";
+               65541, SLT_BereqURL,     "/test_page/123.html";
+               65541, SLT_BereqProtocol,"HTTP/1.1";
+               65541, SLT_BereqHeader,  "X-Varnish-Force-Zero-TTL: true";
+               65541, SLT_Timestamp,    "Beresp: 1470304835.059475 0.000050 0.000050";
+               65541, SLT_Timestamp,    "Error: 1470304835.059479 0.000054 0.000004";
+               65541, SLT_BerespProtocol, "HTTP/1.1";
+               65541, SLT_BerespStatus, "503";
+               65541, SLT_BerespReason, "Service Unavailable";
+               65541, SLT_BerespReason, "Backend fetch failed";
+               65541, SLT_BerespHeader, "Date: Thu, 04 Aug 2016 10:00:35 GMT";
+               65541, SLT_BerespHeader, "Server: Varnish";
+               65541, SLT_Length,       "1366";
+               65541, SLT_BereqAcct,    "0 0 0 0 0 0";
+               65541, SLT_End,          "";
+
+               65539, SLT_Begin,        "sess 0 HTTP/1";
+               65539, SLT_SessOpen,     "127.0.0.1 59694 127.0.0.1:1230 127.0.0.1 1230 1470304835.059145 22";
+               65539, SLT_Link,         "req 65540 rxreq";
+               65539, SLT_SessClose,    "RX_TIMEOUT 10.001";
+               );
+
+            let session = apply_final!(state, 65539, SLT_End, "");
+
+            // It is handled as ususal; only difference is backend request reason
+            assert_eq!(session.proxy_transactions[0].backend[0].reason, "bgfetch".to_string());
+   }
 }
