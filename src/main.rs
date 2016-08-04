@@ -107,8 +107,8 @@ fn main() {
         let record = match rfb.fill_apply(vsl_record) {
             Err(FillApplyError::FillError(FillError::Io(err))) => {
                 if err.kind() == io::ErrorKind::UnexpectedEof {
-                    info!("Reached end of stream; exiting");
-                    return
+                    info!("Reached end of stream");
+                    break
                 }
                 error!("Got IO Error while reading stream: {}", err);
                 panic!("Stream IO error")
@@ -139,4 +139,14 @@ fn main() {
             panic!("default output unipl")
         }
     }
+
+    for client in session_state.unmatched_client_access_records() {
+        warn!("ClientAccessRecord without matching session left: {:?}", client)
+    }
+
+    for backend in session_state.unmatched_backend_access_records() {
+        warn!("BackendAccessRecord without matching session left: {:?}", backend)
+    }
+
+    info!("Done");
 }

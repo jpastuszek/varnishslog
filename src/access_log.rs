@@ -669,6 +669,14 @@ impl SessionState {
             None => None,
         }
     }
+
+    pub fn unmatched_client_access_records(&self) -> Vec<&ClientAccessRecord> {
+        self.client.iter().map(|(_, record)| record).collect()
+    }
+
+    pub fn unmatched_backend_access_records(&self) -> Vec<&BackendAccessRecord> {
+        self.backend.iter().map(|(_, record)| record).collect()
+    }
 }
 
 #[cfg(test)]
