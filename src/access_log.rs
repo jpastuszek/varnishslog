@@ -22,11 +22,29 @@ pub type Address = (String, u16);
 // * ACL trace
 // * Linking information: SLT_Link
 // * Byte counts: SLT_ReqAcct
+//
+// ESI (logs/varnish20160804-3752-1lr56fj56c2d5925f217f012.vsl):
+// 65539 SLT_Begin          req 65538 esi
+//
+// 65541 SLT_Begin          req 65538 esi
+//
+// 65542 SLT_Begin          bereq 65541 fetch
+//
+// 65538 SLT_Begin          req 65537 rxreq
+// 65538 SLT_Link           req 65539 esi
+// 65538 SLT_Link           req 65541 esi
+//
+// 65537 SLT_Begin          sess 0 HTTP/1
+// 65537 SLT_SessOpen       127.0.0.1 57408 127.0.0.1:1221 127.0.0.1 1221 1470304807.389646 20
+// 65537 SLT_Link           req 65538 rxreq
+// 65537 SLT_SessClose      REM_CLOSE 3.228
+// 65537 SLT_End
 #[derive(Debug, Clone)]
 pub struct ClientAccessRecord {
     pub ident: VslIdent,
-    pub session: VslIdent,
+    pub parent: VslIdent, // Session or anothre Client (ESI)
     pub reason: String,
+    pub esi_requests: Vec<VslIdent>,
     pub backend_requests: Vec<VslIdent>,
     pub http_transaction: HttpTransaction,
 }
@@ -34,7 +52,7 @@ pub struct ClientAccessRecord {
 #[derive(Debug, Clone)]
 pub struct BackendAccessRecord {
     pub ident: VslIdent,
-    pub parent: VslIdent,
+    pub parent: VslIdent, // Client
     pub reason: String,
     pub http_transaction: HttpTransaction,
 }
@@ -100,7 +118,7 @@ struct RecordBuilder {
 #[derive(Debug, Clone)]
 pub enum RecordType {
     ClientAccess {
-        session: VslIdent,
+        parent: VslIdent,
         reason: String,
     },
     BackendAccess {
@@ -161,19 +179,6 @@ impl Record {
             _ => panic!("unwrap_session called on Record that was not Session")
         }
     }
-}
-
-#[derive(Debug)]
-pub struct ProxyTransaction {
-    client: ClientAccessRecord,
-    backend: Vec<BackendAccessRecord>, // multiple ESI requests?
-}
-
-//TODO: what about graced async backend fetches on miss
-#[derive(Debug)]
-pub struct Session {
-    proxy_transactions: Vec<ProxyTransaction>,
-    session_record: SessionRecord,
 }
 
 #[derive(Debug)]
@@ -310,7 +315,7 @@ impl RecordBuilder {
                         },
                         "req" => RecordBuilder {
                             record_type: Some(RecordType::ClientAccess {
-                                session: vxid,
+                                parent: vxid,
                                 reason: reason.to_owned()
                             }),
                             .. self
@@ -537,11 +542,12 @@ impl RecordBuilder {
                             };
 
                             match record_type {
-                                RecordType::ClientAccess { session, reason } => {
+                                RecordType::ClientAccess { parent, reason } => {
                                     let record = ClientAccessRecord {
                                         ident: self.ident,
-                                        session: session,
+                                        parent: parent,
                                         reason: reason,
+                                        esi_requests: self.client_requests,
                                         backend_requests: self.backend_requests,
                                         http_transaction: http_transaction
                                     };
@@ -614,6 +620,20 @@ impl RecordState {
 }
 
 #[derive(Debug)]
+pub struct ProxyTransaction {
+    client: ClientAccessRecord,
+    backend: Vec<BackendAccessRecord>,
+    esi: Vec<ProxyTransaction>,
+}
+
+//TODO: what about graced async backend fetches on miss
+#[derive(Debug)]
+pub struct Session {
+    session_record: SessionRecord,
+    proxy_transactions: Vec<ProxyTransaction>,
+}
+
+#[derive(Debug)]
 pub struct SessionState {
     record_state: RecordState,
     client: HashMap<VslIdent, ClientAccessRecord>,
@@ -630,6 +650,32 @@ impl SessionState {
         }
     }
 
+    fn build_proxy_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ProxyTransaction {
+        let backend = client.backend_requests.iter()
+            .map(|ident| self.backend.remove(ident).ok_or(ident))
+            .inspect(|record| if let &Err(ident) = record {
+                error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session) })
+            .flat_map(Result::into_iter)
+            .collect::<Vec<_>>();
+
+        let esi_client = client.esi_requests.iter()
+            .map(|ident| self.client.remove(ident).ok_or(ident))
+            .inspect(|record| if let &Err(ident) = record {
+                error!("Session {} references ClientAccessRecord {} which references ESI request {} wich was not found: {:?}", session.ident, client.ident, ident, session) })
+            .flat_map(Result::into_iter)
+            .collect::<Vec<_>>();
+
+        let esi = esi_client.into_iter()
+            .map(|client| self.build_proxy_transaction(session, client))
+            .collect();
+
+        ProxyTransaction {
+            client: client,
+            backend: backend,
+            esi: esi,
+        }
+    }
+
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Session> {
         match self.record_state.apply(vsl) {
             Some(Record::ClientAccess(record)) => {
@@ -641,29 +687,20 @@ impl SessionState {
                 None
             }
             Some(Record::Session(session)) => {
-                let proxy_transactions = {
-                    let client = session.client_requests.iter()
-                        .map(|ident| self.client.remove(ident).ok_or(ident))
-                        .inspect(|record| if let &Err(ident) = record {
-                            error!("Session {} references ClientRequestRecord {} which was not found: {:?}", session.ident, ident, session) })
-                        .flat_map(Result::into_iter).collect::<Vec<_>>();
+                let client_requests = session.client_requests.iter()
+                    .map(|ident| self.client.remove(ident).ok_or(ident))
+                    .inspect(|record| if let &Err(ident) = record {
+                        error!("Session {} references ClientAccessRecord {} which was not found: {:?}", session.ident, ident, session) })
+                    .flat_map(Result::into_iter)
+                    .collect::<Vec<_>>();
 
-                    client.into_iter().map(|client| {
-                        let backend = client.backend_requests.iter()
-                            .map(|ident| self.backend.remove(ident).ok_or(ident))
-                            .inspect(|record| if let &Err(ident) = record {
-                                error!("Session {} references ClientRequestRecord {} which references BackendRequestRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session) })
-                            .flat_map(Result::into_iter).collect::<Vec<_>>();
-
-                        ProxyTransaction {
-                            client: client,
-                            backend: backend,
-                        }}).collect()
-                };
+                let proxy_transactions = client_requests.into_iter()
+                    .map(|client| self.build_proxy_transaction(&session, client))
+                    .collect();
 
                 Some(Session {
-                    proxy_transactions: proxy_transactions,
                     session_record: session,
+                    proxy_transactions: proxy_transactions,
                 })
             },
             None => None,
@@ -834,7 +871,7 @@ mod access_log_request_state_tests {
         let record = record.unwrap_client_access();
 
         assert_eq!(record.ident, 123);
-        assert_eq!(record.session, 321);
+        assert_eq!(record.parent, 321);
         assert_eq!(record.reason, "rxreq".to_string());
         assert_eq!(record.backend_requests.get(0), Some(&32774));
         assert_eq!(record.backend_requests.get(1), None);
@@ -1004,7 +1041,7 @@ mod access_log_request_state_tests {
 
         let client = session.proxy_transactions.get(0).unwrap().client.clone();
         assert_eq!(client.ident, 100);
-        assert_eq!(client.session, 10);
+        assert_eq!(client.parent, 10);
         assert_eq!(client.reason, "rxreq".to_string());
         assert_eq!(client.backend_requests.get(0), Some(&1000));
         assert_eq!(client.backend_requests.get(1), None);
