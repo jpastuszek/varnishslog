@@ -661,7 +661,7 @@ impl SessionState {
         let esi_client = client.esi_requests.iter()
             .map(|ident| self.client.remove(ident).ok_or(ident))
             .inspect(|record| if let &Err(ident) = record {
-                error!("Session {} references ClientAccessRecord {} which references ESI request {} wich was not found: {:?}", session.ident, client.ident, ident, session) })
+                error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session) })
             .flat_map(Result::into_iter)
             .collect::<Vec<_>>();
 
