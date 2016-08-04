@@ -165,8 +165,8 @@ impl Record {
 
 #[derive(Debug)]
 pub struct ProxyTransaction {
-    client_access_record: ClientAccessRecord,
-    backend_access_records: Vec<BackendAccessRecord>, // multiple ESI requests?
+    client: ClientAccessRecord,
+    backend: Vec<BackendAccessRecord>, // multiple ESI requests?
 }
 
 //TODO: what about graced async backend fetches on miss
@@ -616,8 +616,8 @@ impl RecordState {
 #[derive(Debug)]
 pub struct SessionState {
     record_state: RecordState,
-    client_access_records: HashMap<VslIdent, ClientAccessRecord>,
-    backend_access_records: HashMap<VslIdent, BackendAccessRecord>,
+    client: HashMap<VslIdent, ClientAccessRecord>,
+    backend: HashMap<VslIdent, BackendAccessRecord>,
 }
 
 impl SessionState {
@@ -625,47 +625,45 @@ impl SessionState {
         //TODO: some sort of expirity mechanism like LRU
         SessionState {
             record_state: RecordState::new(),
-            client_access_records: HashMap::new(),
-            backend_access_records: HashMap::new(),
+            client: HashMap::new(),
+            backend: HashMap::new(),
         }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Session> {
         match self.record_state.apply(vsl) {
             Some(Record::ClientAccess(record)) => {
-                self.client_access_records.insert(record.ident, record);
+                self.client.insert(record.ident, record);
                 None
             }
             Some(Record::BackendAccess(record)) => {
-                self.backend_access_records.insert(record.ident, record);
+                self.backend.insert(record.ident, record);
                 None
             }
-            Some(Record::Session(record)) => {
+            Some(Record::Session(session)) => {
                 let proxy_transactions = {
-                    let client_access_records = record.client_requests.iter().map(|ident| {
-                        match self.client_access_records.remove(ident) {
-                            Some(access_record) => access_record,
-                            None => panic!("ClientRequestRecord with ident {} not forund!", ident) // warn!
-                        }
-                    }).collect::<Vec<_>>();
+                    let client = session.client_requests.iter()
+                        .map(|ident| self.client.remove(ident).ok_or(ident))
+                        .inspect(|record| if let &Err(ident) = record {
+                            error!("Session {} references ClientRequestRecord {} which was not found: {:?}", session.ident, ident, session) })
+                        .flat_map(Result::into_iter).collect::<Vec<_>>();
 
-                    client_access_records.into_iter().map(|client_access_record| {
-                        let backend_access_records = client_access_record.backend_requests.iter().map(|ident| {
-                            match self.backend_access_records.remove(ident) {
-                                Some(access_record) => access_record,
-                                None => panic!("BackendRequestRecord with ident {} not forund!", ident) // warn!
-                            }
-                        }).collect();
+                    client.into_iter().map(|client| {
+                        let backend = client.backend_requests.iter()
+                            .map(|ident| self.backend.remove(ident).ok_or(ident))
+                            .inspect(|record| if let &Err(ident) = record {
+                                error!("Session {} references ClientRequestRecord {} which references BackendRequestRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session) })
+                            .flat_map(Result::into_iter).collect::<Vec<_>>();
 
                         ProxyTransaction {
-                            client_access_record: client_access_record,
-                            backend_access_records: backend_access_records,
+                            client: client,
+                            backend: backend,
                         }}).collect()
                 };
 
                 Some(Session {
                     proxy_transactions: proxy_transactions,
-                    session_record: record,
+                    session_record: session,
                 })
             },
             None => None,
@@ -996,48 +994,48 @@ mod access_log_request_state_tests {
         assert!(session.is_some());
         let session = session.unwrap();
 
-        let client_access_record = session.proxy_transactions.get(0).unwrap().client_access_record.clone();
-        assert_eq!(client_access_record.ident, 100);
-        assert_eq!(client_access_record.session, 10);
-        assert_eq!(client_access_record.reason, "rxreq".to_string());
-        assert_eq!(client_access_record.backend_requests.get(0), Some(&1000));
-        assert_eq!(client_access_record.backend_requests.get(1), None);
-        assert_eq!(client_access_record.http_transaction.start, 1469180762.484544);
-        assert_eq!(client_access_record.http_transaction.end, 1469180763.484544);
-        assert_eq!(client_access_record.http_transaction.request.method, "GET".to_string());
-        assert_eq!(client_access_record.http_transaction.request.url, "/foobar".to_string());
-        assert_eq!(client_access_record.http_transaction.request.protocol, "HTTP/1.1".to_string());
-        assert_eq!(client_access_record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
-        assert_eq!(client_access_record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
-        assert_eq!(client_access_record.http_transaction.request.headers.get(2), None);
-        assert_eq!(client_access_record.http_transaction.response.protocol, "HTTP/1.1".to_string());
-        assert_eq!(client_access_record.http_transaction.response.status, 503);
-        assert_eq!(client_access_record.http_transaction.response.reason, "Backend fetch failed".to_string());
-        assert_eq!(client_access_record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
-        assert_eq!(client_access_record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
-        assert_eq!(client_access_record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
-        assert_eq!(client_access_record.http_transaction.response.headers.get(3), None);
+        let client = session.proxy_transactions.get(0).unwrap().client.clone();
+        assert_eq!(client.ident, 100);
+        assert_eq!(client.session, 10);
+        assert_eq!(client.reason, "rxreq".to_string());
+        assert_eq!(client.backend_requests.get(0), Some(&1000));
+        assert_eq!(client.backend_requests.get(1), None);
+        assert_eq!(client.http_transaction.start, 1469180762.484544);
+        assert_eq!(client.http_transaction.end, 1469180763.484544);
+        assert_eq!(client.http_transaction.request.method, "GET".to_string());
+        assert_eq!(client.http_transaction.request.url, "/foobar".to_string());
+        assert_eq!(client.http_transaction.request.protocol, "HTTP/1.1".to_string());
+        assert_eq!(client.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
+        assert_eq!(client.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
+        assert_eq!(client.http_transaction.request.headers.get(2), None);
+        assert_eq!(client.http_transaction.response.protocol, "HTTP/1.1".to_string());
+        assert_eq!(client.http_transaction.response.status, 503);
+        assert_eq!(client.http_transaction.response.reason, "Backend fetch failed".to_string());
+        assert_eq!(client.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
+        assert_eq!(client.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
+        assert_eq!(client.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
+        assert_eq!(client.http_transaction.response.headers.get(3), None);
 
-        let backend_access_record = session.proxy_transactions.get(0).unwrap().backend_access_records.get(0).unwrap();
-        assert_eq!(backend_access_record.ident, 1000);
-        assert_eq!(backend_access_record.parent, 100);
-        assert_eq!(backend_access_record.reason, "fetch".to_string());
-        assert_eq!(backend_access_record.http_transaction.start, 1469180762.484544);
-        assert_eq!(backend_access_record.http_transaction.end, 1469180763.484544);
+        let backend = session.proxy_transactions.get(0).unwrap().backend.get(0).unwrap();
+        assert_eq!(backend.ident, 1000);
+        assert_eq!(backend.parent, 100);
+        assert_eq!(backend.reason, "fetch".to_string());
+        assert_eq!(backend.http_transaction.start, 1469180762.484544);
+        assert_eq!(backend.http_transaction.end, 1469180763.484544);
 
-        assert_eq!(backend_access_record.http_transaction.request.method, "GET".to_string());
-        assert_eq!(backend_access_record.http_transaction.request.url, "/foobar".to_string());
-        assert_eq!(backend_access_record.http_transaction.request.protocol, "HTTP/1.1".to_string());
-        assert_eq!(backend_access_record.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
-        assert_eq!(backend_access_record.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
-        assert_eq!(backend_access_record.http_transaction.request.headers.get(2), None);
-        assert_eq!(backend_access_record.http_transaction.response.protocol, "HTTP/1.1".to_string());
-        assert_eq!(backend_access_record.http_transaction.response.status, 503);
-        assert_eq!(backend_access_record.http_transaction.response.reason, "Backend fetch failed".to_string());
-        assert_eq!(backend_access_record.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
-        assert_eq!(backend_access_record.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
-        assert_eq!(backend_access_record.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
-        assert_eq!(backend_access_record.http_transaction.response.headers.get(3), None);
+        assert_eq!(backend.http_transaction.request.method, "GET".to_string());
+        assert_eq!(backend.http_transaction.request.url, "/foobar".to_string());
+        assert_eq!(backend.http_transaction.request.protocol, "HTTP/1.1".to_string());
+        assert_eq!(backend.http_transaction.request.headers.get(0), Some(&("Host".to_string(), "localhost:8080".to_string())));
+        assert_eq!(backend.http_transaction.request.headers.get(1), Some(&("User-Agent".to_string(), "curl/7.40.0".to_string())));
+        assert_eq!(backend.http_transaction.request.headers.get(2), None);
+        assert_eq!(backend.http_transaction.response.protocol, "HTTP/1.1".to_string());
+        assert_eq!(backend.http_transaction.response.status, 503);
+        assert_eq!(backend.http_transaction.response.reason, "Backend fetch failed".to_string());
+        assert_eq!(backend.http_transaction.response.headers.get(0), Some(&("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string())));
+        assert_eq!(backend.http_transaction.response.headers.get(1), Some(&("Server".to_string(), "Varnish".to_string())));
+        assert_eq!(backend.http_transaction.response.headers.get(2), Some(&("Content-Type".to_string(), "text/html; charset=utf-8".to_string())));
+        assert_eq!(backend.http_transaction.response.headers.get(3), None);
 
         let session_record = session.session_record;
         assert_eq!(session_record.ident, 10);
