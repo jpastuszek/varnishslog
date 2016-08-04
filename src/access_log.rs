@@ -22,8 +22,10 @@ pub type Address = (String, u16);
 // * ACL trace
 // * Linking information: SLT_Link
 // * Byte counts: SLT_ReqAcct
+// * Handle the "<not set>" headers
 //
 // ESI (logs/varnish20160804-3752-1lr56fj56c2d5925f217f012.vsl):
+// ---
 // 65539 SLT_Begin          req 65538 esi
 //
 // 65541 SLT_Begin          req 65538 esi
@@ -39,6 +41,20 @@ pub type Address = (String, u16);
 // 65537 SLT_Link           req 65538 rxreq
 // 65537 SLT_SessClose      REM_CLOSE 3.228
 // 65537 SLT_End
+//
+// Grace (logs/varnish20160804-3752-zmjq309e3d02a67cea67299.vsl)
+// ---
+//     4 SLT_Begin          req 3 rxreq
+//     4 SLT_Link           bereq 5 bgfetch
+//
+//     5 SLT_Begin          bereq 4 bgfetch
+//
+//     3 SLT_Begin          sess 0 HTTP/1
+//     3 SLT_SessOpen       127.0.0.1 59686 127.0.0.1:1230 127.0.0.1 1230 1470304835.029314 19
+//     3 SLT_Link           req 4 rxreq
+//     3 SLT_SessClose      RX_TIMEOUT 10.011
+//     3 SLT_End
+//
 #[derive(Debug, Clone)]
 pub struct ClientAccessRecord {
     pub ident: VslIdent,
