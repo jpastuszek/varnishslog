@@ -742,6 +742,39 @@ mod access_log_request_state_tests {
         VslRecord::from_str(tag, ident, message)
     }
 
+    macro_rules! assert_none {
+        ($x:expr) => {{
+            let opt: Option<_> = $x;
+            assert!(opt.is_none(), "expected `{}` to be None", stringify!($x));
+        }};
+    }
+
+    macro_rules! assert_some {
+        ($x:expr) => {{
+            let opt: Option<_> = $x;
+            assert!(opt.is_some(), "expected `{}` to be Some", stringify!($x));
+            opt.unwrap()
+        }};
+    }
+
+    macro_rules! apply {
+        ($state:ident, $ident:expr, $tag:ident, $message:expr; $($t_ident:expr, $t_tag:ident, $t_message:expr;)+) => {{
+            apply!($state, $ident, $tag, $message;);
+            apply!($state, $($t_ident, $t_tag, $t_message;)*);
+        }};
+
+        ($state:ident, $ident:expr, $tag:ident, $message:expr;) => {{
+            let opt: Option<_> = $state.apply(&vsl($tag, $ident, $message));
+            assert!(opt.is_none(), "expected apply to return None after applying: `{:?}`", $tag);
+        }};
+    }
+
+    macro_rules! apply_final {
+        ($state:ident, $ident:expr, $tag:ident, $message:expr) => {
+            assert_some!($state.apply(&vsl($tag, $ident, $message)))
+        };
+    }
+
     #[test]
     fn apply_non_utf8() {
         let mut state = RecordState::new();
@@ -753,7 +786,7 @@ mod access_log_request_state_tests {
             data: &[255, 0, 1, 2, 3]
         });
 
-        assert!(state.get(123).is_none());
+        assert_none!(state.get(123));
     }
 
     #[test]
@@ -765,12 +798,7 @@ mod access_log_request_state_tests {
         let builder = state.get(123).unwrap().clone();
         let record_type = builder.record_type.unwrap();
 
-        if let RecordType::BackendAccess { parent, reason } = record_type {
-            assert_eq!(parent, 321);
-            assert_eq!(reason, "fetch");
-        } else {
-            panic!("expected BackendAccess type")
-        }
+        assert_matches!(record_type, RecordType::BackendAccess { parent: 321, ref reason } if reason == "fetch");
     }
 
     #[test]
@@ -778,7 +806,7 @@ mod access_log_request_state_tests {
         let mut state = RecordState::new();
 
         state.apply(&vsl(SLT_Begin, 123, "foo 231 fetch"));
-        assert!(state.get(123).is_none());
+        assert_none!(state.get(123));
     }
 
     #[test]
@@ -786,7 +814,7 @@ mod access_log_request_state_tests {
         let mut state = RecordState::new();
 
         state.apply(&vsl(SLT_Begin, 123, "foo bar"));
-        assert!(state.get(123).is_none());
+        assert_none!(state.get(123));
     }
 
     #[test]
@@ -794,7 +822,7 @@ mod access_log_request_state_tests {
         let mut state = RecordState::new();
 
         state.apply(&vsl(SLT_Begin, 123, "bereq bar fetch"));
-        assert!(state.get(123).is_none());
+        assert_none!(state.get(123));
     }
 
     #[test]
@@ -811,14 +839,16 @@ mod access_log_request_state_tests {
     fn apply_backend_request() {
         let mut state = RecordState::new();
 
-        state.apply(&vsl(SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"));
-        state.apply(&vsl(SLT_BereqMethod, 123, "GET"));
-        state.apply(&vsl(SLT_BereqURL, 123, "/foobar"));
-        state.apply(&vsl(SLT_BereqProtocol, 123, "HTTP/1.1"));
-        state.apply(&vsl(SLT_BereqHeader, 123, "Host: localhost:8080"));
-        state.apply(&vsl(SLT_BereqHeader, 123, "User-Agent: curl/7.40.0"));
-        state.apply(&vsl(SLT_BereqHeader, 123, "Accept-Encoding: gzip"));
-        state.apply(&vsl(SLT_BereqUnset, 123, "Accept-Encoding: gzip"));
+        apply!(state,
+               123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
+               123, SLT_BereqMethod, "GET";
+               123, SLT_BereqURL, "/foobar";
+               123, SLT_BereqProtocol, "HTTP/1.1";
+               123, SLT_BereqHeader, "Host: localhost:8080";
+               123, SLT_BereqHeader, "User-Agent: curl/7.40.0";
+               123, SLT_BereqHeader, "Accept-Encoding: gzip";
+               123, SLT_BereqUnset, "Accept-Encoding: gzip";
+              );
 
         let builder = state.get(123).unwrap().clone();
         assert_eq!(builder.req_start, Some(1469180762.484544));
@@ -834,15 +864,17 @@ mod access_log_request_state_tests {
     fn apply_backend_response() {
         let mut state = RecordState::new();
 
-        state.apply(&vsl(SLT_Timestamp, 123, "Beresp: 1469180762.484544 0.000000 0.000000"));
-        state.apply(&vsl(SLT_BerespProtocol, 123, "HTTP/1.1"));
-        state.apply(&vsl(SLT_BerespStatus, 123, "503"));
-        state.apply(&vsl(SLT_BerespReason, 123, "Service Unavailable"));
-        state.apply(&vsl(SLT_BerespReason, 123, "Backend fetch failed")); // TODO precedence ??
-        state.apply(&vsl(SLT_BerespHeader, 123, "Date: Fri, 22 Jul 2016 09:46:02 GMT"));
-        state.apply(&vsl(SLT_BerespHeader, 123, "Server: Varnish"));
-        state.apply(&vsl(SLT_BerespHeader, 123, "Cache-Control: no-store"));
-        state.apply(&vsl(SLT_BerespUnset, 123, "Cache-Control: no-store"));
+        apply!(state,
+               123, SLT_Timestamp, "Beresp: 1469180762.484544 0.000000 0.000000";
+               123, SLT_BerespProtocol, "HTTP/1.1";
+               123, SLT_BerespStatus, "503";
+               123, SLT_BerespReason, "Service Unavailable";
+               123, SLT_BerespReason, "Backend fetch failed";
+               123, SLT_BerespHeader, "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               123, SLT_BerespHeader, "Server: Varnish";
+               123, SLT_BerespHeader, "Cache-Control: no-store";
+               123, SLT_BerespUnset, "Cache-Control: no-store";
+               );
 
         let builder = state.get(123).unwrap().clone();
         assert_eq!(builder.resp_end, Some(1469180762.484544));
@@ -858,35 +890,34 @@ mod access_log_request_state_tests {
     fn apply_client_transaction() {
         let mut state = RecordState::new();
 
-        assert!(state.apply(&vsl(SLT_Begin, 123, "req 321 rxreq")).is_none());
-        assert!(state.apply(&vsl(SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqMethod, 123, "GET")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqURL, 123, "/foobar")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqProtocol, 123, "HTTP/1.1")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqHeader, 123, "Host: localhost:8080")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqHeader, 123, "User-Agent: curl/7.40.0")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqHeader, 123, "Accept-Encoding: gzip")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqUnset, 123, "Accept-Encoding: gzip")).is_none());
+        apply!(state,
+               123, SLT_Begin, "req 321 rxreq";
+               123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
+               123, SLT_ReqMethod, "GET";
+               123, SLT_ReqURL, "/foobar";
+               123, SLT_ReqProtocol, "HTTP/1.1";
+               123, SLT_ReqHeader, "Host: localhost:8080";
+               123, SLT_ReqHeader, "User-Agent: curl/7.40.0";
+               123, SLT_ReqHeader, "Accept-Encoding: gzip";
+               123, SLT_ReqUnset, "Accept-Encoding: gzip";
 
-        assert!(state.apply(&vsl(SLT_Link, 123, "bereq 32774 fetch")).is_none());
+               123, SLT_Link, "bereq 32774 fetch";
 
-        assert!(state.apply(&vsl(SLT_RespProtocol, 123, "HTTP/1.1")).is_none());
-        assert!(state.apply(&vsl(SLT_RespStatus, 123, "503")).is_none());
-        assert!(state.apply(&vsl(SLT_RespReason, 123, "Service Unavailable")).is_none());
-        assert!(state.apply(&vsl(SLT_RespReason, 123, "Backend fetch failed")).is_none()); // TODO precedence ??
-        assert!(state.apply(&vsl(SLT_RespHeader, 123, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
-        assert!(state.apply(&vsl(SLT_RespHeader, 123, "Server: Varnish")).is_none());
-        assert!(state.apply(&vsl(SLT_RespHeader, 123, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&vsl(SLT_RespUnset, 123, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&vsl(SLT_RespHeader, 123, "Content-Type: text/html; charset=utf-8")).is_none());
-        assert!(state.apply(&vsl(SLT_Timestamp, 123, "Resp: 1469180763.484544 0.000000 0.000000")).is_none());
+               123, SLT_RespProtocol, "HTTP/1.1";
+               123, SLT_RespStatus, "503";
+               123, SLT_RespReason, "Service Unavailable";
+               123, SLT_RespReason, "Backend fetch failed";
+               123, SLT_RespHeader, "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               123, SLT_RespHeader, "Server: Varnish";
+               123, SLT_RespHeader, "Cache-Control: no-store";
+               123, SLT_RespUnset, "Cache-Control: no-store";
+               123, SLT_RespHeader, "Content-Type: text/html; charset=utf-8";
+               123, SLT_Timestamp, "Resp: 1469180763.484544 0.000000 0.000000";
+               );
 
-        let record = state.apply(&vsl(SLT_End, 123, ""));
+        let record = apply_final!(state, 123, SLT_End, "");
 
-        assert!(state.get(123).is_none());
-
-        assert!(record.is_some());
-        let record = record.unwrap();
+        assert_none!(state.get(123));
 
         assert!(record.is_client_access());
         let record = record.unwrap_client_access();
@@ -917,33 +948,32 @@ mod access_log_request_state_tests {
     fn apply_backend_transaction() {
         let mut state = RecordState::new();
 
-        assert!(state.apply(&vsl(SLT_Begin, 123, "bereq 321 fetch")).is_none());
-        assert!(state.apply(&vsl(SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqMethod, 123, "GET")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqURL, 123, "/foobar")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqProtocol, 123, "HTTP/1.1")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqHeader, 123, "Host: localhost:8080")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqHeader, 123, "User-Agent: curl/7.40.0")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqHeader, 123, "Accept-Encoding: gzip")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqUnset, 123, "Accept-Encoding: gzip")).is_none());
+        apply!(state,
+               123, SLT_Begin, "bereq 321 fetch";
+               123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
+               123, SLT_BereqMethod, "GET";
+               123, SLT_BereqURL, "/foobar";
+               123, SLT_BereqProtocol, "HTTP/1.1";
+               123, SLT_BereqHeader, "Host: localhost:8080";
+               123, SLT_BereqHeader, "User-Agent: curl/7.40.0";
+               123, SLT_BereqHeader, "Accept-Encoding: gzip";
+               123, SLT_BereqUnset, "Accept-Encoding: gzip";
 
-        assert!(state.apply(&vsl(SLT_Timestamp, 123, "Beresp: 1469180763.484544 0.000000 0.000000")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespProtocol, 123, "HTTP/1.1")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespStatus, 123, "503")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespReason, 123, "Service Unavailable")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespReason, 123, "Backend fetch failed")).is_none()); // TODO precedence ??
-        assert!(state.apply(&vsl(SLT_BerespHeader, 123, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespHeader, 123, "Server: Varnish")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespHeader, 123, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespUnset, 123, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespHeader, 123, "Content-Type: text/html; charset=utf-8")).is_none());
+               123, SLT_Timestamp, "Beresp: 1469180763.484544 0.000000 0.000000";
+               123, SLT_BerespProtocol, "HTTP/1.1";
+               123, SLT_BerespStatus, "503";
+               123, SLT_BerespReason, "Service Unavailable";
+               123, SLT_BerespReason, "Backend fetch failed";
+               123, SLT_BerespHeader, "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               123, SLT_BerespHeader, "Server: Varnish";
+               123, SLT_BerespHeader, "Cache-Control: no-store";
+               123, SLT_BerespUnset, "Cache-Control: no-store";
+               123, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
+               );
 
-        let record = state.apply(&vsl(SLT_End, 123, ""));
+        let record = apply_final!(state, 123, SLT_End, "");
 
-        assert!(state.get(123).is_none());
-
-        assert!(record.is_some());
-        let record = record.unwrap();
+        assert_none!(state.get(123));
 
         assert!(record.is_backend_access());
         let record = record.unwrap_backend_access();
@@ -973,17 +1003,16 @@ mod access_log_request_state_tests {
     fn apply_session() {
         let mut state = RecordState::new();
 
-        assert!(state.apply(&vsl(SLT_Begin, 123, "sess 0 HTTP/1")).is_none());
-        assert!(state.apply(&vsl(SLT_SessOpen, 123, "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18")).is_none());
-        assert!(state.apply(&vsl(SLT_Link, 123, "req 32773 rxreq")).is_none());
-        assert!(state.apply(&vsl(SLT_SessClose, 123, "REM_CLOSE 0.001")).is_none());
+        apply!(state,
+               123, SLT_Begin, "sess 0 HTTP/1";
+               123, SLT_SessOpen, "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18";
+               123, SLT_Link, "req 32773 rxreq";
+               123, SLT_SessClose, "REM_CLOSE 0.001";
+              );
 
-        let record = state.apply(&vsl(SLT_End, 123, ""));
+        let record = apply_final!(state, 123, SLT_End, "");
 
-        assert!(state.get(123).is_none());
-
-        assert!(record.is_some());
-        let record = record.unwrap();
+        assert_none!(state.get(123));
 
         assert!(record.is_session());
         let record = record.unwrap_session();
@@ -1001,64 +1030,59 @@ mod access_log_request_state_tests {
     fn apply_session_state() {
         let mut state = SessionState::new();
 
-        // TODO: macro this!
-        assert!(state.apply(&vsl(SLT_Begin,           100, "req 10 rxreq")).is_none());
-        assert!(state.apply(&vsl(SLT_Timestamp,       100, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqMethod,       100, "GET")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqURL,          100, "/foobar")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqProtocol,     100, "HTTP/1.1")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqHeader,       100, "Host: localhost:8080")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqHeader,       100, "User-Agent: curl/7.40.0")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqHeader,       100, "Accept-Encoding: gzip")).is_none());
-        assert!(state.apply(&vsl(SLT_ReqUnset,        100, "Accept-Encoding: gzip")).is_none());
+        apply!(state,
+               100, SLT_Begin,          "req 10 rxreq";
+               100, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
+               100, SLT_ReqMethod,      "GET";
+               100, SLT_ReqURL,         "/foobar";
+               100, SLT_ReqProtocol,    "HTTP/1.1";
+               100, SLT_ReqHeader,      "Host: localhost:8080";
+               100, SLT_ReqHeader,      "User-Agent: curl/7.40.0";
+               100, SLT_ReqHeader,      "Accept-Encoding: gzip";
+               100, SLT_ReqUnset,       "Accept-Encoding: gzip";
 
-        assert!(state.apply(&vsl(SLT_Link,            100, "bereq 1000 fetch")).is_none());
+               100, SLT_Link,           "bereq 1000 fetch";
+               100, SLT_RespProtocol,   "HTTP/1.1";
+               100, SLT_RespStatus,     "503";
+               100, SLT_RespReason,     "Service Unavailable";
+               100, SLT_RespReason,     "Backend fetch failed";
+               100, SLT_RespHeader,     "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               100, SLT_RespHeader,     "Server: Varnish";
+               100, SLT_RespHeader,     "Cache-Control: no-store";
+               100, SLT_RespUnset,      "Cache-Control: no-store";
+               100, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
+               100, SLT_Timestamp,      "Resp: 1469180763.484544 0.000000 0.000000";
+               100, SLT_End,            "";
 
-        assert!(state.apply(&vsl(SLT_RespProtocol,    100, "HTTP/1.1")).is_none());
-        assert!(state.apply(&vsl(SLT_RespStatus,     100, "503")).is_none());
-        assert!(state.apply(&vsl(SLT_RespReason,     100, "Service Unavailable")).is_none());
-        assert!(state.apply(&vsl(SLT_RespReason,     100, "Backend fetch failed")).is_none()); // TODO precedence ??
-        assert!(state.apply(&vsl(SLT_RespHeader,     100, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
-        assert!(state.apply(&vsl(SLT_RespHeader,     100, "Server: Varnish")).is_none());
-        assert!(state.apply(&vsl(SLT_RespHeader,     100, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&vsl(SLT_RespUnset,      100, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&vsl(SLT_RespHeader,     100, "Content-Type: text/html; charset=utf-8")).is_none());
-        assert!(state.apply(&vsl(SLT_Timestamp,      100, "Resp: 1469180763.484544 0.000000 0.000000")).is_none());
+               1000, SLT_Begin,         "bereq 100 fetch";
+               1000, SLT_Timestamp,     "Start: 1469180762.484544 0.000000 0.000000";
+               1000, SLT_BereqMethod,   "GET";
+               1000, SLT_BereqURL,      "/foobar";
+               1000, SLT_BereqProtocol, "HTTP/1.1";
+               1000, SLT_BereqHeader,   "Host: localhost:8080";
+               1000, SLT_BereqHeader,   "User-Agent: curl/7.40.0";
+               1000, SLT_BereqHeader,   "Accept-Encoding: gzip";
+               1000, SLT_BereqUnset,    "Accept-Encoding: gzip";
 
-        assert!(state.apply(&vsl(SLT_End,            100, "")).is_none());
+               1000, SLT_Timestamp,     "Beresp: 1469180763.484544 0.000000 0.000000";
+               1000, SLT_BerespProtocol, "HTTP/1.1";
+               1000, SLT_BerespStatus,  "503";
+               1000, SLT_BerespReason,  "Service Unavailable";
+               1000, SLT_BerespReason,  "Backend fetch failed";
+               1000, SLT_BerespHeader,  "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               1000, SLT_BerespHeader,  "Server: Varnish";
+               1000, SLT_BerespHeader,  "Cache-Control: no-store";
+               1000, SLT_BerespUnset,   "Cache-Control: no-store";
+               1000, SLT_BerespHeader,  "Content-Type: text/html; charset=utf-8";
+               1000, SLT_End,           "";
 
-        assert!(state.apply(&vsl(SLT_Begin,           1000, "bereq 100 fetch")).is_none());
-        assert!(state.apply(&vsl(SLT_Timestamp,       1000, "Start: 1469180762.484544 0.000000 0.000000")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqMethod,     1000, "GET")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqURL,        1000, "/foobar")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqProtocol,   1000, "HTTP/1.1")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqHeader, 1000, "Host: localhost:8080")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqHeader, 1000, "User-Agent: curl/7.40.0")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqHeader, 1000, "Accept-Encoding: gzip")).is_none());
-        assert!(state.apply(&vsl(SLT_BereqUnset, 1000, "Accept-Encoding: gzip")).is_none());
+               10, SLT_Begin,       "sess 0 HTTP/1";
+               10, SLT_SessOpen,    "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18";
+               10, SLT_Link,        "req 100 rxreq";
+               10, SLT_SessClose,   "REM_CLOSE 0.001";
+               );
 
-        assert!(state.apply(&vsl(SLT_Timestamp, 1000, "Beresp: 1469180763.484544 0.000000 0.000000")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespProtocol, 1000, "HTTP/1.1")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespStatus, 1000, "503")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespReason, 1000, "Service Unavailable")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespReason, 1000, "Backend fetch failed")).is_none()); // TODO precedence ??
-        assert!(state.apply(&vsl(SLT_BerespHeader, 1000, "Date: Fri, 22 Jul 2016 09:46:02 GMT")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespHeader, 1000, "Server: Varnish")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespHeader, 1000, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespUnset, 1000, "Cache-Control: no-store")).is_none());
-        assert!(state.apply(&vsl(SLT_BerespHeader, 1000, "Content-Type: text/html; charset=utf-8")).is_none());
-
-        assert!(state.apply(&vsl(SLT_End, 1000, "")).is_none());
-
-        assert!(state.apply(&vsl(SLT_Begin, 10, "sess 0 HTTP/1")).is_none());
-        assert!(state.apply(&vsl(SLT_SessOpen, 10, "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18")).is_none());
-        assert!(state.apply(&vsl(SLT_Link, 10, "req 100 rxreq")).is_none());
-        assert!(state.apply(&vsl(SLT_SessClose, 10, "REM_CLOSE 0.001")).is_none());
-
-        let session = state.apply(&vsl(SLT_End, 10, ""));
-
-        assert!(session.is_some());
-        let session = session.unwrap();
+        let session = apply_final!(state, 10, SLT_End, "");
 
         let client = session.proxy_transactions.get(0).unwrap().client.clone();
         assert_eq!(client.ident, 100);

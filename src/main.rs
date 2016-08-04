@@ -8,6 +8,8 @@ extern crate clap;
 #[macro_use]
 extern crate quick_error;
 extern crate linked_hash_map;
+#[macro_use]
+extern crate assert_matches;
 
 use std::io::{self, stdin};
 use clap::{Arg, App};
