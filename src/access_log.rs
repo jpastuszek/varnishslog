@@ -707,22 +707,22 @@ impl RecordState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Session {
-    pub session_record: SessionRecord,
+    pub record: SessionRecord,
     pub client_transactions: Vec<ClientTransaction>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientTransaction {
-    pub client: ClientAccessRecord,
+    pub access_record: ClientAccessRecord,
     pub backend_transactions: Vec<BackendTransaction>,
-    pub esi: Vec<ClientTransaction>,
-    pub restart: Option<Box<ClientTransaction>>,
+    pub esi_transactions: Vec<ClientTransaction>,
+    pub restart_transaction: Option<Box<ClientTransaction>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendTransaction {
-    pub backend: BackendAccessRecord,
-    pub retry: Option<Box<BackendTransaction>>,
+    pub access_record: BackendAccessRecord,
+    pub retry_transaction: Option<Box<BackendTransaction>>,
 }
 
 #[derive(Debug)]
@@ -743,15 +743,15 @@ impl SessionState {
     }
 
     fn build_backend_transaction(&mut self, session: &SessionRecord, client: &ClientAccessRecord, backend: BackendAccessRecord) -> BackendTransaction {
-        let retry = backend.retry_request
+        let retry_transaction = backend.retry_request
             .and_then(|ident| self.backend.remove(&ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which has BackendAccessRecord {} that was restarted into BackendAccessRecord {} wich was not found: {:?} in client: {:?} in session: {:?}", session.ident, client.ident, backend.ident, ident, backend, client, session);
                 None}))
             .map(|retry| Box::new(self.build_backend_transaction(session, client, retry)));
 
         BackendTransaction {
-            backend: backend,
-            retry: retry,
+            access_record: backend,
+            retry_transaction: retry_transaction,
         }
     }
 
@@ -765,7 +765,7 @@ impl SessionState {
             .map(|backend| self.build_backend_transaction(session, &client, backend))
             .collect();
 
-        let esi = client.esi_requests.iter()
+        let esi_transactions = client.esi_requests.iter()
             .filter_map(|ident| self.client.remove(ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                 None}))
@@ -773,17 +773,17 @@ impl SessionState {
             .map(|client| self.build_client_transaction(session, client))
             .collect();
 
-        let restart = client.restart_request
+        let restart_transaction = client.restart_request
             .and_then(|ident| self.client.remove(&ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                 None}))
             .map(|restart| Box::new(self.build_client_transaction(&session, restart)));
 
         ClientTransaction {
-            client: client,
+            access_record: client,
             backend_transactions: backend_transactions,
-            esi: esi,
-            restart: restart,
+            esi_transactions: esi_transactions,
+            restart_transaction: restart_transaction,
         }
     }
 
@@ -807,7 +807,7 @@ impl SessionState {
                     .collect();
 
                 Some(Session {
-                    session_record: session,
+                    record: session,
                     client_transactions: client_transactions,
                 })
             },
@@ -1200,7 +1200,7 @@ mod access_log_request_state_tests {
 
         let session = apply_final!(state, 10, SLT_End, "");
 
-        let client = session.client_transactions.get(0).unwrap().client.clone();
+        let client = session.client_transactions.get(0).unwrap().access_record.clone();
         assert_matches!(client, ClientAccessRecord {
             ident: 100,
             parent: 10,
@@ -1237,8 +1237,8 @@ mod access_log_request_state_tests {
         }));
 
         let backend_transaction = session.client_transactions.get(0).unwrap().backend_transactions.get(0).unwrap();
-        assert!(backend_transaction.retry.is_none());
-        let backend = &backend_transaction.backend;
+        assert!(backend_transaction.retry_transaction.is_none());
+        let backend = &backend_transaction.access_record;
         assert_matches!(backend, &BackendAccessRecord {
             ident: 1000,
             parent: 100,
@@ -1268,7 +1268,7 @@ mod access_log_request_state_tests {
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
         }));
 
-        assert_eq!(session.session_record, SessionRecord {
+        assert_eq!(session.record, SessionRecord {
             ident: 10,
             open: 1469180762.484344,
             duration: 0.001,
@@ -1372,10 +1372,10 @@ mod access_log_request_state_tests {
 
         let session = apply_final!(state, 65537, SLT_End, "");
 
-        // We will have esi_requests in client request
-        assert_eq!(session.client_transactions[0].esi[0].client.reason, "esi".to_string());
-        assert_eq!(session.client_transactions[0].esi[0].backend_transactions[0].backend.reason, "fetch".to_string());
-        assert!(session.client_transactions[0].esi[0].esi.is_empty());
+        // We will have esi_transactions in client request
+        assert_eq!(session.client_transactions[0].esi_transactions[0].access_record.reason, "esi".to_string());
+        assert_eq!(session.client_transactions[0].esi_transactions[0].backend_transactions[0].access_record.reason, "fetch".to_string());
+        assert!(session.client_transactions[0].esi_transactions[0].esi_transactions.is_empty());
     }
 
     #[test]
@@ -1432,7 +1432,7 @@ mod access_log_request_state_tests {
             let session = apply_final!(state, 65539, SLT_End, "");
 
             // It is handled as ususal; only difference is backend request reason
-            assert_eq!(session.client_transactions[0].backend_transactions[0].backend.reason, "bgfetch".to_string());
+            assert_eq!(session.client_transactions[0].backend_transactions[0].access_record.reason, "bgfetch".to_string());
    }
 
     #[test]
@@ -1503,13 +1503,13 @@ mod access_log_request_state_tests {
         let session = apply_final!(state, 32769, SLT_End, "");
 
         // The first request won't have response as it got restarted
-        assert!(session.client_transactions[0].client.http_transaction.response.is_none());
+        assert!(session.client_transactions[0].access_record.http_transaction.response.is_none());
 
         // We should have restart transaction
-        let restart = assert_some!(session.client_transactions[0].restart.as_ref());
+        let restart_transaction = assert_some!(session.client_transactions[0].restart_transaction.as_ref());
 
         // It should have a response
-        assert!(restart.client.http_transaction.response.is_some());
+        assert!(restart_transaction.access_record.http_transaction.response.is_some());
     }
 
     #[test]
@@ -1589,10 +1589,10 @@ mod access_log_request_state_tests {
         let session = apply_final!(state, 6, SLT_End, "");
 
         // Backend transaction will have retrys
-        let retry = assert_some!(session.client_transactions[0].backend_transactions[0].retry.as_ref());
+        let retry_transaction = assert_some!(session.client_transactions[0].backend_transactions[0].retry_transaction.as_ref());
 
         // It will have "retry" reason
-        assert_eq!(retry.backend.reason, "retry".to_string());
-        assert!(retry.retry.is_none());
+        assert_eq!(retry_transaction.access_record.reason, "retry".to_string());
+        assert!(retry_transaction.retry_transaction.is_none());
     }
 }
