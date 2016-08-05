@@ -75,7 +75,25 @@ pub type Address = (String, u16);
 // 32769 SLT_Link           req 32770 rxreq
 // 32769 SLT_SessClose      REM_CLOSE 0.347
 //
-// Retry? (can happen in backend response processing)
+// Retry (varnish20160805-3559-f6sifo45103025c06abad14.vsl)
+// ---
+// Can be used to restart backend fetch in backend thread
+//
+//     8 SLT_Begin          bereq 7 fetch
+//     8 SLT_BereqURL       /retry
+//     8 SLT_Link           bereq 32769 retry
+//
+// 32769 SLT_Begin          bereq 8 retry
+// 32769 SLT_BereqURL       /iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg
+//
+//     7 SLT_Begin          req 6 rxreq
+//     7 SLT_Link           bereq 8 fetch
+//
+//     6 SLT_Begin          sess 0 HTTP/1
+//     6 SLT_SessOpen       127.0.0.1 39798 127.0.0.1:1200 127.0.0.1 1200 1470403414.664642 17
+//     6 SLT_Link           req 7 rxreq
+//     6 SLT_SessClose      REM_CLOSE 0.008
+//     6 SLT_End
 //
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
@@ -93,6 +111,7 @@ pub struct BackendAccessRecord {
     pub ident: VslIdent,
     pub parent: VslIdent, // Client
     pub reason: String,
+    pub retry_request: Option<VslIdent>,
     pub http_transaction: HttpTransaction,
 }
 
@@ -103,7 +122,7 @@ pub struct SessionRecord {
     pub duration: Duration,
     pub local: Option<Address>,
     pub remote: Address,
-    pub client_requests: Vec<VslIdent>
+    pub client_requests: Vec<VslIdent>,
 }
 
 // TODO: store duration (use relative timing (?) from log as TS can go backwards)
@@ -136,6 +155,7 @@ pub struct HttpResponse {
 struct RecordBuilder {
     ident: VslIdent,
     record_type: Option<RecordType>,
+    //TODO: lock req_ fields after we ware done with req - they can be still set
     req_start: Option<TimeStamp>,
     req_protocol: Option<String>,
     req_method: Option<String>,
@@ -153,6 +173,7 @@ struct RecordBuilder {
     client_requests: Vec<VslIdent>,
     backend_requests: Vec<VslIdent>,
     restart_request: Option<VslIdent>,
+    retry_request: Option<VslIdent>,
 }
 
 #[derive(Debug, Clone)]
@@ -336,6 +357,7 @@ impl RecordBuilder {
             client_requests: Vec::new(),
             backend_requests: Vec::new(),
             restart_request: None,
+            retry_request: None,
         }
     }
 
@@ -528,6 +550,12 @@ impl RecordBuilder {
                                 .. self
                             }
                         },
+                        ("bereq", "retry") => {
+                            RecordBuilder {
+                                retry_request: Some(child_vxid),
+                                .. self
+                            }
+                        },
                         ("bereq", _) => {
                             let mut backend_requests = self.backend_requests;
                             backend_requests.push(child_vxid);
@@ -616,7 +644,8 @@ impl RecordBuilder {
                                         ident: self.ident,
                                         parent: parent,
                                         reason: reason,
-                                        http_transaction: http_transaction
+                                        retry_request: self.retry_request,
+                                        http_transaction: http_transaction,
                                     };
 
                                     return Ok(RecordBuilderResult::Complete(Record::BackendAccess(record)))
@@ -677,17 +706,24 @@ impl RecordState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Session {
+    pub session_record: SessionRecord,
+    pub proxy_transactions: Vec<ProxyTransaction>,
+}
+
+// TODO: rename to ClientTransaction?
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProxyTransaction {
-    client: ClientAccessRecord,
-    backend: Vec<BackendAccessRecord>,
-    esi: Vec<ProxyTransaction>,
-    restart: Option<Box<ProxyTransaction>>,
+    pub client: ClientAccessRecord,
+    pub backend_transactions: Vec<BackendTransaction>,
+    pub esi: Vec<ProxyTransaction>,
+    pub restart: Option<Box<ProxyTransaction>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Session {
-    session_record: SessionRecord,
-    proxy_transactions: Vec<ProxyTransaction>,
+pub struct BackendTransaction {
+    pub backend: BackendAccessRecord,
+    pub retry: Option<Box<BackendTransaction>>,
 }
 
 #[derive(Debug)]
@@ -707,12 +743,27 @@ impl SessionState {
         }
     }
 
+    fn build_backend_transaction(&mut self, session: &SessionRecord, client: &ClientAccessRecord, backend: BackendAccessRecord) -> BackendTransaction {
+        let retry = backend.retry_request
+            .and_then(|ident| self.backend.remove(&ident).or_else(|| {
+                error!("Session {} references ClientAccessRecord {} which has BackendAccessRecord {} that was restarted into BackendAccessRecord {} wich was not found: {:?} in client: {:?} in session: {:?}", session.ident, client.ident, backend.ident, ident, backend, client, session);
+                None}))
+            .map(|retry| Box::new(self.build_backend_transaction(session, client, retry)));
+
+        BackendTransaction {
+            backend: backend,
+            retry: retry,
+        }
+    }
+
     // TODO: could use Cell to eliminate collect().into_iter() buffers
     fn build_proxy_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ProxyTransaction {
-        let backend = client.backend_requests.iter()
+        let backend_transactions = client.backend_requests.iter()
             .filter_map(|ident| self.backend.remove(ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                 None}))
+            .collect::<Vec<_>>().into_iter()
+            .map(|backend| self.build_backend_transaction(session, &client, backend))
             .collect();
 
         let esi = client.esi_requests.iter()
@@ -731,7 +782,7 @@ impl SessionState {
 
         ProxyTransaction {
             client: client,
-            backend: backend,
+            backend_transactions: backend_transactions,
             esi: esi,
             restart: restart,
         }
@@ -1186,7 +1237,9 @@ mod access_log_request_state_tests {
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
         }));
 
-        let backend = session.proxy_transactions.get(0).unwrap().backend.get(0).unwrap();
+        let backend_transaction = session.proxy_transactions.get(0).unwrap().backend_transactions.get(0).unwrap();
+        assert!(backend_transaction.retry.is_none());
+        let backend = &backend_transaction.backend;
         assert_matches!(backend, &BackendAccessRecord {
             ident: 1000,
             parent: 100,
@@ -1322,7 +1375,7 @@ mod access_log_request_state_tests {
 
         // We will have esi_requests in client request
         assert_eq!(session.proxy_transactions[0].esi[0].client.reason, "esi".to_string());
-        assert_eq!(session.proxy_transactions[0].esi[0].backend[0].reason, "fetch".to_string());
+        assert_eq!(session.proxy_transactions[0].esi[0].backend_transactions[0].backend.reason, "fetch".to_string());
         assert!(session.proxy_transactions[0].esi[0].esi.is_empty());
     }
 
@@ -1380,7 +1433,7 @@ mod access_log_request_state_tests {
             let session = apply_final!(state, 65539, SLT_End, "");
 
             // It is handled as ususal; only difference is backend request reason
-            assert_eq!(session.proxy_transactions[0].backend[0].reason, "bgfetch".to_string());
+            assert_eq!(session.proxy_transactions[0].backend_transactions[0].backend.reason, "bgfetch".to_string());
    }
 
     #[test]
@@ -1458,5 +1511,89 @@ mod access_log_request_state_tests {
 
         // It should have a response
         assert!(restart.client.http_transaction.response.is_some());
+    }
+
+    #[test]
+    fn apply_session_state_retry() {
+        let mut state = SessionState::new();
+
+        apply_all!(state,
+                   8, SLT_Begin,        "bereq 7 fetch";
+                   8, SLT_Timestamp,    "Start: 1470403414.664923 0.000000 0.000000";
+                   8, SLT_BereqMethod,  "GET";
+                   8, SLT_BereqURL,     "/retry";
+                   8, SLT_BereqProtocol,"HTTP/1.1";
+                   8, SLT_BereqHeader,  "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   8, SLT_BackendStart, "127.0.0.1 42001";
+                   8, SLT_Timestamp,    "Bereq: 1470403414.664993 0.000070 0.000070";
+                   8, SLT_Timestamp,    "Beresp: 1470403414.669313 0.004390 0.004320";
+                   8, SLT_BerespProtocol, "HTTP/1.1";
+                   8, SLT_BerespStatus, "200";
+                   8, SLT_BerespReason, "OK";
+                   8, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
+                   8, SLT_VCL_return,   "retry";
+                   8, SLT_BackendClose, "19 boot.default";
+                   8, SLT_Timestamp,    "Retry: 1470403414.669375 0.004452 0.000062";
+                   8, SLT_Link,         "bereq 32769 retry";
+                   8, SLT_End,          "";
+
+                   32769, SLT_Begin,        "bereq 8 retry";
+                   32769, SLT_Timestamp,    "Start: 1470403414.669375 0.004452 0.000000";
+                   32769, SLT_BereqMethod,  "GET";
+                   32769, SLT_BereqURL,     "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                   32769, SLT_BereqProtocol,"HTTP/1.1";
+                   32769, SLT_BereqHeader,  "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   32769, SLT_BereqHeader,  "Host: 127.0.0.1:1200";
+                   32769, SLT_BackendStart, "127.0.0.1 42000";
+                   32769, SLT_Timestamp,    "Bereq: 1470403414.669471 0.004549 0.000096";
+                   32769, SLT_Timestamp,    "Beresp: 1470403414.672184 0.007262 0.002713";
+                   32769, SLT_BerespProtocol, "HTTP/1.1";
+                   32769, SLT_BerespStatus, "200";
+                   32769, SLT_BerespReason, "OK";
+                   32769, SLT_BerespHeader, "Content-Type: image/jpeg";
+                   32769, SLT_Fetch_Body,   "3 length stream";
+                   32769, SLT_BackendReuse, "19 boot.iss";
+                   32769, SLT_Timestamp,    "BerespBody: 1470403414.672290 0.007367 0.000105";
+                   32769, SLT_Length,       "6962";
+                   32769, SLT_BereqAcct,    "1021 0 1021 608 6962 7570";
+                   32769, SLT_End,          "";
+
+                   7, SLT_Begin,        "req 6 rxreq";
+                   7, SLT_Timestamp,    "Start: 1470403414.664824 0.000000 0.000000";
+                   7, SLT_Timestamp,    "Req: 1470403414.664824 0.000000 0.000000";
+                   7, SLT_ReqStart,     "127.0.0.1 39798";
+                   7, SLT_ReqMethod,    "GET";
+                   7, SLT_ReqURL,       "/retry";
+                   7, SLT_ReqProtocol,  "HTTP/1.1";
+                   7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   7, SLT_VCL_return,   "fetch";
+                   7, SLT_Link,         "bereq 8 fetch";
+                   7, SLT_Timestamp,    "Fetch: 1470403414.672315 0.007491 0.007491";
+                   7, SLT_RespProtocol, "HTTP/1.1";
+                   7, SLT_RespStatus,   "200";
+                   7, SLT_RespReason,   "OK";
+                   7, SLT_RespHeader,   "Content-Type: image/jpeg";
+                   7, SLT_VCL_return,   "deliver";
+                   7, SLT_Timestamp,    "Process: 1470403414.672425 0.007601 0.000111";
+                   7, SLT_RespHeader,   "Accept-Ranges: bytes";
+                   7, SLT_Debug,        "RES_MODE 2";
+                   7, SLT_RespHeader,   "Connection: keep-alive";
+                   7, SLT_Timestamp,    "Resp: 1470403414.672458 0.007634 0.000032";
+                   7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
+                   7, SLT_End,          "";
+
+                   6, SLT_Begin,        "sess 0 HTTP/1";
+                   6, SLT_SessOpen,     "127.0.0.1 39798 127.0.0.1:1200 127.0.0.1 1200 1470403414.664642 17";
+                   6, SLT_Link,         "req 7 rxreq";
+                   6, SLT_SessClose,    "REM_CLOSE 0.008";
+                   );
+        let session = apply_final!(state, 6, SLT_End, "");
+
+        // Backend transaction will have retrys
+        let retry = assert_some!(session.proxy_transactions[0].backend_transactions[0].retry.as_ref());
+
+        // It will have "retry" reason
+        assert_eq!(retry.backend.reason, "retry".to_string());
+        assert!(retry.retry.is_none());
     }
 }
