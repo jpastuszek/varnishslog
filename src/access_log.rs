@@ -709,34 +709,26 @@ impl SessionState {
 
     fn build_proxy_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ProxyTransaction {
         let backend = client.backend_requests.iter()
-            .map(|ident| self.backend.remove(ident).ok_or(ident))
-            .inspect(|record| if let &Err(ident) = record {
-                error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session) })
-            .flat_map(Result::into_iter)
+            .map(|ident| self.backend.remove(ident).or_else(|| {
+                error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
+                None}))
+            .filter_map(|i| i)
             .collect::<Vec<_>>();
 
-        let esi_client = client.esi_requests.iter()
-            .map(|ident| self.client.remove(ident).ok_or(ident))
-            .inspect(|record| if let &Err(ident) = record {
-                error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session) })
-            .flat_map(Result::into_iter)
-            .collect::<Vec<_>>();
-
-        let esi = esi_client.into_iter()
+        let esi = client.esi_requests.iter()
+            .map(|ident| self.client.remove(ident).or_else(|| {
+                error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
+                None}))
+            .filter_map(|i| i)
+            .collect::<Vec<_>>().into_iter() // need to collect them so we don't access self concurently (TODO: use Cell?)
             .map(|client| self.build_proxy_transaction(session, client))
             .collect();
 
-        //TODO: shorten
-        let restart = if let Some(ident) = client.restart_request {
-            if let Some(restart) = self.client.remove(&ident) {
-                Some(Box::new(self.build_proxy_transaction(&session, restart)))
-            } else {
+        let restart = client.restart_request
+            .and_then(|ident| self.client.remove(&ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
-                None
-            }
-        } else {
-            None
-        };
+                None}))
+            .and_then(|restart| Some(Box::new(self.build_proxy_transaction(&session, restart))));
 
         ProxyTransaction {
             client: client,
