@@ -708,16 +708,15 @@ impl RecordState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Session {
     pub session_record: SessionRecord,
-    pub proxy_transactions: Vec<ProxyTransaction>,
+    pub client_transactions: Vec<ClientTransaction>,
 }
 
-// TODO: rename to ClientTransaction?
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProxyTransaction {
+pub struct ClientTransaction {
     pub client: ClientAccessRecord,
     pub backend_transactions: Vec<BackendTransaction>,
-    pub esi: Vec<ProxyTransaction>,
-    pub restart: Option<Box<ProxyTransaction>>,
+    pub esi: Vec<ClientTransaction>,
+    pub restart: Option<Box<ClientTransaction>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -757,7 +756,7 @@ impl SessionState {
     }
 
     // TODO: could use Cell to eliminate collect().into_iter() buffers
-    fn build_proxy_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ProxyTransaction {
+    fn build_client_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ClientTransaction {
         let backend_transactions = client.backend_requests.iter()
             .filter_map(|ident| self.backend.remove(ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
@@ -771,16 +770,16 @@ impl SessionState {
                 error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                 None}))
             .collect::<Vec<_>>().into_iter()
-            .map(|client| self.build_proxy_transaction(session, client))
+            .map(|client| self.build_client_transaction(session, client))
             .collect();
 
         let restart = client.restart_request
             .and_then(|ident| self.client.remove(&ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                 None}))
-            .map(|restart| Box::new(self.build_proxy_transaction(&session, restart)));
+            .map(|restart| Box::new(self.build_client_transaction(&session, restart)));
 
-        ProxyTransaction {
+        ClientTransaction {
             client: client,
             backend_transactions: backend_transactions,
             esi: esi,
@@ -799,17 +798,17 @@ impl SessionState {
                 None
             }
             Some(Record::Session(session)) => {
-                let proxy_transactions = session.client_requests.iter()
+                let client_transactions = session.client_requests.iter()
                     .filter_map(|ident| self.client.remove(ident).or_else(|| {
                         error!("Session {} references ClientAccessRecord {} which was not found: {:?}", session.ident, ident, session);
                         None}))
                     .collect::<Vec<_>>().into_iter()
-                    .map(|client| self.build_proxy_transaction(&session, client))
+                    .map(|client| self.build_client_transaction(&session, client))
                     .collect();
 
                 Some(Session {
                     session_record: session,
-                    proxy_transactions: proxy_transactions,
+                    client_transactions: client_transactions,
                 })
             },
             None => None,
@@ -1201,7 +1200,7 @@ mod access_log_request_state_tests {
 
         let session = apply_final!(state, 10, SLT_End, "");
 
-        let client = session.proxy_transactions.get(0).unwrap().client.clone();
+        let client = session.client_transactions.get(0).unwrap().client.clone();
         assert_matches!(client, ClientAccessRecord {
             ident: 100,
             parent: 10,
@@ -1237,7 +1236,7 @@ mod access_log_request_state_tests {
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
         }));
 
-        let backend_transaction = session.proxy_transactions.get(0).unwrap().backend_transactions.get(0).unwrap();
+        let backend_transaction = session.client_transactions.get(0).unwrap().backend_transactions.get(0).unwrap();
         assert!(backend_transaction.retry.is_none());
         let backend = &backend_transaction.backend;
         assert_matches!(backend, &BackendAccessRecord {
@@ -1374,9 +1373,9 @@ mod access_log_request_state_tests {
         let session = apply_final!(state, 65537, SLT_End, "");
 
         // We will have esi_requests in client request
-        assert_eq!(session.proxy_transactions[0].esi[0].client.reason, "esi".to_string());
-        assert_eq!(session.proxy_transactions[0].esi[0].backend_transactions[0].backend.reason, "fetch".to_string());
-        assert!(session.proxy_transactions[0].esi[0].esi.is_empty());
+        assert_eq!(session.client_transactions[0].esi[0].client.reason, "esi".to_string());
+        assert_eq!(session.client_transactions[0].esi[0].backend_transactions[0].backend.reason, "fetch".to_string());
+        assert!(session.client_transactions[0].esi[0].esi.is_empty());
     }
 
     #[test]
@@ -1433,7 +1432,7 @@ mod access_log_request_state_tests {
             let session = apply_final!(state, 65539, SLT_End, "");
 
             // It is handled as ususal; only difference is backend request reason
-            assert_eq!(session.proxy_transactions[0].backend_transactions[0].backend.reason, "bgfetch".to_string());
+            assert_eq!(session.client_transactions[0].backend_transactions[0].backend.reason, "bgfetch".to_string());
    }
 
     #[test]
@@ -1504,10 +1503,10 @@ mod access_log_request_state_tests {
         let session = apply_final!(state, 32769, SLT_End, "");
 
         // The first request won't have response as it got restarted
-        assert!(session.proxy_transactions[0].client.http_transaction.response.is_none());
+        assert!(session.client_transactions[0].client.http_transaction.response.is_none());
 
         // We should have restart transaction
-        let restart = assert_some!(session.proxy_transactions[0].restart.as_ref());
+        let restart = assert_some!(session.client_transactions[0].restart.as_ref());
 
         // It should have a response
         assert!(restart.client.http_transaction.response.is_some());
@@ -1590,7 +1589,7 @@ mod access_log_request_state_tests {
         let session = apply_final!(state, 6, SLT_End, "");
 
         // Backend transaction will have retrys
-        let retry = assert_some!(session.proxy_transactions[0].backend_transactions[0].retry.as_ref());
+        let retry = assert_some!(session.client_transactions[0].backend_transactions[0].retry.as_ref());
 
         // It will have "retry" reason
         assert_eq!(retry.backend.reason, "retry".to_string());
