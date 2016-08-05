@@ -709,17 +709,15 @@ impl SessionState {
 
     fn build_proxy_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ProxyTransaction {
         let backend = client.backend_requests.iter()
-            .map(|ident| self.backend.remove(ident).or_else(|| {
+            .filter_map(|ident| self.backend.remove(ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                 None}))
-            .filter_map(|i| i)
             .collect::<Vec<_>>();
 
         let esi = client.esi_requests.iter()
-            .map(|ident| self.client.remove(ident).or_else(|| {
+            .filter_map(|ident| self.client.remove(ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                 None}))
-            .filter_map(|i| i)
             .collect::<Vec<_>>().into_iter() // need to collect them so we don't access self concurently (TODO: use Cell?)
             .map(|client| self.build_proxy_transaction(session, client))
             .collect();
@@ -728,7 +726,7 @@ impl SessionState {
             .and_then(|ident| self.client.remove(&ident).or_else(|| {
                 error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                 None}))
-            .and_then(|restart| Some(Box::new(self.build_proxy_transaction(&session, restart))));
+            .map(|restart| Box::new(self.build_proxy_transaction(&session, restart)));
 
         ProxyTransaction {
             client: client,
@@ -750,10 +748,9 @@ impl SessionState {
             }
             Some(Record::Session(session)) => {
                 let client_requests = session.client_requests.iter()
-                    .map(|ident| self.client.remove(ident).ok_or(ident))
-                    .inspect(|record| if let &Err(ident) = record {
-                        error!("Session {} references ClientAccessRecord {} which was not found: {:?}", session.ident, ident, session) })
-                    .flat_map(Result::into_iter)
+                    .filter_map(|ident| self.client.remove(ident).or_else(|| {
+                        error!("Session {} references ClientAccessRecord {} which was not found: {:?}", session.ident, ident, session);
+                        None}))
                     .collect::<Vec<_>>();
 
                 let proxy_transactions = client_requests.into_iter()
