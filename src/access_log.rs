@@ -1588,11 +1588,15 @@ mod access_log_request_state_tests {
                    );
         let session = apply_final!(state, 6, SLT_End, "");
 
+        // Backend transaction request record will be the one from before retry (triggering)
+        assert_eq!(session.client_transactions[0].backend_transactions[0].access_record.http_transaction.request.url, "/retry");
+
         // Backend transaction will have retrys
         let retry_transaction = assert_some!(session.client_transactions[0].backend_transactions[0].retry_transaction.as_ref());
 
         // It will have "retry" reason
         assert_eq!(retry_transaction.access_record.reason, "retry".to_string());
         assert!(retry_transaction.retry_transaction.is_none());
+        assert_eq!(retry_transaction.access_record.http_transaction.request.url, "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg");
     }
 }
