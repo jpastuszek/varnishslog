@@ -58,6 +58,8 @@ pub type Address = (String, u16);
 //
 // Restarts (logs/varnish20160804-3752-1h9gf4h5609f5ab778e4a4eb.vsl)
 // ---
+// This can happen at any state of client requests/response handling
+//
 // 32770 SLT_Begin          req 32769 rxreq
 // 32770 SLT_ReqHeader      X-Varnish-Decision: Refresh-NotBuildNumber
 // 32770 SLT_VCL_return     restart
@@ -73,6 +75,8 @@ pub type Address = (String, u16);
 // 32769 SLT_Link           req 32770 rxreq
 // 32769 SLT_SessClose      REM_CLOSE 0.347
 //
+// Retry? (can happen in backend response processing)
+//
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
     pub ident: VslIdent,
@@ -80,6 +84,7 @@ pub struct ClientAccessRecord {
     pub reason: String,
     pub esi_requests: Vec<VslIdent>,
     pub backend_requests: Vec<VslIdent>,
+    pub restart_request: Option<VslIdent>,
     pub http_transaction: HttpTransaction,
 }
 
@@ -108,7 +113,7 @@ pub struct HttpTransaction {
     pub start: TimeStamp,
     pub end: TimeStamp,
     pub request: HttpRequest,
-    pub response: HttpResponse,
+    pub response: Option<HttpResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,6 +152,7 @@ struct RecordBuilder {
     sess_local: Option<Address>,
     client_requests: Vec<VslIdent>,
     backend_requests: Vec<VslIdent>,
+    restart_request: Option<VslIdent>,
 }
 
 #[derive(Debug, Clone)]
@@ -329,6 +335,7 @@ impl RecordBuilder {
             sess_local: None,
             client_requests: Vec::new(),
             backend_requests: Vec::new(),
+            restart_request: None,
         }
     }
 
@@ -373,6 +380,10 @@ impl RecordBuilder {
                             .. self
                         },
                         "Resp" => RecordBuilder {
+                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            .. self
+                        },
+                        "Restart" => RecordBuilder {
                             resp_end: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
                         },
@@ -497,23 +508,29 @@ impl RecordBuilder {
                     }
                 }
                 SLT_Link => {
-                    let (reason, child_vxid, _child_type) = try!(slt_link(message).into_result().context(vsl.tag));
+                    let (reason, child_vxid, child_type) = try!(slt_link(message).into_result().context(vsl.tag));
 
-                    let vxid = try!(child_vxid.parse().context("vxid"));
+                    let child_vxid = try!(child_vxid.parse().context("child_vxid"));
 
-                    match reason {
-                        "req" => {
+                    match (reason, child_type) {
+                        ("req", "restart") => {
+                            RecordBuilder {
+                                restart_request: Some(child_vxid),
+                                .. self
+                            }
+                        },
+                        ("req", _) => {
                             let mut client_requests = self.client_requests;
-                            client_requests.push(vxid);
+                            client_requests.push(child_vxid);
 
                             RecordBuilder {
                                 client_requests: client_requests,
                                 .. self
                             }
                         },
-                        "bereq" => {
+                        ("bereq", _) => {
                             let mut backend_requests = self.backend_requests;
-                            backend_requests.push(vxid);
+                            backend_requests.push(child_vxid);
 
                             RecordBuilder {
                                 backend_requests: backend_requests,
@@ -561,11 +578,16 @@ impl RecordBuilder {
                                 headers: self.req_headers.into_iter().collect(),
                             };
 
-                            let response = HttpResponse {
-                                protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
-                                status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
-                                reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
-                                headers: self.resp_headers.into_iter().collect(),
+                            // We may not have a response in case of restart
+                            let response = if self.resp_status.is_some() {
+                                Some(HttpResponse {
+                                    protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
+                                    status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
+                                    reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
+                                    headers: self.resp_headers.into_iter().collect(),
+                                })
+                            } else {
+                                None
                             };
 
                             let http_transaction = HttpTransaction {
@@ -583,7 +605,8 @@ impl RecordBuilder {
                                         reason: reason,
                                         esi_requests: self.client_requests,
                                         backend_requests: self.backend_requests,
-                                        http_transaction: http_transaction
+                                        restart_request: self.restart_request,
+                                        http_transaction: http_transaction,
                                     };
 
                                     return Ok(RecordBuilderResult::Complete(Record::ClientAccess(record)))
@@ -658,6 +681,7 @@ pub struct ProxyTransaction {
     client: ClientAccessRecord,
     backend: Vec<BackendAccessRecord>,
     esi: Vec<ProxyTransaction>,
+    restart: Option<Box<ProxyTransaction>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -702,10 +726,23 @@ impl SessionState {
             .map(|client| self.build_proxy_transaction(session, client))
             .collect();
 
+        //TODO: shorten
+        let restart = if let Some(ident) = client.restart_request {
+            if let Some(restart) = self.client.remove(&ident) {
+                Some(Box::new(self.build_proxy_transaction(&session, restart)))
+            } else {
+                error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
+                None
+            }
+        } else {
+            None
+        };
+
         ProxyTransaction {
             client: client,
             backend: backend,
             esi: esi,
+            restart: restart,
         }
     }
 
@@ -964,7 +1001,7 @@ mod access_log_request_state_tests {
                 ("Host".to_string(), "localhost:8080".to_string()),
                 ("User-Agent".to_string(), "curl/7.40.0".to_string())]
         });
-        assert_eq!(client.http_transaction.response, HttpResponse {
+        assert_eq!(client.http_transaction.response, Some(HttpResponse {
             protocol: "HTTP/1.1".to_string(),
             status: 503,
             reason: "Backend fetch failed".to_string(),
@@ -972,7 +1009,7 @@ mod access_log_request_state_tests {
                 ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        });
+        }));
     }
 
     #[test]
@@ -1028,7 +1065,7 @@ mod access_log_request_state_tests {
                 ("Host".to_string(), "localhost:8080".to_string()),
                 ("User-Agent".to_string(), "curl/7.40.0".to_string())]
         });
-        assert_eq!(backend.http_transaction.response, HttpResponse {
+        assert_eq!(backend.http_transaction.response, Some(HttpResponse {
             protocol: "HTTP/1.1".to_string(),
             status: 503,
             reason: "Backend fetch failed".to_string(),
@@ -1036,7 +1073,7 @@ mod access_log_request_state_tests {
                 ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        });
+        }));
     }
 
     #[test]
@@ -1151,7 +1188,7 @@ mod access_log_request_state_tests {
                 ("Host".to_string(), "localhost:8080".to_string()),
                 ("User-Agent".to_string(), "curl/7.40.0".to_string())]
         });
-        assert_eq!(client.http_transaction.response, HttpResponse {
+        assert_eq!(client.http_transaction.response, Some(HttpResponse {
             protocol: "HTTP/1.1".to_string(),
             status: 503,
             reason: "Backend fetch failed".to_string(),
@@ -1159,7 +1196,7 @@ mod access_log_request_state_tests {
                 ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        });
+        }));
 
         let backend = session.proxy_transactions.get(0).unwrap().backend.get(0).unwrap();
         assert_matches!(backend, &BackendAccessRecord {
@@ -1181,7 +1218,7 @@ mod access_log_request_state_tests {
                 ("Host".to_string(), "localhost:8080".to_string()),
                 ("User-Agent".to_string(), "curl/7.40.0".to_string())]
         });
-        assert_eq!(backend.http_transaction.response, HttpResponse {
+        assert_eq!(backend.http_transaction.response, Some(HttpResponse {
             protocol: "HTTP/1.1".to_string(),
             status: 503,
             reason: "Backend fetch failed".to_string(),
@@ -1189,7 +1226,7 @@ mod access_log_request_state_tests {
                 ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        });
+        }));
 
         assert_eq!(session.session_record, SessionRecord {
             ident: 10,
