@@ -1382,4 +1382,81 @@ mod access_log_request_state_tests {
             // It is handled as ususal; only difference is backend request reason
             assert_eq!(session.proxy_transactions[0].backend[0].reason, "bgfetch".to_string());
    }
+
+    #[test]
+    fn apply_session_state_restart() {
+        let mut state = SessionState::new();
+
+        apply_all!(state,
+                   32770, SLT_Begin,        "req 32769 rxreq";
+                   32770, SLT_Timestamp,    "Start: 1470304882.576464 0.000000 0.000000";
+                   32770, SLT_Timestamp,    "Req: 1470304882.576464 0.000000 0.000000";
+                   32770, SLT_ReqStart,     "127.0.0.1 34560";
+                   32770, SLT_ReqMethod,    "GET";
+                   32770, SLT_ReqURL,       "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
+                   32770, SLT_ReqProtocol,  "HTTP/1.1";
+                   32770, SLT_ReqHeader,    "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
+                   32770, SLT_VCL_return,   "restart";
+                   32770, SLT_Timestamp,    "Restart: 1470304882.576600 0.000136 0.000136";
+                   32770, SLT_Link,         "req 32771 restart";
+                   32770, SLT_End,          "";
+
+                   32771, SLT_Begin,        "req 32770 restart";
+                   32771, SLT_Timestamp,    "Start: 1470304882.576600 0.000136 0.000000";
+                   32771, SLT_ReqStart,     "127.0.0.1 34560";
+                   32771, SLT_ReqMethod,    "GET";
+                   32771, SLT_ReqURL,       "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
+                   32771, SLT_ReqProtocol,  "HTTP/1.1";
+                   32771, SLT_ReqHeader,    "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
+                   32771, SLT_VCL_return,   "fetch";
+                   32771, SLT_Link,         "bereq 32772 fetch";
+                   32771, SLT_Timestamp,    "Fetch: 1470304882.579218 0.002754 0.002618";
+                   32771, SLT_RespProtocol, "HTTP/1.1";
+                   32771, SLT_RespStatus,   "200";
+                   32771, SLT_RespReason,   "OK";
+                   32771, SLT_RespHeader,   "Content-Type: image/jpeg";
+                   32771, SLT_VCL_return,   "deliver";
+                   32771, SLT_Timestamp,    "Process: 1470304882.579312 0.002848 0.000094";
+                   32771, SLT_RespHeader,   "Accept-Ranges: bytes";
+                   32771, SLT_Debug,        "RES_MODE 2";
+                   32771, SLT_RespHeader,   "Connection: keep-alive";
+                   32771, SLT_Timestamp,    "Resp: 1470304882.615250 0.038785 0.035938";
+                   32771, SLT_ReqAcct,      "324 0 324 1445 6962 8407";
+                   32771, SLT_End,          "";
+
+                   32772, SLT_Begin,        "bereq 32771 fetch";
+                   32772, SLT_Timestamp,    "Start: 1470304882.576644 0.000000 0.000000";
+                   32772, SLT_BereqMethod,  "GET";
+                   32772, SLT_BereqURL,     "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
+                   32772, SLT_BereqProtocol, "HTTP/1.1";
+                   32772, SLT_BereqHeader,  "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
+                   32772, SLT_Timestamp,    "Bereq: 1470304882.576719 0.000074 0.000074";
+                   32772, SLT_Timestamp,    "Beresp: 1470304882.579056 0.002412 0.002337";
+                   32772, SLT_BerespProtocol, "HTTP/1.1";
+                   32772, SLT_BerespStatus, "200";
+                   32772, SLT_BerespReason, "OK";
+                   32772, SLT_BerespHeader, "Content-Type: image/jpeg";
+                   32772, SLT_Fetch_Body,   "3 length stream";
+                   32772, SLT_BackendReuse, "19 boot.iss";
+                   32772, SLT_Timestamp,    "BerespBody: 1470304882.615228 0.038584 0.036172";
+                   32772, SLT_Length,       "6962";
+                   32772, SLT_BereqAcct,    "792 0 792 332 6962 7294";
+                   32772, SLT_End,          "";
+
+                   32769, SLT_Begin,        "sess 0 HTTP/1";
+                   32769, SLT_SessOpen,     "127.0.0.1 34560 127.0.0.1:1244 127.0.0.1 1244 1470304882.576266 14";
+                   32769, SLT_Link,         "req 32770 rxreq";
+                   32769, SLT_SessClose,    "REM_CLOSE 0.347";
+                   );
+        let session = apply_final!(state, 32769, SLT_End, "");
+
+        // The first request won't have response as it got restarted
+        assert!(session.proxy_transactions[0].client.http_transaction.response.is_none());
+
+        // We should have restart transaction
+        let restart = assert_some!(session.proxy_transactions[0].restart.as_ref());
+
+        // It should have a response
+        assert!(restart.client.http_transaction.response.is_some());
+    }
 }
