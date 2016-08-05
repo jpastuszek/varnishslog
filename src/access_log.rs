@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::str::Utf8Error;
 use std::num::{ParseIntError, ParseFloatError};
+use std::fmt::Debug;
 use quick_error::ResultExt;
 use linked_hash_map::LinkedHashMap;
 
@@ -24,6 +25,16 @@ pub type Address = (String, u16);
 // * Linking information: SLT_Link
 // * Byte counts: SLT_ReqAcct
 // * Handle the "<not set>" headers
+//
+// Request headers:
+// ---
+// Bereq:
+// * We want to capture headers sent to the backend (SLT_VCL_return fetch)
+// * They can be set after request was sent to the backend
+//
+// Req:
+// * We want to capture original client request headers (SLT_VCL_call RECV)
+// * The headers are used as variables
 //
 // ESI (logs/varnish20160804-3752-1lr56fj56c2d5925f217f012.vsl):
 // ---
@@ -151,16 +162,41 @@ pub struct HttpResponse {
     pub headers: Vec<(String, String)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+struct HttpRequestBuilder {
+    protocol: Option<String>,
+    method: Option<String>,
+    url: Option<String>,
+    headers: LinkedHashMap<String, String>,
+}
+
+impl BuilderResult<HttpRequestBuilder, HttpRequest> {
+    fn to_complete(self) -> Result<BuilderResult<HttpRequestBuilder, HttpRequest>, RecordBuilderError> {
+        match self {
+            Complete(request) => Err(RecordBuilderError::HttpRequestNotBuilding(request)),
+            Building(builder) => Ok(Complete(HttpRequest {
+                protocol: try!(builder.protocol.ok_or(RecordBuilderError::RecordIncomplete("Request.protocol"))),
+                method: try!(builder.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))),
+                url: try!(builder.url.ok_or(RecordBuilderError::RecordIncomplete("Request.url"))),
+                headers: builder.headers.into_iter().collect(),
+            }))
+        }
+    }
+
+    fn get_complete(self) -> Result<HttpRequest, RecordBuilderError> {
+        match self {
+            Complete(request) => Ok(request),
+            Building(_) => Err(RecordBuilderError::HttpRequestNotComplete),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct RecordBuilder {
     ident: VslIdent,
     record_type: Option<RecordType>,
-    //TODO: lock req_ fields after we ware done with req - they can be still set
     req_start: Option<TimeStamp>,
-    req_protocol: Option<String>,
-    req_method: Option<String>,
-    req_url: Option<String>,
-    req_headers: LinkedHashMap<String, String>,
+    http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
     resp_protocol: Option<String>,
     resp_status: Option<u32>,
     resp_reason: Option<String>,
@@ -243,10 +279,29 @@ impl Record {
 }
 
 #[derive(Debug)]
-enum RecordBuilderResult {
-    Building(RecordBuilder),
-    Complete(Record),
+enum BuilderResult<B, C> {
+    Building(B),
+    Complete(C),
 }
+
+impl<B, C> BuilderResult<B, C> {
+    fn as_ref(&self) -> BuilderResult<&B, &C> {
+        match self {
+            &BuilderResult::Building(ref buidling) => BuilderResult::Building(buidling),
+            &BuilderResult::Complete(ref complete) => BuilderResult::Complete(complete),
+        }
+    }
+
+    fn unwrap(self) -> C where B: Debug {
+        match self {
+            BuilderResult::Building(buidling) => panic!("Trying to unwrap BuilderResult::Building: {:?}", buidling),
+            BuilderResult::Complete(complete) => complete,
+        }
+    }
+}
+
+// So we can just type Building() and Complete()
+use self::BuilderResult::*;
 
 trait IResultExt<O, E> {
     fn into_result(self) -> Result<O, E>;
@@ -284,6 +339,12 @@ quick_error! {
                 -> (field_name, format!("Float parsing error: {}", err))
             context(field_name: &'static str, err: ParseIntError)
                 -> (field_name, format!("Integer parsing error: {}", err))
+        }
+        HttpRequestNotBuilding(request: HttpRequest) {
+            display("Expected HTTP request to be still building but got it complete: {:?}", request)
+        }
+        HttpRequestNotComplete {
+            display("Expected HTTP request to be complete but it was still building")
         }
         RecordIncomplete(field_name: &'static str) {
             display("Failed to construct final access record due to missing field '{}'", field_name)
@@ -335,16 +396,20 @@ named!(slt_sess_close<&str, (&str, &str)>, complete!(tuple!(
         space_terminated,           // Why the connection closed
         space_terminated_eof)));    // How long the session was open
 
+named!(stl_call<&str, &str>, complete!(space_terminated_eof));      // VCL method name
+
 impl RecordBuilder {
     fn new(ident: VslIdent) -> RecordBuilder {
         RecordBuilder {
             ident: ident,
             record_type: None,
             req_start: None,
-            req_protocol: None,
-            req_method: None,
-            req_url: None,
-            req_headers: LinkedHashMap::new(),
+            http_request: Building(HttpRequestBuilder {
+                protocol: None,
+                method: None,
+                url: None,
+                headers: LinkedHashMap::new(),
+            }),
             resp_protocol: None,
             resp_status: None,
             resp_reason: None,
@@ -361,7 +426,7 @@ impl RecordBuilder {
         }
     }
 
-    fn apply<'r>(self, vsl: &'r VslRecord) -> Result<RecordBuilderResult, RecordBuilderError> {
+    fn apply<'r>(self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
         let builder = match vsl.message() {
             Ok(message) => match vsl.tag {
                 SLT_Begin => {
@@ -420,48 +485,103 @@ impl RecordBuilder {
                 SLT_BereqProtocol | SLT_ReqProtocol => {
                     let protocol = try!(slt_protocol(message).into_result().context(vsl.tag));
 
-                    RecordBuilder {
-                        req_protocol: Some(protocol.to_string()),
-                        .. self
+                    if let Building(builder) = self.http_request {
+                        RecordBuilder {
+                            http_request: Building(HttpRequestBuilder {
+                                protocol: Some(protocol.to_string()),
+                                .. builder
+                            }),
+                            .. self
+                        }
+                    } else {
+                        debug!("Ignoring {:?} with protocol '{}' as we have finished building the request", vsl.tag, protocol);
+                        self
                     }
                 }
                 SLT_BereqMethod | SLT_ReqMethod => {
                     let method = try!(slt_method(message).into_result().context(vsl.tag));
 
-                    RecordBuilder {
-                        req_method: Some(method.to_string()),
-                        .. self
+                    if let Building(builder) = self.http_request {
+                        RecordBuilder {
+                            http_request: Building(HttpRequestBuilder {
+                                method: Some(method.to_string()),
+                                .. builder
+                            }),
+                            .. self
+                        }
+                    } else {
+                        debug!("Ignoring {:?} with method '{}' as we have finished building the request", vsl.tag, method);
+                        self
                     }
                 }
                 SLT_BereqURL | SLT_ReqURL => {
                     let url = try!(slt_url(message).into_result().context(vsl.tag));
 
-                    RecordBuilder {
-                        req_url: Some(url.to_string()),
-                        .. self
+                    if let Building(builder) = self.http_request {
+                        RecordBuilder {
+                            http_request: Building(HttpRequestBuilder {
+                                url: Some(url.to_string()),
+                                .. builder
+                            }),
+                            .. self
+                        }
+                    } else {
+                        debug!("Ignoring {:?} with URL '{}' as we have finished building the request", vsl.tag, url);
+                        self
                     }
                 }
                 //TODO: lock header manip after request/response was sent
                 SLT_BereqHeader | SLT_ReqHeader => {
                     let (name, value) = try!(slt_header(message).into_result().context(vsl.tag));
 
-                    let mut headers = self.req_headers;
-                    headers.insert(name.to_string(), value.to_string());
+                    if let BuilderResult::Building(builder) = self.http_request {
+                        let mut headers = builder.headers;
+                        headers.insert(name.to_string(), value.to_string());
 
-                    RecordBuilder {
-                        req_headers: headers,
-                        .. self
+                        RecordBuilder {
+                            http_request: Building(HttpRequestBuilder {
+                                headers: headers,
+                                .. builder
+                            }),
+                            .. self
+                        }
+                    } else {
+                        debug!("Ignoring {:?} with header '{}' of value '{}' as we have finished building the request", vsl.tag, name, value);
+                        self
                     }
                 }
                 SLT_BereqUnset | SLT_ReqUnset => {
                     let (name, _) = try!(slt_header(message).into_result().context(vsl.tag));
 
-                    let mut headers = self.req_headers;
-                    headers.remove(name);
+                    if let Building(builder) = self.http_request {
+                        let mut headers = builder.headers;
+                        headers.remove(name);
 
-                    RecordBuilder {
-                        req_headers: headers,
-                        .. self
+                        RecordBuilder {
+                            http_request: Building(HttpRequestBuilder {
+                                headers: headers,
+                                .. builder
+                            }),
+                            .. self
+                        }
+                    } else {
+                        debug!("Ignoring {:?} with header '{}' as we have finished building the request", vsl.tag, name);
+                        self
+                    }
+                }
+
+                SLT_VCL_call | SLT_VCL_return => {
+                    let method = try!(stl_call(message).into_result().context(vsl.tag));
+
+                    match method {
+                        "fetch" | "RECV" => RecordBuilder {
+                            http_request: try!(self.http_request.to_complete()),
+                            .. self
+                        },
+                        _ => {
+                            warn!("Ignoring unknown {:?} method: {}", vsl.tag, method);
+                            self
+                        }
                     }
                 }
 
@@ -595,16 +715,10 @@ impl RecordBuilder {
                                 client_requests: self.client_requests,
                             };
 
-                            return Ok(RecordBuilderResult::Complete(Record::Session(record)))
+                            return Ok(Complete(Record::Session(record)))
                         },
                         RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
-                            // Try to build AccessRecord
-                            let request = HttpRequest {
-                                protocol: try!(self.req_protocol.ok_or(RecordBuilderError::RecordIncomplete("req_protocol"))),
-                                method: try!(self.req_method.ok_or(RecordBuilderError::RecordIncomplete("req_method"))),
-                                url: try!(self.req_url.ok_or(RecordBuilderError::RecordIncomplete("req_url"))),
-                                headers: self.req_headers.into_iter().collect(),
-                            };
+                            let request = try!(self.http_request.get_complete());
 
                             // We may not have a response in case of restart
                             let response = if self.resp_status.is_some() {
@@ -637,7 +751,7 @@ impl RecordBuilder {
                                         http_transaction: http_transaction,
                                     };
 
-                                    return Ok(RecordBuilderResult::Complete(Record::ClientAccess(record)))
+                                    return Ok(Complete(Record::ClientAccess(record)))
                                 },
                                 RecordType::BackendAccess { parent, reason } => {
                                     let record = BackendAccessRecord {
@@ -648,7 +762,7 @@ impl RecordBuilder {
                                         http_transaction: http_transaction,
                                     };
 
-                                    return Ok(RecordBuilderResult::Complete(Record::BackendAccess(record)))
+                                    return Ok(Complete(Record::BackendAccess(record)))
                                 },
                                 _ => unreachable!(),
                             }
@@ -663,7 +777,7 @@ impl RecordBuilder {
             Err(err) => return Err(RecordBuilderError::NonUtf8VslMessage(err))
         };
 
-        Ok(RecordBuilderResult::Building(builder))
+        Ok(Building(builder))
     }
 }
 
@@ -686,11 +800,11 @@ impl RecordState {
 
         match builder.apply(vsl) {
             Ok(result) => match result {
-                RecordBuilderResult::Building(builder) => {
+                Building(builder) => {
                     self.builders.insert(vsl.ident, builder);
                     return None
                 }
-                RecordBuilderResult::Complete(record) => return Some(record),
+                Complete(record) => return Some(record),
             },
             Err(err) => {
                 error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
@@ -888,10 +1002,10 @@ mod access_log_request_state_tests {
 
         state.apply(&vsl(SLT_Begin, 123, "bereq 321 fetch"));
 
-        let builder = state.get(123).unwrap().clone();
-        let record_type = builder.record_type.unwrap();
+        let builder = state.get(123).unwrap();
+        let record_type = builder.record_type.as_ref().unwrap();
 
-        assert_matches!(record_type, RecordType::BackendAccess { parent: 321, ref reason } if reason == "fetch");
+        assert_matches!(record_type, &RecordType::BackendAccess { parent: 321, ref reason } if reason == "fetch");
     }
 
     #[test]
@@ -933,24 +1047,27 @@ mod access_log_request_state_tests {
         let mut state = RecordState::new();
 
         apply_all!(state,
-               123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
-               123, SLT_BereqMethod, "GET";
-               123, SLT_BereqURL, "/foobar";
-               123, SLT_BereqProtocol, "HTTP/1.1";
-               123, SLT_BereqHeader, "Host: localhost:8080";
-               123, SLT_BereqHeader, "User-Agent: curl/7.40.0";
-               123, SLT_BereqHeader, "Accept-Encoding: gzip";
-               123, SLT_BereqUnset, "Accept-Encoding: gzip";
+               123, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
+               123, SLT_BereqMethod,    "GET";
+               123, SLT_BereqURL,       "/foobar";
+               123, SLT_BereqProtocol,  "HTTP/1.1";
+               123, SLT_BereqHeader,    "Host: localhost:8080";
+               123, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
+               123, SLT_BereqHeader,    "Accept-Encoding: gzip";
+               123, SLT_BereqUnset,     "Accept-Encoding: gzip";
+               123, SLT_VCL_return,     "fetch";
               );
 
-        let builder = state.get(123).unwrap().clone();
+        let builder = state.get(123).unwrap();
         assert_eq!(builder.req_start, Some(1469180762.484544));
-        assert_eq!(builder.req_method, Some("GET".to_string()));
-        assert_eq!(builder.req_url, Some("/foobar".to_string()));
-        assert_eq!(builder.req_protocol, Some("HTTP/1.1".to_string()));
-        assert_eq!(builder.req_headers.get("Host"), Some(&"localhost:8080".to_string()));
-        assert_eq!(builder.req_headers.get("User-Agent"), Some(&"curl/7.40.0".to_string()));
-        assert_eq!(builder.req_headers.get("Accept-Encoding"), None);
+
+        let builder = builder.http_request.as_ref().unwrap();
+        assert_eq!(builder.method, "GET".to_string());
+        assert_eq!(builder.url, "/foobar".to_string());
+        assert_eq!(builder.protocol, "HTTP/1.1".to_string());
+        assert_eq!(builder.headers, &[
+                   ("Host".to_string(), "localhost:8080".to_string()),
+                   ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
     }
 
     #[test]
@@ -969,7 +1086,7 @@ mod access_log_request_state_tests {
                123, SLT_BerespUnset, "Cache-Control: no-store";
                );
 
-        let builder = state.get(123).unwrap().clone();
+        let builder = state.get(123).unwrap();
         assert_eq!(builder.resp_end, Some(1469180762.484544));
         assert_eq!(builder.resp_protocol, Some("HTTP/1.1".to_string()));
         assert_eq!(builder.resp_status, Some(503));
@@ -980,7 +1097,47 @@ mod access_log_request_state_tests {
     }
 
     #[test]
-    fn apply_client_transaction() {
+    fn apply_backend_request_locking() {
+        let mut state = RecordState::new();
+
+        apply_all!(state,
+               123, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
+               123, SLT_BereqMethod,    "GET";
+               123, SLT_BereqURL,       "/foobar";
+               123, SLT_BereqProtocol,  "HTTP/1.1";
+               123, SLT_BereqHeader,    "Host: localhost:8080";
+               123, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
+               123, SLT_BereqHeader,    "Accept-Encoding: gzip";
+               123, SLT_BereqUnset,     "Accept-Encoding: gzip";
+               123, SLT_VCL_return,     "fetch";
+               123, SLT_BerespProtocol, "HTTP/1.1";
+               123, SLT_BerespStatus,   "503";
+               123, SLT_BerespReason,   "Service Unavailable";
+               123, SLT_BerespReason,   "Backend fetch failed";
+               123, SLT_BerespHeader,   "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+
+               // try tp change headers after request (which can be done form VCL)
+               123, SLT_BereqMethod,    "POST";
+               123, SLT_BereqURL,       "/quix";
+               123, SLT_BereqProtocol,  "HTTP/2.0";
+               123, SLT_BereqHeader,    "Host: foobar:666";
+               123, SLT_BereqHeader,    "Baz: bar";
+              );
+
+        let builder = state.get(123).unwrap().clone();
+        assert_eq!(builder.req_start, Some(1469180762.484544));
+
+        let builder = builder.http_request.as_ref().unwrap();
+        assert_eq!(builder.method, "GET".to_string());
+        assert_eq!(builder.url, "/foobar".to_string());
+        assert_eq!(builder.protocol, "HTTP/1.1".to_string());
+        assert_eq!(builder.headers, &[
+                   ("Host".to_string(), "localhost:8080".to_string()),
+                   ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
+    }
+
+    #[test]
+    fn apply_record_state_client_access() {
         let mut state = RecordState::new();
 
         apply_all!(state,
@@ -1051,30 +1208,30 @@ mod access_log_request_state_tests {
     }
 
     #[test]
-    fn apply_backend_transaction() {
+    fn apply_record_state_backend_access() {
         let mut state = RecordState::new();
 
         apply_all!(state,
-               123, SLT_Begin, "bereq 321 fetch";
-               123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
-               123, SLT_BereqMethod, "GET";
-               123, SLT_BereqURL, "/foobar";
-               123, SLT_BereqProtocol, "HTTP/1.1";
-               123, SLT_BereqHeader, "Host: localhost:8080";
-               123, SLT_BereqHeader, "User-Agent: curl/7.40.0";
-               123, SLT_BereqHeader, "Accept-Encoding: gzip";
-               123, SLT_BereqUnset, "Accept-Encoding: gzip";
-
-               123, SLT_Timestamp, "Beresp: 1469180763.484544 0.000000 0.000000";
+               123, SLT_Begin,          "bereq 321 fetch";
+               123, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
+               123, SLT_BereqMethod,    "GET";
+               123, SLT_BereqURL,       "/foobar";
+               123, SLT_BereqProtocol,  "HTTP/1.1";
+               123, SLT_BereqHeader,    "Host: localhost:8080";
+               123, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
+               123, SLT_BereqHeader,    "Accept-Encoding: gzip";
+               123, SLT_BereqUnset,     "Accept-Encoding: gzip";
+               123, SLT_VCL_return,     "fetch";
+               123, SLT_Timestamp,      "Beresp: 1469180763.484544 0.000000 0.000000";
                123, SLT_BerespProtocol, "HTTP/1.1";
-               123, SLT_BerespStatus, "503";
-               123, SLT_BerespReason, "Service Unavailable";
-               123, SLT_BerespReason, "Backend fetch failed";
-               123, SLT_BerespHeader, "Date: Fri, 22 Jul 2016 09:46:02 GMT";
-               123, SLT_BerespHeader, "Server: Varnish";
-               123, SLT_BerespHeader, "Cache-Control: no-store";
-               123, SLT_BerespUnset, "Cache-Control: no-store";
-               123, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
+               123, SLT_BerespStatus,   "503";
+               123, SLT_BerespReason,   "Service Unavailable";
+               123, SLT_BerespReason,   "Backend fetch failed";
+               123, SLT_BerespHeader,   "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               123, SLT_BerespHeader,   "Server: Varnish";
+               123, SLT_BerespHeader,   "Cache-Control: no-store";
+               123, SLT_BerespUnset,    "Cache-Control: no-store";
+               123, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
                );
 
         let record = apply_final!(state, 123, SLT_End, "");
@@ -1115,7 +1272,7 @@ mod access_log_request_state_tests {
     }
 
     #[test]
-    fn apply_session() {
+    fn apply_record_state_session() {
         let mut state = RecordState::new();
 
         apply_all!(state,
@@ -1179,7 +1336,7 @@ mod access_log_request_state_tests {
                1000, SLT_BereqHeader,   "User-Agent: curl/7.40.0";
                1000, SLT_BereqHeader,   "Accept-Encoding: gzip";
                1000, SLT_BereqUnset,    "Accept-Encoding: gzip";
-
+               1000, SLT_VCL_return,    "fetch";
                1000, SLT_Timestamp,     "Beresp: 1469180763.484544 0.000000 0.000000";
                1000, SLT_BerespProtocol, "HTTP/1.1";
                1000, SLT_BerespStatus,  "503";
@@ -1523,13 +1680,14 @@ mod access_log_request_state_tests {
                    8, SLT_BereqURL,     "/retry";
                    8, SLT_BereqProtocol,"HTTP/1.1";
                    8, SLT_BereqHeader,  "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-                   8, SLT_BackendStart, "127.0.0.1 42001";
+                   8, SLT_VCL_return,   "fetch";
                    8, SLT_Timestamp,    "Bereq: 1470403414.664993 0.000070 0.000070";
                    8, SLT_Timestamp,    "Beresp: 1470403414.669313 0.004390 0.004320";
                    8, SLT_BerespProtocol, "HTTP/1.1";
                    8, SLT_BerespStatus, "200";
                    8, SLT_BerespReason, "OK";
                    8, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
+                   8, SLT_BereqURL,     "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
                    8, SLT_VCL_return,   "retry";
                    8, SLT_BackendClose, "19 boot.default";
                    8, SLT_Timestamp,    "Retry: 1470403414.669375 0.004452 0.000062";
@@ -1543,7 +1701,7 @@ mod access_log_request_state_tests {
                    32769, SLT_BereqProtocol,"HTTP/1.1";
                    32769, SLT_BereqHeader,  "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                    32769, SLT_BereqHeader,  "Host: 127.0.0.1:1200";
-                   32769, SLT_BackendStart, "127.0.0.1 42000";
+                   32769, SLT_VCL_return,   "fetch";
                    32769, SLT_Timestamp,    "Bereq: 1470403414.669471 0.004549 0.000096";
                    32769, SLT_Timestamp,    "Beresp: 1470403414.672184 0.007262 0.002713";
                    32769, SLT_BerespProtocol, "HTTP/1.1";
@@ -1565,6 +1723,7 @@ mod access_log_request_state_tests {
                    7, SLT_ReqURL,       "/retry";
                    7, SLT_ReqProtocol,  "HTTP/1.1";
                    7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   7, SLT_VCL_call,     "RECV";
                    7, SLT_VCL_return,   "fetch";
                    7, SLT_Link,         "bereq 8 fetch";
                    7, SLT_Timestamp,    "Fetch: 1470403414.672315 0.007491 0.007491";
