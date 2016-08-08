@@ -189,7 +189,7 @@ impl HttpRequestBuilder {
     }
 }
 
-impl DetailBuilder for HttpRequestBuilder {
+impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
     fn result_name() -> &'static str {
         "HTTP Request"
     }
@@ -247,26 +247,14 @@ impl DetailBuilder for HttpRequestBuilder {
 
         Ok(builder)
     }
-}
 
-impl BuilderResult<HttpRequestBuilder, HttpRequest> {
-    fn to_complete(self) -> Result<BuilderResult<HttpRequestBuilder, HttpRequest>, RecordBuilderError> {
-        match self {
-            Complete(request) => Err(RecordBuilderError::HttpRequestNotBuilding(request)),
-            Building(builder) => Ok(Complete(HttpRequest {
-                protocol: try!(builder.protocol.ok_or(RecordBuilderError::RecordIncomplete("Request.protocol"))),
-                method: try!(builder.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))),
-                url: try!(builder.url.ok_or(RecordBuilderError::RecordIncomplete("Request.url"))),
-                headers: builder.headers.into_iter().collect(),
-            }))
-        }
-    }
-
-    fn get_complete(self) -> Result<HttpRequest, RecordBuilderError> {
-        match self {
-            Complete(request) => Ok(request),
-            Building(_) => Err(RecordBuilderError::HttpRequestNotComplete),
-        }
+    fn complete(self) -> Result<HttpRequest, RecordBuilderError> {
+        Ok(HttpRequest {
+            protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Request.protocol"))),
+            method: try!(self.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))),
+            url: try!(self.url.ok_or(RecordBuilderError::RecordIncomplete("Request.url"))),
+            headers: self.headers.into_iter().collect(),
+        })
     }
 }
 
@@ -289,7 +277,7 @@ impl HttpResponseBuilder {
     }
 }
 
-impl DetailBuilder for HttpResponseBuilder {
+impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
     fn result_name() -> &'static str {
         "HTTP Response"
     }
@@ -347,26 +335,14 @@ impl DetailBuilder for HttpResponseBuilder {
 
         Ok(builder)
     }
-}
 
-impl BuilderResult<HttpResponseBuilder, HttpResponse> {
-    fn to_complete(self) -> Result<BuilderResult<HttpResponseBuilder, HttpResponse>, RecordBuilderError> {
-        match self {
-            Complete(response) => Err(RecordBuilderError::HttpResponseNotBuilding(response)),
-            Building(builder) => Ok(Complete(HttpResponse {
-                protocol: try!(builder.protocol.ok_or(RecordBuilderError::RecordIncomplete("Response.protocol"))),
-                status: try!(builder.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))),
-                reason: try!(builder.reason.ok_or(RecordBuilderError::RecordIncomplete("Response.reason"))),
-                headers: builder.headers.into_iter().collect(),
-            }))
-        }
-    }
-
-    fn get_complete(self) -> Result<HttpResponse, RecordBuilderError> {
-        match self {
-            Complete(response) => Ok(response),
-            Building(_) => Err(RecordBuilderError::HttpResponseNotComplete),
-        }
+    fn complete(self) -> Result<HttpResponse, RecordBuilderError> {
+        Ok(HttpResponse {
+            protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Response.protocol"))),
+            status: try!(self.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))),
+            reason: try!(self.reason.ok_or(RecordBuilderError::RecordIncomplete("Response.reason"))),
+            headers: self.headers.into_iter().collect(),
+        })
     }
 }
 
@@ -460,9 +436,10 @@ enum BuilderResult<B, C> {
     Complete(C),
 }
 
-trait DetailBuilder: Sized {
+trait DetailBuilder<C>: Sized {
     fn result_name() -> &'static str;
     fn apply(self, tag: VslRecordTag, message: &str) -> Result<Self, RecordBuilderError>;
+    fn complete(self) -> Result<C, RecordBuilderError>;
 }
 
 
@@ -483,7 +460,7 @@ impl<B, C> BuilderResult<B, C> {
         }
     }
 
-    fn apply(self, tag: VslRecordTag, message: &str) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder
+    fn apply(self, tag: VslRecordTag, message: &str) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C>
     {
         let builder_result = if let Building(builder) = self {
             Building(try!(builder.apply(tag, message)))
@@ -493,6 +470,20 @@ impl<B, C> BuilderResult<B, C> {
         };
 
         Ok(builder_result)
+    }
+
+    fn complete(self) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C> {
+        match self {
+            Complete(_) => Err(RecordBuilderError::DetailAlreadyBuilt(B::result_name())),
+            Building(builder) => Ok(Complete(try!(builder.complete()))),
+        }
+    }
+
+    fn get_complete(self) -> Result<C, RecordBuilderError> where B: DetailBuilder<C> {
+        match self {
+            Complete(response) => Ok(response),
+            Building(_) => Err(RecordBuilderError::DetailIncomplete(B::result_name())),
+        }
     }
 }
 
@@ -536,17 +527,11 @@ quick_error! {
             context(field_name: &'static str, err: ParseIntError)
                 -> (field_name, format!("Integer parsing error: {}", err))
         }
-        HttpRequestNotBuilding(request: HttpRequest) {
-            display("Expected HTTP request to be still building but got it complete: {:?}", request)
+        DetailAlreadyBuilt(detail_name: &'static str) {
+            display("Expected {} to be still building but got it complete", detail_name)
         }
-        HttpRequestNotComplete {
-            display("Expected HTTP request to be complete but it was still building")
-        }
-        HttpResponseNotBuilding(response: HttpResponse) {
-            display("Expected HTTP response to be still building but got it complete: {:?}", response)
-        }
-        HttpResponseNotComplete {
-            display("Expected HTTP response to be complete but it was still building")
+        DetailIncomplete(detail_name: &'static str) {
+            display("Expected {} to be complete but it was still building", detail_name)
         }
         RecordIncomplete(field_name: &'static str) {
             display("Failed to construct final access record due to missing field '{}'", field_name)
@@ -772,11 +757,11 @@ impl RecordBuilder {
 
                     match method {
                         "fetch" | "RECV" => RecordBuilder {
-                            http_request: try!(self.http_request.to_complete()),
+                            http_request: try!(self.http_request.complete()),
                             .. self
                         },
                         "BACKEND_RESPONSE" | "BACKEND_ERROR" => RecordBuilder {
-                            http_response: try!(self.http_response.to_complete()),
+                            http_response: try!(self.http_response.complete()),
                             .. self
                         },
                         _ => {
@@ -809,7 +794,7 @@ impl RecordBuilder {
                             } else {
                                 let response = if let RecordType::ClientAccess { .. } = record_type {
                                     // SLT_End tag is completing the client response
-                                    try!(self.http_response.to_complete())
+                                    try!(self.http_response.complete())
                                 } else {
                                     self.http_response
                                 };
@@ -1187,7 +1172,7 @@ mod access_log_request_state_tests {
         let builder = state.get(123).unwrap();
         assert_eq!(builder.resp_end, Some(1469180762.484544));
 
-        let builder = builder.http_response.to_complete().unwrap().get_complete().unwrap();
+        let builder = builder.http_response.complete().unwrap().get_complete().unwrap();
         assert_eq!(builder.protocol, "HTTP/1.1".to_string());
         assert_eq!(builder.status, 503);
         assert_eq!(builder.reason, "Backend fetch failed".to_string());
