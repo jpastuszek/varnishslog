@@ -253,7 +253,7 @@ mod resd_stream_buf_tests {
     #[test]
     fn reading() {
         let mut rsb = subject_with_default_data();
-        assert_eq!(rsb.data(), [].as_ref());
+        assert!(rsb.data().is_empty());
 
         // fill reads as much as it can non-blocking
         // TODO: how to test blocking streaming?

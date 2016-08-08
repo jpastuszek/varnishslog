@@ -781,6 +781,7 @@ impl RecordBuilder {
     }
 }
 
+// TODO: move to own file
 #[derive(Debug)]
 pub struct RecordState {
     builders: HashMap<VslIdent, RecordBuilder>
@@ -839,6 +840,7 @@ pub struct BackendTransaction {
     pub retry_transaction: Option<Box<BackendTransaction>>,
 }
 
+// TODO: move to own file
 #[derive(Debug)]
 pub struct SessionState {
     record_state: RecordState,
@@ -980,6 +982,17 @@ mod access_log_request_state_tests {
         ($state:ident, $ident:expr, $tag:ident, $message:expr) => {
             assert_some!($state.apply(&vsl($tag, $ident, $message)))
         };
+    }
+
+    use std::sync::{Once, ONCE_INIT};
+    static LOGGER: Once = ONCE_INIT;
+
+    fn log() {
+        use env_logger;
+
+        LOGGER.call_once(|| {
+            env_logger::init().unwrap();
+        });
     }
 
     #[test]
@@ -1138,31 +1151,32 @@ mod access_log_request_state_tests {
 
     #[test]
     fn apply_record_state_client_access() {
+        log();
         let mut state = RecordState::new();
 
         apply_all!(state,
-               123, SLT_Begin, "req 321 rxreq";
-               123, SLT_Timestamp, "Start: 1469180762.484544 0.000000 0.000000";
-               123, SLT_ReqMethod, "GET";
-               123, SLT_ReqURL, "/foobar";
-               123, SLT_ReqProtocol, "HTTP/1.1";
-               123, SLT_ReqHeader, "Host: localhost:8080";
-               123, SLT_ReqHeader, "User-Agent: curl/7.40.0";
-               123, SLT_ReqHeader, "Accept-Encoding: gzip";
-               123, SLT_ReqUnset, "Accept-Encoding: gzip";
+               123, SLT_Begin,          "req 321 rxreq";
+               123, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
+               123, SLT_ReqMethod,      "GET";
+               123, SLT_ReqURL,         "/foobar";
+               123, SLT_ReqProtocol,    "HTTP/1.1";
+               123, SLT_ReqHeader,      "Host: localhost:8080";
+               123, SLT_ReqHeader,      "User-Agent: curl/7.40.0";
+               123, SLT_ReqHeader,      "Accept-Encoding: gzip";
+               123, SLT_ReqUnset,       "Accept-Encoding: gzip";
+               123, SLT_VCL_call,       "RECV";
 
-               123, SLT_Link, "bereq 32774 fetch";
-
-               123, SLT_RespProtocol, "HTTP/1.1";
-               123, SLT_RespStatus, "503";
-               123, SLT_RespReason, "Service Unavailable";
-               123, SLT_RespReason, "Backend fetch failed";
-               123, SLT_RespHeader, "Date: Fri, 22 Jul 2016 09:46:02 GMT";
-               123, SLT_RespHeader, "Server: Varnish";
-               123, SLT_RespHeader, "Cache-Control: no-store";
-               123, SLT_RespUnset, "Cache-Control: no-store";
-               123, SLT_RespHeader, "Content-Type: text/html; charset=utf-8";
-               123, SLT_Timestamp, "Resp: 1469180763.484544 0.000000 0.000000";
+               123, SLT_Link,           "bereq 32774 fetch";
+               123, SLT_RespProtocol,   "HTTP/1.1";
+               123, SLT_RespStatus,     "503";
+               123, SLT_RespReason,     "Service Unavailable";
+               123, SLT_RespReason,     "Backend fetch failed";
+               123, SLT_RespHeader,     "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               123, SLT_RespHeader,     "Server: Varnish";
+               123, SLT_RespHeader,     "Cache-Control: no-store";
+               123, SLT_RespUnset,      "Cache-Control: no-store";
+               123, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
+               123, SLT_Timestamp,      "Resp: 1469180763.484544 0.000000 0.000000";
                );
 
         let record = apply_final!(state, 123, SLT_End, "");
@@ -1209,6 +1223,7 @@ mod access_log_request_state_tests {
 
     #[test]
     fn apply_record_state_backend_access() {
+        log();
         let mut state = RecordState::new();
 
         apply_all!(state,
@@ -1273,6 +1288,7 @@ mod access_log_request_state_tests {
 
     #[test]
     fn apply_record_state_session() {
+        log();
         let mut state = RecordState::new();
 
         apply_all!(state,
@@ -1300,6 +1316,7 @@ mod access_log_request_state_tests {
 
     #[test]
     fn apply_session_state() {
+        log();
         let mut state = SessionState::new();
 
         apply_all!(state,
@@ -1312,9 +1329,8 @@ mod access_log_request_state_tests {
                100, SLT_ReqHeader,      "User-Agent: curl/7.40.0";
                100, SLT_ReqHeader,      "Accept-Encoding: gzip";
                100, SLT_ReqUnset,       "Accept-Encoding: gzip";
-
+               100, SLT_VCL_call,       "RECV";
                100, SLT_Link,           "bereq 1000 fetch";
-
                100, SLT_RespProtocol,   "HTTP/1.1";
                100, SLT_RespStatus,     "503";
                100, SLT_RespReason,     "Service Unavailable";
@@ -1437,94 +1453,139 @@ mod access_log_request_state_tests {
 
     #[test]
     fn apply_session_state_esi() {
+        log();
         let mut state = SessionState::new();
 
         apply_all!(state,
-               65540, SLT_Begin,        "bereq 65539 fetch";
-               65540, SLT_Timestamp,    "Start: 1470304807.390145 0.000000 0.000000";
-               65540, SLT_BereqMethod,  "GET";
-               65540, SLT_BereqURL,     "/esi/hello";
-               65540, SLT_BereqProtocol,"HTTP/1.1";
-               65540, SLT_BereqHeader,  "X-Backend-Set-Header-X-Accel-ESI: true";
-               65540, SLT_VCL_return,   "fetch";
-               65540, SLT_BackendOpen,  "19 boot.default 127.0.0.1 42000 127.0.0.1 41744";
-               65540, SLT_BackendStart, "127.0.0.1 42000";
-               65540, SLT_Timestamp,    "Bereq: 1470304807.390223 0.000078 0.000078";
-               65540, SLT_Timestamp,    "Beresp: 1470304807.395378 0.005234 0.005155";
-               65540, SLT_BerespProtocol, "HTTP/1.1";
-               65540, SLT_BerespStatus, "200";
-               65540, SLT_BerespReason, "OK";
-               65540, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
-               65540, SLT_Timestamp,    "BerespBody: 1470304807.435149 0.045005 0.039771";
-               65540, SLT_Length,       "5";
-               65540, SLT_BereqAcct,    "637 0 637 398 5 403";
-               65540, SLT_End,          "";
+               65540, SLT_Begin,            "bereq 65539 fetch";
+               65540, SLT_Timestamp,        "Start: 1470304807.390145 0.000000 0.000000";
+               65540, SLT_BereqMethod,      "GET";
+               65540, SLT_BereqURL,         "/esi/hello";
+               65540, SLT_BereqProtocol,    "HTTP/1.1";
+               65540, SLT_BereqHeader,      "X-Backend-Set-Header-X-Accel-ESI: true";
+               65540, SLT_VCL_return,       "fetch";
+               65540, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 41744";
+               65540, SLT_BackendStart,     "127.0.0.1 42000";
+               65540, SLT_Timestamp,        "Bereq: 1470304807.390223 0.000078 0.000078";
+               65540, SLT_Timestamp,        "Beresp: 1470304807.395378 0.005234 0.005155";
+               65540, SLT_BerespProtocol,   "HTTP/1.1";
+               65540, SLT_BerespStatus,     "200";
+               65540, SLT_BerespReason,     "OK";
+               65540, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+               65540, SLT_Timestamp,        "BerespBody: 1470304807.435149 0.045005 0.039771";
+               65540, SLT_Length,           "5";
+               65540, SLT_BereqAcct,        "637 0 637 398 5 403";
+               65540, SLT_End,              "";
 
-               65541, SLT_Begin,        "req 65538 esi";
-               65541, SLT_ReqURL,       "/esi/world";
-               65541, SLT_Timestamp,    "Start: 1470304807.435266 0.000000 0.000000";
-               65541, SLT_ReqStart,     "127.0.0.1 57408";
-               65541, SLT_ReqMethod,    "GET";
-               65541, SLT_ReqURL,       "/esi/world";
-               65541, SLT_ReqProtocol,  "HTTP/1.1";
-               65541, SLT_ReqHeader,    "X-Backend-Set-Header-X-Accel-ESI: true";
-               65541, SLT_Link,         "bereq 65542 fetch";
-               65541, SLT_Timestamp,    "Fetch: 1470304807.479151 0.043886 0.043886";
-               65541, SLT_RespProtocol, "HTTP/1.1";
-               65541, SLT_RespStatus,   "200";
-               65541, SLT_RespReason,   "OK";
-               65541, SLT_RespHeader,   "Content-Type: text/html; charset=utf-8";
-               65541, SLT_Timestamp,    "Process: 1470304807.479171 0.043905 0.000019";
-               65541, SLT_RespHeader,   "Accept-Ranges: bytes";
-               65541, SLT_Timestamp,    "Resp: 1470304807.479196 0.043930 0.000025";
-               65541, SLT_ReqAcct,      "0 0 0 0 5 5";
-               65541, SLT_End,          "";
+               65541, SLT_Begin,            "req 65538 esi";
+               65541, SLT_ReqURL,           "/esi/world";
+               65541, SLT_Timestamp,        "Start: 1470304807.435266 0.000000 0.000000";
+               65541, SLT_ReqStart,         "127.0.0.1 57408";
+               65541, SLT_ReqMethod,        "GET";
+               65541, SLT_ReqURL,           "/esi/world";
+               65541, SLT_ReqProtocol,      "HTTP/1.1";
+               65541, SLT_ReqHeader,        "X-Backend-Set-Header-X-Accel-ESI: true";
+               65541, SLT_VCL_call,         "RECV";
+               65541, SLT_Link,             "bereq 65542 fetch";
+               65541, SLT_Timestamp,        "Fetch: 1470304807.479151 0.043886 0.043886";
+               65541, SLT_RespProtocol,     "HTTP/1.1";
+               65541, SLT_RespStatus,       "200";
+               65541, SLT_RespReason,       "OK";
+               65541, SLT_RespHeader,       "Content-Type: text/html; charset=utf-8";
+               65541, SLT_Timestamp,        "Process: 1470304807.479171 0.043905 0.000019";
+               65541, SLT_RespHeader,       "Accept-Ranges: bytes";
+               65541, SLT_Timestamp,        "Resp: 1470304807.479196 0.043930 0.000025";
+               65541, SLT_ReqAcct,          "0 0 0 0 5 5";
+               65541, SLT_End,              "";
 
-               65542, SLT_Begin,        "bereq 65541 fetch";
-               65542, SLT_Timestamp,    "Start: 1470304807.435378 0.000000 0.000000";
-               65542, SLT_BereqMethod,  "GET";
-               65542, SLT_BereqURL,     "/esi/world";
-               65542, SLT_BereqProtocol, "HTTP/1.1";
-               65542, SLT_BereqHeader,  "X-Backend-Set-Header-X-Accel-ESI: true";
-               65542, SLT_VCL_return,   "fetch";
-               65542, SLT_BackendOpen,  "19 boot.default 127.0.0.1 42000 127.0.0.1 41744";
-               65542, SLT_BackendStart, "127.0.0.1 42000";
-               65542, SLT_Timestamp,    "Bereq: 1470304807.435450 0.000072 0.000072";
-               65542, SLT_Timestamp,    "Beresp: 1470304807.439882 0.004504 0.004432";
-               65542, SLT_BerespProtocol, "HTTP/1.1";
-               65542, SLT_BerespStatus, "200";
-               65542, SLT_BerespReason, "OK";
-               65542, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
-               65542, SLT_Fetch_Body,   "3 length -";
-               65542, SLT_BackendReuse, "19 boot.default";
-               65542, SLT_Timestamp,    "BerespBody: 1470304807.479137 0.043759 0.039255";
-               65542, SLT_Length,       "5";
-               65542, SLT_BereqAcct,    "637 0 637 398 5 403";
-               65542, SLT_End,          "";
+               65539, SLT_Begin,            "req 65538 esi";
+               65539, SLT_ReqURL,           "/esi/world";
+               65539, SLT_Timestamp,        "Start: 1470304807.435266 0.000000 0.000000";
+               65539, SLT_ReqStart,         "127.0.0.1 57408";
+               65539, SLT_ReqMethod,        "GET";
+               65539, SLT_ReqURL,           "/esi/world";
+               65539, SLT_ReqProtocol,      "HTTP/1.1";
+               65539, SLT_ReqHeader,        "X-Backend-Set-Header-X-Accel-ESI: true";
+               65539, SLT_VCL_call,         "RECV";
+               65539, SLT_Link,             "bereq 65543 fetch";
+               65539, SLT_Timestamp,        "Fetch: 1470304807.479151 0.043886 0.043886";
+               65539, SLT_RespProtocol,     "HTTP/1.1";
+               65539, SLT_RespStatus,       "200";
+               65539, SLT_RespReason,       "OK";
+               65539, SLT_RespHeader,       "Content-Type: text/html; charset=utf-8";
+               65539, SLT_Timestamp,        "Process: 1470304807.479171 0.043905 0.000019";
+               65539, SLT_RespHeader,       "Accept-Ranges: bytes";
+               65539, SLT_Timestamp,        "Resp: 1470304807.479196 0.043930 0.000025";
+               65539, SLT_ReqAcct,          "0 0 0 0 5 5";
+               65539, SLT_End,              "";
 
-               65538, SLT_Begin,        "req 65537 rxreq";
-               65538, SLT_Timestamp,    "Start: 1470304807.389831 0.000000 0.000000";
-               65538, SLT_Timestamp,    "Req: 1470304807.389831 0.000000 0.000000";
-               65538, SLT_ReqStart,     "127.0.0.1 57408";
-               65538, SLT_ReqMethod,    "GET";
-               65538, SLT_ReqURL,       "/esi/index";
-               65538, SLT_ReqProtocol,  "HTTP/1.1";
-               65538, SLT_ReqHeader,    "X-Backend-Set-Header-X-Accel-ESI: true";
-               65538, SLT_VCL_return,   "deliver";
-               65538, SLT_RespProtocol, "HTTP/1.1";
-               65538, SLT_RespStatus,   "200";
-               65538, SLT_RespReason,   "OK";
-               65538, SLT_RespHeader,   "Content-Type: text/html; charset=utf-8";
-               65538, SLT_Link,         "req 65539 esi";
-               65538, SLT_Link,         "req 65541 esi";
-               65538, SLT_Timestamp,    "Resp: 1470304807.479222 0.089391 0.089199";
-               65538, SLT_ReqAcct,      "220 0 220 1423 29 1452";
-               65538, SLT_End,          "";
+               65542, SLT_Begin,            "bereq 65541 fetch";
+               65542, SLT_Timestamp,        "Start: 1470304807.435378 0.000000 0.000000";
+               65542, SLT_BereqMethod,      "GET";
+               65542, SLT_BereqURL,         "/esi/world";
+               65542, SLT_BereqProtocol,    "HTTP/1.1";
+               65542, SLT_BereqHeader,      "X-Backend-Set-Header-X-Accel-ESI: true";
+               65542, SLT_VCL_return,       "fetch";
+               65542, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 41744";
+               65542, SLT_BackendStart,     "127.0.0.1 42000";
+               65542, SLT_Timestamp,        "Bereq: 1470304807.435450 0.000072 0.000072";
+               65542, SLT_Timestamp,        "Beresp: 1470304807.439882 0.004504 0.004432";
+               65542, SLT_BerespProtocol,   "HTTP/1.1";
+               65542, SLT_BerespStatus,     "200";
+               65542, SLT_BerespReason,     "OK";
+               65542, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+               65542, SLT_Fetch_Body,       "3 length -";
+               65542, SLT_BackendReuse,     "19 boot.default";
+               65542, SLT_Timestamp,        "BerespBody: 1470304807.479137 0.043759 0.039255";
+               65542, SLT_Length,           "5";
+               65542, SLT_BereqAcct,        "637 0 637 398 5 403";
+               65542, SLT_End,              "";
 
-               65537, SLT_Begin,        "sess 0 HTTP/1";
-               65537, SLT_SessOpen,     "127.0.0.1 57408 127.0.0.1:1221 127.0.0.1 1221 1470304807.389646 20";
-               65537, SLT_Link,         "req 65538 rxreq";
-               65537, SLT_SessClose,    "REM_CLOSE 3.228";
+               65543, SLT_Begin,            "bereq 65539 fetch";
+               65543, SLT_Timestamp,        "Start: 1470304807.435378 0.000000 0.000000";
+               65543, SLT_BereqMethod,      "GET";
+               65543, SLT_BereqURL,         "/esi/world";
+               65543, SLT_BereqProtocol,    "HTTP/1.1";
+               65543, SLT_BereqHeader,      "X-Backend-Set-Header-X-Accel-ESI: true";
+               65543, SLT_VCL_return,       "fetch";
+               65543, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 41744";
+               65543, SLT_BackendStart,     "127.0.0.1 42000";
+               65543, SLT_Timestamp,        "Bereq: 1470304807.435450 0.000072 0.000072";
+               65543, SLT_Timestamp,        "Beresp: 1470304807.439882 0.004504 0.004432";
+               65543, SLT_BerespProtocol,   "HTTP/1.1";
+               65543, SLT_BerespStatus,     "200";
+               65543, SLT_BerespReason,     "OK";
+               65543, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+               65543, SLT_Fetch_Body,       "3 length -";
+               65543, SLT_BackendReuse,     "19 boot.default";
+               65543, SLT_Timestamp,        "BerespBody: 1470304807.479137 0.043759 0.039255";
+               65543, SLT_Length,           "5";
+               65543, SLT_BereqAcct,        "637 0 637 398 5 403";
+               65543, SLT_End,              "";
+
+               65538, SLT_Begin,            "req 65537 rxreq";
+               65538, SLT_Timestamp,        "Start: 1470304807.389831 0.000000 0.000000";
+               65538, SLT_Timestamp,        "Req: 1470304807.389831 0.000000 0.000000";
+               65538, SLT_ReqStart,         "127.0.0.1 57408";
+               65538, SLT_ReqMethod,        "GET";
+               65538, SLT_ReqURL,           "/esi/index";
+               65538, SLT_ReqProtocol,      "HTTP/1.1";
+               65538, SLT_ReqHeader,        "X-Backend-Set-Header-X-Accel-ESI: true";
+               65538, SLT_VCL_call,         "RECV";
+               65538, SLT_RespProtocol,     "HTTP/1.1";
+               65538, SLT_RespStatus,       "200";
+               65538, SLT_RespReason,       "OK";
+               65538, SLT_RespHeader,       "Content-Type: text/html; charset=utf-8";
+               65538, SLT_Link,             "req 65539 esi";
+               65538, SLT_Link,             "req 65541 esi";
+               65538, SLT_Timestamp,        "Resp: 1470304807.479222 0.089391 0.089199";
+               65538, SLT_ReqAcct,          "220 0 220 1423 29 1452";
+               65538, SLT_End,              "";
+
+               65537, SLT_Begin,            "sess 0 HTTP/1";
+               65537, SLT_SessOpen,         "127.0.0.1 57408 127.0.0.1:1221 127.0.0.1 1221 1470304807.389646 20";
+               65537, SLT_Link,             "req 65538 rxreq";
+               65537, SLT_SessClose,        "REM_CLOSE 3.228";
               );
 
         let session = apply_final!(state, 65537, SLT_End, "");
@@ -1537,53 +1598,56 @@ mod access_log_request_state_tests {
 
     #[test]
     fn apply_session_state_grace() {
+        log();
         let mut state = SessionState::new();
 
         apply_all!(state,
-               65540, SLT_Begin,        "req 65539 rxreq";
-               65540, SLT_Timestamp,    "Start: 1470304835.059319 0.000000 0.000000";
-               65540, SLT_Timestamp,    "Req: 1470304835.059319 0.000000 0.000000";
-               65540, SLT_ReqStart,     "127.0.0.1 59694";
-               65540, SLT_ReqMethod,    "GET";
-               65540, SLT_ReqURL,       "/test_page/123.html";
-               65540, SLT_ReqProtocol,  "HTTP/1.1";
-               65540, SLT_ReqHeader,    "X-Varnish-Force-Zero-TTL: true";
-               65540, SLT_Hit,          "98307";
-               65540, SLT_ReqHeader,    "X-Varnish-Result: hit/sick_grace";
-               65540, SLT_VCL_return,   "deliver";
-               65540, SLT_Link,         "bereq 65541 bgfetch";
-               65540, SLT_Timestamp,    "Fetch: 1470304835.059472 0.000154 0.000154";
-               65540, SLT_RespProtocol, "HTTP/1.1";
-               65540, SLT_RespStatus,   "200";
-               65540, SLT_RespReason,   "OK";
-               65540, SLT_RespHeader,   "Content-Type: text/html; charset=utf-8";
-               65540, SLT_RespHeader,   "X-Varnish-Privileged-Client: true";
-               65540, SLT_Timestamp,    "Process: 1470304835.059589 0.000270 0.000117";
-               65540, SLT_Timestamp,    "Resp: 1470304835.059629 0.000311 0.000041";
-               65540, SLT_End,          "";
+               65540, SLT_Begin,            "req 65539 rxreq";
+               65540, SLT_Timestamp,        "Start: 1470304835.059319 0.000000 0.000000";
+               65540, SLT_Timestamp,        "Req: 1470304835.059319 0.000000 0.000000";
+               65540, SLT_ReqStart,         "127.0.0.1 59694";
+               65540, SLT_ReqMethod,        "GET";
+               65540, SLT_ReqURL,           "/test_page/123.html";
+               65540, SLT_ReqProtocol,      "HTTP/1.1";
+               65540, SLT_ReqHeader,        "X-Varnish-Force-Zero-TTL: true";
+               65540, SLT_VCL_call,         "RECV";
+               65540, SLT_Hit,              "98307";
+               65540, SLT_ReqHeader,        "X-Varnish-Result: hit/sick_grace";
+               65540, SLT_VCL_return,       "deliver";
+               65540, SLT_Link,             "bereq 65541 bgfetch";
+               65540, SLT_Timestamp,        "Fetch: 1470304835.059472 0.000154 0.000154";
+               65540, SLT_RespProtocol,     "HTTP/1.1";
+               65540, SLT_RespStatus,       "200";
+               65540, SLT_RespReason,       "OK";
+               65540, SLT_RespHeader,       "Content-Type: text/html; charset=utf-8";
+               65540, SLT_RespHeader,       "X-Varnish-Privileged-Client: true";
+               65540, SLT_Timestamp,        "Process: 1470304835.059589 0.000270 0.000117";
+               65540, SLT_Timestamp,        "Resp: 1470304835.059629 0.000311 0.000041";
+               65540, SLT_End,              "";
 
-               65541, SLT_Begin,        "bereq 65540 bgfetch";
-               65541, SLT_Timestamp,    "Start: 1470304835.059425 0.000000 0.000000";
-               65541, SLT_BereqMethod,  "GET";
-               65541, SLT_BereqURL,     "/test_page/123.html";
-               65541, SLT_BereqProtocol,"HTTP/1.1";
-               65541, SLT_BereqHeader,  "X-Varnish-Force-Zero-TTL: true";
-               65541, SLT_Timestamp,    "Beresp: 1470304835.059475 0.000050 0.000050";
-               65541, SLT_Timestamp,    "Error: 1470304835.059479 0.000054 0.000004";
-               65541, SLT_BerespProtocol, "HTTP/1.1";
-               65541, SLT_BerespStatus, "503";
-               65541, SLT_BerespReason, "Service Unavailable";
-               65541, SLT_BerespReason, "Backend fetch failed";
-               65541, SLT_BerespHeader, "Date: Thu, 04 Aug 2016 10:00:35 GMT";
-               65541, SLT_BerespHeader, "Server: Varnish";
-               65541, SLT_Length,       "1366";
-               65541, SLT_BereqAcct,    "0 0 0 0 0 0";
-               65541, SLT_End,          "";
+               65541, SLT_Begin,            "bereq 65540 bgfetch";
+               65541, SLT_Timestamp,        "Start: 1470304835.059425 0.000000 0.000000";
+               65541, SLT_BereqMethod,      "GET";
+               65541, SLT_BereqURL,         "/test_page/123.html";
+               65541, SLT_BereqProtocol,    "HTTP/1.1";
+               65541, SLT_BereqHeader,      "X-Varnish-Force-Zero-TTL: true";
+               65541, SLT_VCL_return,       "fetch";
+               65541, SLT_Timestamp,        "Beresp: 1470304835.059475 0.000050 0.000050";
+               65541, SLT_Timestamp,        "Error: 1470304835.059479 0.000054 0.000004";
+               65541, SLT_BerespProtocol,   "HTTP/1.1";
+               65541, SLT_BerespStatus,     "503";
+               65541, SLT_BerespReason,     "Service Unavailable";
+               65541, SLT_BerespReason,     "Backend fetch failed";
+               65541, SLT_BerespHeader,     "Date: Thu, 04 Aug 2016 10:00:35 GMT";
+               65541, SLT_BerespHeader,     "Server: Varnish";
+               65541, SLT_Length,           "1366";
+               65541, SLT_BereqAcct,        "0 0 0 0 0 0";
+               65541, SLT_End,              "";
 
-               65539, SLT_Begin,        "sess 0 HTTP/1";
-               65539, SLT_SessOpen,     "127.0.0.1 59694 127.0.0.1:1230 127.0.0.1 1230 1470304835.059145 22";
-               65539, SLT_Link,         "req 65540 rxreq";
-               65539, SLT_SessClose,    "RX_TIMEOUT 10.001";
+               65539, SLT_Begin,            "sess 0 HTTP/1";
+               65539, SLT_SessOpen,         "127.0.0.1 59694 127.0.0.1:1230 127.0.0.1 1230 1470304835.059145 22";
+               65539, SLT_Link,             "req 65540 rxreq";
+               65539, SLT_SessClose,        "RX_TIMEOUT 10.001";
                );
 
             let session = apply_final!(state, 65539, SLT_End, "");
@@ -1594,68 +1658,70 @@ mod access_log_request_state_tests {
 
     #[test]
     fn apply_session_state_restart() {
+        log();
         let mut state = SessionState::new();
 
         apply_all!(state,
-                   32770, SLT_Begin,        "req 32769 rxreq";
-                   32770, SLT_Timestamp,    "Start: 1470304882.576464 0.000000 0.000000";
-                   32770, SLT_Timestamp,    "Req: 1470304882.576464 0.000000 0.000000";
-                   32770, SLT_ReqStart,     "127.0.0.1 34560";
-                   32770, SLT_ReqMethod,    "GET";
-                   32770, SLT_ReqURL,       "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
-                   32770, SLT_ReqProtocol,  "HTTP/1.1";
-                   32770, SLT_ReqHeader,    "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
-                   32770, SLT_VCL_return,   "restart";
-                   32770, SLT_Timestamp,    "Restart: 1470304882.576600 0.000136 0.000136";
-                   32770, SLT_Link,         "req 32771 restart";
-                   32770, SLT_End,          "";
+                   32770, SLT_Begin,            "req 32769 rxreq";
+                   32770, SLT_Timestamp,        "Start: 1470304882.576464 0.000000 0.000000";
+                   32770, SLT_Timestamp,        "Req: 1470304882.576464 0.000000 0.000000";
+                   32770, SLT_ReqStart,         "127.0.0.1 34560";
+                   32770, SLT_ReqMethod,        "GET";
+                   32770, SLT_ReqURL,           "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
+                   32770, SLT_ReqProtocol,      "HTTP/1.1";
+                   32770, SLT_ReqHeader,        "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
+                   32770, SLT_VCL_call,         "RECV";
+                   32770, SLT_Timestamp,        "Restart: 1470304882.576600 0.000136 0.000136";
+                   32770, SLT_Link,             "req 32771 restart";
+                   32770, SLT_End,              "";
 
-                   32771, SLT_Begin,        "req 32770 restart";
-                   32771, SLT_Timestamp,    "Start: 1470304882.576600 0.000136 0.000000";
-                   32771, SLT_ReqStart,     "127.0.0.1 34560";
-                   32771, SLT_ReqMethod,    "GET";
-                   32771, SLT_ReqURL,       "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
-                   32771, SLT_ReqProtocol,  "HTTP/1.1";
-                   32771, SLT_ReqHeader,    "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
-                   32771, SLT_VCL_return,   "fetch";
-                   32771, SLT_Link,         "bereq 32772 fetch";
-                   32771, SLT_Timestamp,    "Fetch: 1470304882.579218 0.002754 0.002618";
-                   32771, SLT_RespProtocol, "HTTP/1.1";
-                   32771, SLT_RespStatus,   "200";
-                   32771, SLT_RespReason,   "OK";
-                   32771, SLT_RespHeader,   "Content-Type: image/jpeg";
-                   32771, SLT_VCL_return,   "deliver";
-                   32771, SLT_Timestamp,    "Process: 1470304882.579312 0.002848 0.000094";
-                   32771, SLT_RespHeader,   "Accept-Ranges: bytes";
-                   32771, SLT_Debug,        "RES_MODE 2";
-                   32771, SLT_RespHeader,   "Connection: keep-alive";
-                   32771, SLT_Timestamp,    "Resp: 1470304882.615250 0.038785 0.035938";
-                   32771, SLT_ReqAcct,      "324 0 324 1445 6962 8407";
-                   32771, SLT_End,          "";
+                   32771, SLT_Begin,            "req 32770 restart";
+                   32771, SLT_Timestamp,        "Start: 1470304882.576600 0.000136 0.000000";
+                   32771, SLT_ReqStart,         "127.0.0.1 34560";
+                   32771, SLT_ReqMethod,        "GET";
+                   32771, SLT_ReqURL,           "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
+                   32771, SLT_ReqProtocol,      "HTTP/1.1";
+                   32771, SLT_ReqHeader,        "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
+                   32771, SLT_VCL_call,         "RECV";
+                   32771, SLT_Link,             "bereq 32772 fetch";
+                   32771, SLT_Timestamp,        "Fetch: 1470304882.579218 0.002754 0.002618";
+                   32771, SLT_RespProtocol,     "HTTP/1.1";
+                   32771, SLT_RespStatus,       "200";
+                   32771, SLT_RespReason,       "OK";
+                   32771, SLT_RespHeader,       "Content-Type: image/jpeg";
+                   32771, SLT_VCL_return,       "deliver";
+                   32771, SLT_Timestamp,        "Process: 1470304882.579312 0.002848 0.000094";
+                   32771, SLT_RespHeader,       "Accept-Ranges: bytes";
+                   32771, SLT_Debug,            "RES_MODE 2";
+                   32771, SLT_RespHeader,       "Connection: keep-alive";
+                   32771, SLT_Timestamp,        "Resp: 1470304882.615250 0.038785 0.035938";
+                   32771, SLT_ReqAcct,          "324 0 324 1445 6962 8407";
+                   32771, SLT_End,              "";
 
-                   32772, SLT_Begin,        "bereq 32771 fetch";
-                   32772, SLT_Timestamp,    "Start: 1470304882.576644 0.000000 0.000000";
-                   32772, SLT_BereqMethod,  "GET";
-                   32772, SLT_BereqURL,     "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
-                   32772, SLT_BereqProtocol, "HTTP/1.1";
-                   32772, SLT_BereqHeader,  "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
-                   32772, SLT_Timestamp,    "Bereq: 1470304882.576719 0.000074 0.000074";
-                   32772, SLT_Timestamp,    "Beresp: 1470304882.579056 0.002412 0.002337";
-                   32772, SLT_BerespProtocol, "HTTP/1.1";
-                   32772, SLT_BerespStatus, "200";
-                   32772, SLT_BerespReason, "OK";
-                   32772, SLT_BerespHeader, "Content-Type: image/jpeg";
-                   32772, SLT_Fetch_Body,   "3 length stream";
-                   32772, SLT_BackendReuse, "19 boot.iss";
-                   32772, SLT_Timestamp,    "BerespBody: 1470304882.615228 0.038584 0.036172";
-                   32772, SLT_Length,       "6962";
-                   32772, SLT_BereqAcct,    "792 0 792 332 6962 7294";
-                   32772, SLT_End,          "";
+                   32772, SLT_Begin,            "bereq 32771 fetch";
+                   32772, SLT_Timestamp,        "Start: 1470304882.576644 0.000000 0.000000";
+                   32772, SLT_BereqMethod,      "GET";
+                   32772, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
+                   32772, SLT_BereqProtocol,    "HTTP/1.1";
+                   32772, SLT_BereqHeader,      "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
+                   32772, SLT_VCL_return,       "fetch";
+                   32772, SLT_Timestamp,        "Bereq: 1470304882.576719 0.000074 0.000074";
+                   32772, SLT_Timestamp,        "Beresp: 1470304882.579056 0.002412 0.002337";
+                   32772, SLT_BerespProtocol,   "HTTP/1.1";
+                   32772, SLT_BerespStatus,     "200";
+                   32772, SLT_BerespReason,     "OK";
+                   32772, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32772, SLT_Fetch_Body,       "3 length stream";
+                   32772, SLT_BackendReuse,     "19 boot.iss";
+                   32772, SLT_Timestamp,        "BerespBody: 1470304882.615228 0.038584 0.036172";
+                   32772, SLT_Length,           "6962";
+                   32772, SLT_BereqAcct,        "792 0 792 332 6962 7294";
+                   32772, SLT_End,              "";
 
-                   32769, SLT_Begin,        "sess 0 HTTP/1";
-                   32769, SLT_SessOpen,     "127.0.0.1 34560 127.0.0.1:1244 127.0.0.1 1244 1470304882.576266 14";
-                   32769, SLT_Link,         "req 32770 rxreq";
-                   32769, SLT_SessClose,    "REM_CLOSE 0.347";
+                   32769, SLT_Begin,            "sess 0 HTTP/1";
+                   32769, SLT_SessOpen,         "127.0.0.1 34560 127.0.0.1:1244 127.0.0.1 1244 1470304882.576266 14";
+                   32769, SLT_Link,             "req 32770 rxreq";
+                   32769, SLT_SessClose,        "REM_CLOSE 0.347";
                    );
         let session = apply_final!(state, 32769, SLT_End, "");
 
@@ -1671,49 +1737,50 @@ mod access_log_request_state_tests {
 
     #[test]
     fn apply_session_state_retry() {
+        log();
         let mut state = SessionState::new();
 
         apply_all!(state,
-                   8, SLT_Begin,        "bereq 7 fetch";
-                   8, SLT_Timestamp,    "Start: 1470403414.664923 0.000000 0.000000";
-                   8, SLT_BereqMethod,  "GET";
-                   8, SLT_BereqURL,     "/retry";
-                   8, SLT_BereqProtocol,"HTTP/1.1";
-                   8, SLT_BereqHeader,  "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-                   8, SLT_VCL_return,   "fetch";
-                   8, SLT_Timestamp,    "Bereq: 1470403414.664993 0.000070 0.000070";
-                   8, SLT_Timestamp,    "Beresp: 1470403414.669313 0.004390 0.004320";
-                   8, SLT_BerespProtocol, "HTTP/1.1";
-                   8, SLT_BerespStatus, "200";
-                   8, SLT_BerespReason, "OK";
-                   8, SLT_BerespHeader, "Content-Type: text/html; charset=utf-8";
-                   8, SLT_BereqURL,     "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-                   8, SLT_VCL_return,   "retry";
-                   8, SLT_BackendClose, "19 boot.default";
-                   8, SLT_Timestamp,    "Retry: 1470403414.669375 0.004452 0.000062";
-                   8, SLT_Link,         "bereq 32769 retry";
-                   8, SLT_End,          "";
+                   8, SLT_Begin,            "bereq 7 fetch";
+                   8, SLT_Timestamp,        "Start: 1470403414.664923 0.000000 0.000000";
+                   8, SLT_BereqMethod,      "GET";
+                   8, SLT_BereqURL,         "/retry";
+                   8, SLT_BereqProtocol,    "HTTP/1.1";
+                   8, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   8, SLT_VCL_return,       "fetch";
+                   8, SLT_Timestamp,        "Bereq: 1470403414.664993 0.000070 0.000070";
+                   8, SLT_Timestamp,        "Beresp: 1470403414.669313 0.004390 0.004320";
+                   8, SLT_BerespProtocol,   "HTTP/1.1";
+                   8, SLT_BerespStatus,     "200";
+                   8, SLT_BerespReason,     "OK";
+                   8, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+                   8, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                   8, SLT_VCL_return,       "retry";
+                   8, SLT_BackendClose,     "19 boot.default";
+                   8, SLT_Timestamp,        "Retry: 1470403414.669375 0.004452 0.000062";
+                   8, SLT_Link,             "bereq 32769 retry";
+                   8, SLT_End,              "";
 
-                   32769, SLT_Begin,        "bereq 8 retry";
-                   32769, SLT_Timestamp,    "Start: 1470403414.669375 0.004452 0.000000";
-                   32769, SLT_BereqMethod,  "GET";
-                   32769, SLT_BereqURL,     "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-                   32769, SLT_BereqProtocol,"HTTP/1.1";
-                   32769, SLT_BereqHeader,  "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-                   32769, SLT_BereqHeader,  "Host: 127.0.0.1:1200";
-                   32769, SLT_VCL_return,   "fetch";
-                   32769, SLT_Timestamp,    "Bereq: 1470403414.669471 0.004549 0.000096";
-                   32769, SLT_Timestamp,    "Beresp: 1470403414.672184 0.007262 0.002713";
-                   32769, SLT_BerespProtocol, "HTTP/1.1";
-                   32769, SLT_BerespStatus, "200";
-                   32769, SLT_BerespReason, "OK";
-                   32769, SLT_BerespHeader, "Content-Type: image/jpeg";
-                   32769, SLT_Fetch_Body,   "3 length stream";
-                   32769, SLT_BackendReuse, "19 boot.iss";
-                   32769, SLT_Timestamp,    "BerespBody: 1470403414.672290 0.007367 0.000105";
-                   32769, SLT_Length,       "6962";
-                   32769, SLT_BereqAcct,    "1021 0 1021 608 6962 7570";
-                   32769, SLT_End,          "";
+                   32769, SLT_Begin,            "bereq 8 retry";
+                   32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                   32769, SLT_BereqMethod,      "GET";
+                   32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                   32769, SLT_BereqProtocol,    "HTTP/1.1";
+                   32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                   32769, SLT_VCL_return,       "fetch";
+                   32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                   32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                   32769, SLT_BerespProtocol,   "HTTP/1.1";
+                   32769, SLT_BerespStatus,     "200";
+                   32769, SLT_BerespReason,     "OK";
+                   32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32769, SLT_Fetch_Body,       "3 length stream";
+                   32769, SLT_BackendReuse,     "19 boot.iss";
+                   32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                   32769, SLT_Length,           "6962";
+                   32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+                   32769, SLT_End,              "";
 
                    7, SLT_Begin,        "req 6 rxreq";
                    7, SLT_Timestamp,    "Start: 1470403414.664824 0.000000 0.000000";
@@ -1724,7 +1791,6 @@ mod access_log_request_state_tests {
                    7, SLT_ReqProtocol,  "HTTP/1.1";
                    7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                    7, SLT_VCL_call,     "RECV";
-                   7, SLT_VCL_return,   "fetch";
                    7, SLT_Link,         "bereq 8 fetch";
                    7, SLT_Timestamp,    "Fetch: 1470403414.672315 0.007491 0.007491";
                    7, SLT_RespProtocol, "HTTP/1.1";

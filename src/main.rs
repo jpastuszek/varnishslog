@@ -11,6 +11,9 @@ extern crate linked_hash_map;
 #[macro_use]
 extern crate assert_matches;
 
+#[cfg(test)]
+extern crate env_logger;
+
 use std::io::{self, stdin};
 use clap::{Arg, App};
 
