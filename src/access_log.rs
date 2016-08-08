@@ -189,6 +189,65 @@ impl HttpRequestBuilder {
     }
 }
 
+impl DetailBuilder for HttpRequestBuilder {
+    fn result_name() -> &'static str {
+        "HTTP Request"
+    }
+
+    fn apply(self, tag: VslRecordTag, message: &str) -> Result<HttpRequestBuilder, RecordBuilderError> {
+        let builder = match tag {
+            SLT_BereqProtocol | SLT_ReqProtocol => {
+                let protocol = try!(slt_protocol(message).into_result().context(tag));
+
+                HttpRequestBuilder {
+                    protocol: Some(protocol.to_string()),
+                    .. self
+                }
+            }
+            SLT_BereqMethod | SLT_ReqMethod => {
+                let method = try!(slt_method(message).into_result().context(tag));
+
+                HttpRequestBuilder {
+                    method: Some(method.to_string()),
+                    .. self
+                }
+            }
+            SLT_BereqURL | SLT_ReqURL => {
+                let url = try!(slt_url(message).into_result().context(tag));
+
+                HttpRequestBuilder {
+                    url: Some(url.to_string()),
+                    .. self
+                }
+            }
+            SLT_BereqHeader | SLT_ReqHeader => {
+                let (name, value) = try!(slt_header(message).into_result().context(tag));
+
+                let mut headers = self.headers;
+                headers.insert(name.to_string(), value.to_string());
+
+                HttpRequestBuilder {
+                    headers: headers,
+                    .. self
+                }
+            }
+            SLT_BereqUnset | SLT_ReqUnset => {
+                let (name, _) = try!(slt_header(message).into_result().context(tag));
+
+                let mut headers = self.headers;
+                headers.remove(name);
+
+                HttpRequestBuilder {
+                    headers: headers,
+                    .. self
+                }
+            }
+            _ => panic!("Got unexpected VSL record with tag {:?} in request builder", tag)
+        };
+
+        Ok(builder)
+    }
+}
 
 impl BuilderResult<HttpRequestBuilder, HttpRequest> {
     fn to_complete(self) -> Result<BuilderResult<HttpRequestBuilder, HttpRequest>, RecordBuilderError> {
@@ -231,6 +290,10 @@ impl HttpResponseBuilder {
 }
 
 impl DetailBuilder for HttpResponseBuilder {
+    fn result_name() -> &'static str {
+        "HTTP Response"
+    }
+
     fn apply(self, tag: VslRecordTag, message: &str) -> Result<HttpResponseBuilder, RecordBuilderError> {
         let builder = match tag {
             SLT_BerespProtocol | SLT_RespProtocol => {
@@ -398,6 +461,7 @@ enum BuilderResult<B, C> {
 }
 
 trait DetailBuilder: Sized {
+    fn result_name() -> &'static str;
     fn apply(self, tag: VslRecordTag, message: &str) -> Result<Self, RecordBuilderError>;
 }
 
@@ -424,7 +488,7 @@ impl<B, C> BuilderResult<B, C> {
         let builder_result = if let Building(builder) = self {
             Building(try!(builder.apply(tag, message)))
         } else {
-            debug!("Ignoring VSL record with tag {:?} and message '{}' as we have finished building", tag, message); // TODO: building what?
+            debug!("Ignoring VSL record with tag {:?} and message '{}' as we have finished building {}", tag, message, B::result_name());
             self
         };
 
@@ -612,110 +676,14 @@ impl RecordBuilder {
                 }
 
                 // Request
-                SLT_BereqProtocol | SLT_ReqProtocol => {
-                    let protocol = try!(slt_protocol(message).into_result().context(vsl.tag));
-
-                    if let Building(builder) = self.http_request {
-                        RecordBuilder {
-                            http_request: Building(HttpRequestBuilder {
-                                protocol: Some(protocol.to_string()),
-                                .. builder
-                            }),
-                            .. self
-                        }
-                    } else {
-                        debug!("Ignoring {:?} with protocol '{}' as we have finished building the request", vsl.tag, protocol);
-                        self
-                    }
-                }
-                SLT_BereqMethod | SLT_ReqMethod => {
-                    let method = try!(slt_method(message).into_result().context(vsl.tag));
-
-                    if let Building(builder) = self.http_request {
-                        RecordBuilder {
-                            http_request: Building(HttpRequestBuilder {
-                                method: Some(method.to_string()),
-                                .. builder
-                            }),
-                            .. self
-                        }
-                    } else {
-                        debug!("Ignoring {:?} with method '{}' as we have finished building the request", vsl.tag, method);
-                        self
-                    }
-                }
-                SLT_BereqURL | SLT_ReqURL => {
-                    let url = try!(slt_url(message).into_result().context(vsl.tag));
-
-                    if let Building(builder) = self.http_request {
-                        RecordBuilder {
-                            http_request: Building(HttpRequestBuilder {
-                                url: Some(url.to_string()),
-                                .. builder
-                            }),
-                            .. self
-                        }
-                    } else {
-                        debug!("Ignoring {:?} with URL '{}' as we have finished building the request", vsl.tag, url);
-                        self
-                    }
-                }
-                //TODO: lock header manip after request/response was sent
-                SLT_BereqHeader | SLT_ReqHeader => {
-                    let (name, value) = try!(slt_header(message).into_result().context(vsl.tag));
-
-                    if let BuilderResult::Building(builder) = self.http_request {
-                        let mut headers = builder.headers;
-                        headers.insert(name.to_string(), value.to_string());
-
-                        RecordBuilder {
-                            http_request: Building(HttpRequestBuilder {
-                                headers: headers,
-                                .. builder
-                            }),
-                            .. self
-                        }
-                    } else {
-                        debug!("Ignoring {:?} with header '{}' of value '{}' as we have finished building the request", vsl.tag, name, value);
-                        self
-                    }
-                }
+                SLT_BereqProtocol | SLT_ReqProtocol |
+                SLT_BereqMethod | SLT_ReqMethod |
+                SLT_BereqURL | SLT_ReqURL |
+                SLT_BereqHeader | SLT_ReqHeader |
                 SLT_BereqUnset | SLT_ReqUnset => {
-                    let (name, _) = try!(slt_header(message).into_result().context(vsl.tag));
-
-                    if let Building(builder) = self.http_request {
-                        let mut headers = builder.headers;
-                        headers.remove(name);
-
-                        RecordBuilder {
-                            http_request: Building(HttpRequestBuilder {
-                                headers: headers,
-                                .. builder
-                            }),
-                            .. self
-                        }
-                    } else {
-                        debug!("Ignoring {:?} with header '{}' as we have finished building the request", vsl.tag, name);
-                        self
-                    }
-                }
-
-                SLT_VCL_call | SLT_VCL_return => {
-                    let method = try!(stl_call(message).into_result().context(vsl.tag));
-
-                    match method {
-                        "fetch" | "RECV" => RecordBuilder {
-                            http_request: try!(self.http_request.to_complete()),
-                            .. self
-                        },
-                        "BACKEND_RESPONSE" | "BACKEND_ERROR" => RecordBuilder {
-                            http_response: try!(self.http_response.to_complete()),
-                            .. self
-                        },
-                        _ => {
-                            warn!("Ignoring unknown {:?} method: {}", vsl.tag, method);
-                            self
-                        }
+                    RecordBuilder {
+                        http_request: try!(self.http_request.apply(vsl.tag, message)),
+                        .. self
                     }
                 }
 
@@ -799,6 +767,24 @@ impl RecordBuilder {
                 }
 
                 // Final
+                SLT_VCL_call | SLT_VCL_return => {
+                    let method = try!(stl_call(message).into_result().context(vsl.tag));
+
+                    match method {
+                        "fetch" | "RECV" => RecordBuilder {
+                            http_request: try!(self.http_request.to_complete()),
+                            .. self
+                        },
+                        "BACKEND_RESPONSE" | "BACKEND_ERROR" => RecordBuilder {
+                            http_response: try!(self.http_response.to_complete()),
+                            .. self
+                        },
+                        _ => {
+                            warn!("Ignoring unknown {:?} method: {}", vsl.tag, method);
+                            self
+                        }
+                    }
+                }
                 SLT_End => {
                     let record_type = try!(self.record_type.ok_or(RecordBuilderError::RecordIncomplete("record_type")));
                     match record_type {
