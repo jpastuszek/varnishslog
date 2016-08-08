@@ -42,7 +42,7 @@ pub type Address = (String, u16);
 // * What we sent to the backend (SLT_VCL_return fetch)
 //
 // Beresp:
-// * What backend sent us (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR ??)
+// * What backend sent us (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
 //
 // ESI (logs/varnish20160804-3752-1lr56fj56c2d5925f217f012.vsl):
 // ---
@@ -708,6 +708,10 @@ impl RecordBuilder {
                             http_request: try!(self.http_request.to_complete()),
                             .. self
                         },
+                        "BACKEND_RESPONSE" | "BACKEND_ERROR" => RecordBuilder {
+                            http_response: try!(self.http_response.to_complete()),
+                            .. self
+                        },
                         _ => {
                             warn!("Ignoring unknown {:?} method: {}", vsl.tag, method);
                             self
@@ -813,13 +817,24 @@ impl RecordBuilder {
                         },
                         RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
                             let request = try!(self.http_request.get_complete());
-                            let response = try!(try!(self.http_response.to_complete()).get_complete());
+                            let response = if self.restart_request.is_some() {
+                                // Restarted requests have no response
+                                None
+                            } else {
+                                let response = if let RecordType::ClientAccess { .. } = record_type {
+                                    // SLT_End tag is completing the client response
+                                    try!(self.http_response.to_complete())
+                                } else {
+                                    self.http_response
+                                };
+                                Some(try!(response.get_complete()))
+                            };
 
                             let http_transaction = HttpTransaction {
                                 start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                                 end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
                                 request: request,
-                                response: Some(response), //TODO: we may not have it!
+                                response: response,
                             };
 
                             match record_type {
@@ -1334,6 +1349,7 @@ mod access_log_request_state_tests {
                123, SLT_BerespHeader,   "Cache-Control: no-store";
                123, SLT_BerespUnset,    "Cache-Control: no-store";
                123, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
+               123, SLT_VCL_call,       "BACKEND_ERROR";
                );
 
         let record = apply_final!(state, 123, SLT_End, "");
@@ -1450,6 +1466,7 @@ mod access_log_request_state_tests {
                1000, SLT_BerespHeader,  "Cache-Control: no-store";
                1000, SLT_BerespUnset,   "Cache-Control: no-store";
                1000, SLT_BerespHeader,  "Content-Type: text/html; charset=utf-8";
+               1000, SLT_VCL_call,       "BACKEND_ERROR";
                1000, SLT_End,           "";
 
                10, SLT_Begin,       "sess 0 HTTP/1";
@@ -1559,6 +1576,7 @@ mod access_log_request_state_tests {
                65540, SLT_BerespStatus,     "200";
                65540, SLT_BerespReason,     "OK";
                65540, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+               65540, SLT_VCL_call,         "BACKEND_RESPONSE";
                65540, SLT_Timestamp,        "BerespBody: 1470304807.435149 0.045005 0.039771";
                65540, SLT_Length,           "5";
                65540, SLT_BereqAcct,        "637 0 637 398 5 403";
@@ -1623,6 +1641,7 @@ mod access_log_request_state_tests {
                65542, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
                65542, SLT_Fetch_Body,       "3 length -";
                65542, SLT_BackendReuse,     "19 boot.default";
+               65542, SLT_VCL_call,         "BACKEND_RESPONSE";
                65542, SLT_Timestamp,        "BerespBody: 1470304807.479137 0.043759 0.039255";
                65542, SLT_Length,           "5";
                65542, SLT_BereqAcct,        "637 0 637 398 5 403";
@@ -1645,6 +1664,7 @@ mod access_log_request_state_tests {
                65543, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
                65543, SLT_Fetch_Body,       "3 length -";
                65543, SLT_BackendReuse,     "19 boot.default";
+               65543, SLT_VCL_call,         "BACKEND_RESPONSE";
                65543, SLT_Timestamp,        "BerespBody: 1470304807.479137 0.043759 0.039255";
                65543, SLT_Length,           "5";
                65543, SLT_BereqAcct,        "637 0 637 398 5 403";
@@ -1727,6 +1747,7 @@ mod access_log_request_state_tests {
                65541, SLT_BerespReason,     "Backend fetch failed";
                65541, SLT_BerespHeader,     "Date: Thu, 04 Aug 2016 10:00:35 GMT";
                65541, SLT_BerespHeader,     "Server: Varnish";
+               65541, SLT_VCL_call,         "BACKEND_ERROR";
                65541, SLT_Length,           "1366";
                65541, SLT_BereqAcct,        "0 0 0 0 0 0";
                65541, SLT_End,              "";
@@ -1798,6 +1819,7 @@ mod access_log_request_state_tests {
                    32772, SLT_BerespStatus,     "200";
                    32772, SLT_BerespReason,     "OK";
                    32772, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32772, SLT_VCL_call,         "BACKEND_RESPONSE";
                    32772, SLT_Fetch_Body,       "3 length stream";
                    32772, SLT_BackendReuse,     "19 boot.iss";
                    32772, SLT_Timestamp,        "BerespBody: 1470304882.615228 0.038584 0.036172";
@@ -1820,6 +1842,7 @@ mod access_log_request_state_tests {
 
         // It should have a response
         assert!(restart_transaction.access_record.http_transaction.response.is_some());
+        assert!(restart_transaction.backend_transactions[0].access_record.http_transaction.response.is_some());
     }
 
     #[test]
@@ -1842,6 +1865,7 @@ mod access_log_request_state_tests {
                    8, SLT_BerespReason,     "OK";
                    8, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
                    8, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                   8, SLT_VCL_call,         "BACKEND_RESPONSE";
                    8, SLT_VCL_return,       "retry";
                    8, SLT_BackendClose,     "19 boot.default";
                    8, SLT_Timestamp,        "Retry: 1470403414.669375 0.004452 0.000062";
@@ -1862,6 +1886,7 @@ mod access_log_request_state_tests {
                    32769, SLT_BerespStatus,     "200";
                    32769, SLT_BerespReason,     "OK";
                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32769, SLT_VCL_call,         "BACKEND_RESPONSE";
                    32769, SLT_Fetch_Body,       "3 length stream";
                    32769, SLT_BackendReuse,     "19 boot.iss";
                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
