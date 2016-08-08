@@ -26,15 +26,23 @@ pub type Address = (String, u16);
 // * Byte counts: SLT_ReqAcct
 // * Handle the "<not set>" headers
 //
-// Request headers:
+// Client headers:
 // ---
-// Bereq:
-// * We want to capture headers sent to the backend (SLT_VCL_return fetch)
-// * They can be set after request was sent to the backend
 //
 // Req:
-// * We want to capture original client request headers (SLT_VCL_call RECV)
-// * The headers are used as variables
+// * What client set us (SLT_VCL_call RECV)
+//
+// Resp:
+// * What we sent to the client (SLT_End)
+//
+// Backend headers:
+// ---
+//
+// Bereq:
+// * What we sent to the backend (SLT_VCL_return fetch)
+//
+// Beresp:
+// * What backend sent us (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR ??)
 //
 // ESI (logs/varnish20160804-3752-1lr56fj56c2d5925f217f012.vsl):
 // ---
@@ -170,6 +178,18 @@ struct HttpRequestBuilder {
     headers: LinkedHashMap<String, String>,
 }
 
+impl HttpRequestBuilder {
+    fn new() -> HttpRequestBuilder {
+        HttpRequestBuilder {
+            protocol: None,
+            method: None,
+            url: None,
+            headers: LinkedHashMap::new(),
+        }
+    }
+}
+
+
 impl BuilderResult<HttpRequestBuilder, HttpRequest> {
     fn to_complete(self) -> Result<BuilderResult<HttpRequestBuilder, HttpRequest>, RecordBuilderError> {
         match self {
@@ -192,15 +212,108 @@ impl BuilderResult<HttpRequestBuilder, HttpRequest> {
 }
 
 #[derive(Debug)]
+struct HttpResponseBuilder {
+    protocol: Option<String>,
+    status: Option<u32>,
+    reason: Option<String>,
+    headers: LinkedHashMap<String, String>,
+}
+
+impl HttpResponseBuilder {
+    fn new() -> HttpResponseBuilder {
+        HttpResponseBuilder {
+            protocol: None,
+            status: None,
+            reason: None,
+            headers: LinkedHashMap::new(),
+        }
+    }
+}
+
+impl DetailBuilder for HttpResponseBuilder {
+    fn apply(self, tag: VslRecordTag, message: &str) -> Result<HttpResponseBuilder, RecordBuilderError> {
+        let builder = match tag {
+            SLT_BerespProtocol | SLT_RespProtocol => {
+                let protocol = try!(slt_protocol(message).into_result().context(tag));
+
+                HttpResponseBuilder {
+                    protocol: Some(protocol.to_string()),
+                    .. self
+                }
+            }
+            SLT_BerespStatus | SLT_RespStatus => {
+                let status = try!(slt_status(message).into_result().context(tag));
+
+                HttpResponseBuilder {
+                    status: Some(try!(status.parse().context("status"))),
+                    .. self
+                }
+            }
+            SLT_BerespReason | SLT_RespReason => {
+                let reason = try!(slt_reason(message).into_result().context(tag));
+
+                HttpResponseBuilder {
+                    reason: Some(reason.to_string()),
+                    .. self
+                }
+            }
+            SLT_BerespHeader | SLT_RespHeader => {
+                let (name, value) = try!(slt_header(message).into_result().context(tag));
+
+                let mut headers = self.headers;
+                headers.insert(name.to_string(), value.to_string());
+
+                HttpResponseBuilder {
+                    headers: headers,
+                    .. self
+                }
+            }
+            SLT_BerespUnset | SLT_RespUnset => {
+                let (name, _) = try!(slt_header(message).into_result().context(tag));
+
+                let mut headers = self.headers;
+                headers.remove(name);
+
+                HttpResponseBuilder {
+                    headers: headers,
+                    .. self
+                }
+            }
+            _ => panic!("Got unexpected VSL record with tag {:?} in response builder", tag)
+        };
+
+        Ok(builder)
+    }
+}
+
+impl BuilderResult<HttpResponseBuilder, HttpResponse> {
+    fn to_complete(self) -> Result<BuilderResult<HttpResponseBuilder, HttpResponse>, RecordBuilderError> {
+        match self {
+            Complete(response) => Err(RecordBuilderError::HttpResponseNotBuilding(response)),
+            Building(builder) => Ok(Complete(HttpResponse {
+                protocol: try!(builder.protocol.ok_or(RecordBuilderError::RecordIncomplete("Response.protocol"))),
+                status: try!(builder.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))),
+                reason: try!(builder.reason.ok_or(RecordBuilderError::RecordIncomplete("Response.reason"))),
+                headers: builder.headers.into_iter().collect(),
+            }))
+        }
+    }
+
+    fn get_complete(self) -> Result<HttpResponse, RecordBuilderError> {
+        match self {
+            Complete(response) => Ok(response),
+            Building(_) => Err(RecordBuilderError::HttpResponseNotComplete),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct RecordBuilder {
     ident: VslIdent,
     record_type: Option<RecordType>,
     req_start: Option<TimeStamp>,
     http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
-    resp_protocol: Option<String>,
-    resp_status: Option<u32>,
-    resp_reason: Option<String>,
-    resp_headers: LinkedHashMap<String, String>,
+    http_response: BuilderResult<HttpResponseBuilder, HttpResponse>,
     resp_end: Option<TimeStamp>,
     sess_open: Option<TimeStamp>,
     sess_duration: Option<Duration>,
@@ -284,7 +397,13 @@ enum BuilderResult<B, C> {
     Complete(C),
 }
 
+trait DetailBuilder: Sized {
+    fn apply(self, tag: VslRecordTag, message: &str) -> Result<Self, RecordBuilderError>;
+}
+
+
 impl<B, C> BuilderResult<B, C> {
+    #[allow(dead_code)]
     fn as_ref(&self) -> BuilderResult<&B, &C> {
         match self {
             &BuilderResult::Building(ref buidling) => BuilderResult::Building(buidling),
@@ -292,11 +411,24 @@ impl<B, C> BuilderResult<B, C> {
         }
     }
 
+    #[allow(dead_code)]
     fn unwrap(self) -> C where B: Debug {
         match self {
             BuilderResult::Building(buidling) => panic!("Trying to unwrap BuilderResult::Building: {:?}", buidling),
             BuilderResult::Complete(complete) => complete,
         }
+    }
+
+    fn apply(self, tag: VslRecordTag, message: &str) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder
+    {
+        let builder_result = if let Building(builder) = self {
+            Building(try!(builder.apply(tag, message)))
+        } else {
+            debug!("Ignoring VSL record with tag {:?} and message '{}' as we have finished building", tag, message); // TODO: building what?
+            self
+        };
+
+        Ok(builder_result)
     }
 }
 
@@ -345,6 +477,12 @@ quick_error! {
         }
         HttpRequestNotComplete {
             display("Expected HTTP request to be complete but it was still building")
+        }
+        HttpResponseNotBuilding(response: HttpResponse) {
+            display("Expected HTTP response to be still building but got it complete: {:?}", response)
+        }
+        HttpResponseNotComplete {
+            display("Expected HTTP response to be complete but it was still building")
         }
         RecordIncomplete(field_name: &'static str) {
             display("Failed to construct final access record due to missing field '{}'", field_name)
@@ -404,16 +542,8 @@ impl RecordBuilder {
             ident: ident,
             record_type: None,
             req_start: None,
-            http_request: Building(HttpRequestBuilder {
-                protocol: None,
-                method: None,
-                url: None,
-                headers: LinkedHashMap::new(),
-            }),
-            resp_protocol: None,
-            resp_status: None,
-            resp_reason: None,
-            resp_headers: LinkedHashMap::new(),
+            http_request: Building(HttpRequestBuilder::new()),
+            http_response: Building(HttpResponseBuilder::new()),
             resp_end: None,
             sess_open: None,
             sess_duration: None,
@@ -586,49 +716,13 @@ impl RecordBuilder {
                 }
 
                 // Response
-                SLT_BerespProtocol | SLT_RespProtocol => {
-                    let protocol = try!(slt_protocol(message).into_result().context(vsl.tag));
-
-                    RecordBuilder {
-                        resp_protocol: Some(protocol.to_string()),
-                        .. self
-                    }
-                }
-                SLT_BerespStatus | SLT_RespStatus => {
-                    let status = try!(slt_status(message).into_result().context(vsl.tag));
-
-                    RecordBuilder {
-                        resp_status: Some(try!(status.parse().context("status"))),
-                        .. self
-                    }
-                }
-                SLT_BerespReason | SLT_RespReason => {
-                    let reason = try!(slt_reason(message).into_result().context(vsl.tag));
-
-                    RecordBuilder {
-                        resp_reason: Some(reason.to_string()),
-                        .. self
-                    }
-                }
-                SLT_BerespHeader | SLT_RespHeader => {
-                    let (name, value) = try!(slt_header(message).into_result().context(vsl.tag));
-
-                    let mut headers = self.resp_headers;
-                    headers.insert(name.to_string(), value.to_string());
-
-                    RecordBuilder {
-                        resp_headers: headers,
-                        .. self
-                    }
-                }
+                SLT_BerespProtocol | SLT_RespProtocol |
+                SLT_BerespStatus | SLT_RespStatus |
+                SLT_BerespReason | SLT_RespReason |
+                SLT_BerespHeader | SLT_RespHeader |
                 SLT_BerespUnset | SLT_RespUnset => {
-                    let (name, _) = try!(slt_header(message).into_result().context(vsl.tag));
-
-                    let mut headers = self.resp_headers;
-                    headers.remove(name);
-
                     RecordBuilder {
-                        resp_headers: headers,
+                        http_response: try!(self.http_response.apply(vsl.tag, message)),
                         .. self
                     }
                 }
@@ -719,24 +813,13 @@ impl RecordBuilder {
                         },
                         RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
                             let request = try!(self.http_request.get_complete());
-
-                            // We may not have a response in case of restart
-                            let response = if self.resp_status.is_some() {
-                                Some(HttpResponse {
-                                    protocol: try!(self.resp_protocol.ok_or(RecordBuilderError::RecordIncomplete("resp_protocol"))),
-                                    status: try!(self.resp_status.ok_or(RecordBuilderError::RecordIncomplete("resp_status"))),
-                                    reason: try!(self.resp_reason.ok_or(RecordBuilderError::RecordIncomplete("resp_reason"))),
-                                    headers: self.resp_headers.into_iter().collect(),
-                                })
-                            } else {
-                                None
-                            };
+                            let response = try!(try!(self.http_response.to_complete()).get_complete());
 
                             let http_transaction = HttpTransaction {
                                 start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                                 end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
                                 request: request,
-                                response: response,
+                                response: Some(response), //TODO: we may not have it!
                             };
 
                             match record_type {
@@ -1083,6 +1166,7 @@ mod access_log_request_state_tests {
                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
     }
 
+    /* TODO: need to rethink purpose of this test
     #[test]
     fn apply_backend_response() {
         let mut state = RecordState::new();
@@ -1101,13 +1185,16 @@ mod access_log_request_state_tests {
 
         let builder = state.get(123).unwrap();
         assert_eq!(builder.resp_end, Some(1469180762.484544));
-        assert_eq!(builder.resp_protocol, Some("HTTP/1.1".to_string()));
-        assert_eq!(builder.resp_status, Some(503));
-        assert_eq!(builder.resp_reason, Some("Backend fetch failed".to_string()));
-        assert_eq!(builder.resp_headers.get("Date"), Some(&"Fri, 22 Jul 2016 09:46:02 GMT".to_string()));
-        assert_eq!(builder.resp_headers.get("Server"), Some(&"Varnish".to_string()));
-        assert_eq!(builder.resp_headers.get("Cache-Control"), None);
+
+        let builder = builder.http_response.to_complete().unwrap().get_complete().unwrap();
+        assert_eq!(builder.protocol, "HTTP/1.1".to_string());
+        assert_eq!(builder.status, 503);
+        assert_eq!(builder.reason, "Backend fetch failed".to_string());
+        assert_eq!(builder.headers, &[
+                   ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                   ("Server".to_string(), "Varnish".to_string())]);
     }
+    */
 
     #[test]
     fn apply_backend_request_locking() {
