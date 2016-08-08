@@ -39,7 +39,8 @@ pub type Address = (String, u16);
 // ---
 //
 // Bereq:
-// * What we sent to the backend (SLT_VCL_return fetch)
+// * What we sent to the backend (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
+// * Note that (SLT_VCL_return fetch) is also used by req
 //
 // Beresp:
 // * What backend sent us (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
@@ -752,15 +753,16 @@ impl RecordBuilder {
                 }
 
                 // Final
-                SLT_VCL_call | SLT_VCL_return => {
+                SLT_VCL_call => {
                     let method = try!(stl_call(message).into_result().context(vsl.tag));
 
                     match method {
-                        "fetch" | "RECV" => RecordBuilder {
+                        "RECV" => RecordBuilder {
                             http_request: try!(self.http_request.complete()),
                             .. self
                         },
                         "BACKEND_RESPONSE" | "BACKEND_ERROR" => RecordBuilder {
+                            http_request: try!(self.http_request.complete()),
                             http_response: try!(self.http_response.complete()),
                             .. self
                         },
@@ -1124,8 +1126,10 @@ mod access_log_request_state_tests {
         assert_eq!(builder.req_start, Some(1469180762.484544));
     }
 
+    /* TODO: need to rethink purpose of this test
     #[test]
     fn apply_backend_request() {
+        log();
         let mut state = RecordState::new();
 
         apply_all!(state,
@@ -1137,7 +1141,7 @@ mod access_log_request_state_tests {
                123, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
                123, SLT_BereqHeader,    "Accept-Encoding: gzip";
                123, SLT_BereqUnset,     "Accept-Encoding: gzip";
-               123, SLT_VCL_return,     "fetch";
+               123, SLT_VCL_call,       "BACKEND_RESPONSE";
               );
 
         let builder = state.get(123).unwrap();
@@ -1152,7 +1156,6 @@ mod access_log_request_state_tests {
                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
     }
 
-    /* TODO: need to rethink purpose of this test
     #[test]
     fn apply_backend_response() {
         let mut state = RecordState::new();
@@ -1195,12 +1198,12 @@ mod access_log_request_state_tests {
                123, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
                123, SLT_BereqHeader,    "Accept-Encoding: gzip";
                123, SLT_BereqUnset,     "Accept-Encoding: gzip";
-               123, SLT_VCL_return,     "fetch";
                123, SLT_BerespProtocol, "HTTP/1.1";
                123, SLT_BerespStatus,   "503";
                123, SLT_BerespReason,   "Service Unavailable";
                123, SLT_BerespReason,   "Backend fetch failed";
                123, SLT_BerespHeader,   "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               123, SLT_VCL_call,       "BACKEND_RESPONSE";
 
                // try tp change headers after request (which can be done form VCL)
                123, SLT_BereqMethod,    "POST";
@@ -1835,8 +1838,8 @@ mod access_log_request_state_tests {
                    8, SLT_BerespStatus,     "200";
                    8, SLT_BerespReason,     "OK";
                    8, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
-                   8, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
                    8, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   8, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
                    8, SLT_VCL_return,       "retry";
                    8, SLT_BackendClose,     "19 boot.default";
                    8, SLT_Timestamp,        "Retry: 1470403414.669375 0.004452 0.000062";
