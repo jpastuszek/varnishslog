@@ -347,6 +347,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
     }
 }
 
+//TODO: move session stuff to SessionBuilder
 #[derive(Debug)]
 struct RecordBuilder {
     ident: VslIdent,
@@ -854,32 +855,45 @@ impl RecordBuilder {
 
 // TODO: move to own file
 #[derive(Debug)]
+enum RecordBuilderSlot {
+    Builder(RecordBuilder),
+    Tombstone(RecordBuilderError),
+}
+
+#[derive(Debug)]
 pub struct RecordState {
-    builders: HashMap<VslIdent, RecordBuilder>
+    builders: HashMap<VslIdent, RecordBuilderSlot>
 }
 
 impl RecordState {
     pub fn new() -> RecordState {
         //TODO: some sort of expirity mechanism like LRU
+        //Note: tombstones will accumulate over time
         RecordState { builders: HashMap::new() }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {
         let builder = match self.builders.remove(&vsl.ident) {
-            Some(builder) => builder,
             None => RecordBuilder::new(vsl.ident),
+            Some(RecordBuilderSlot::Builder(builder)) => builder,
+            Some(RecordBuilderSlot::Tombstone(err)) => {
+                debug!("Found tombstone for record with ident {}: ignoring VSL record with tag {:?} and message {:?}; inscription: {}",
+                       vsl.ident, vsl.tag, vsl.message(), &err);
+                self.builders.insert(vsl.ident, RecordBuilderSlot::Tombstone(err)); // it's heavy, put it back
+                return None
+            }
         };
 
         match builder.apply(vsl) {
-            Ok(result) => match result {
-                Building(builder) => {
-                    self.builders.insert(vsl.ident, builder);
-                    return None
-                }
-                Complete(record) => return Some(record),
-            },
+            Ok(Complete(record)) => return Some(record),
+            Ok(Building(builder)) => {
+                self.builders.insert(vsl.ident, RecordBuilderSlot::Builder(builder));
+                return None
+            }
             Err(err) => {
-                error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}", vsl.ident, vsl.tag, vsl.message(), err);
+                error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}",
+                       vsl.ident, vsl.tag, vsl.message(), &err);
+                self.builders.insert(vsl.ident, RecordBuilderSlot::Tombstone(err));
                 return None
             }
         }
@@ -887,7 +901,19 @@ impl RecordState {
 
     #[cfg(test)]
     fn get(&self, ident: VslIdent) -> Option<&RecordBuilder> {
-        self.builders.get(&ident)
+        match self.builders.get(&ident) {
+            Some(&RecordBuilderSlot::Builder(ref builder)) => return Some(builder),
+            Some(&RecordBuilderSlot::Tombstone(ref err)) => panic!("Found Tombstone; inscription: {}", err),
+            None => None,
+        }
+    }
+
+    #[cfg(test)]
+    fn is_tombstone(&self, ident: VslIdent) -> bool {
+        match self.builders.get(&ident) {
+            Some(&RecordBuilderSlot::Tombstone(_)) => true,
+            _ => false,
+        }
     }
 }
 
@@ -1389,6 +1415,39 @@ mod access_log_request_state_tests {
             remote: ("192.168.1.10".to_string(), 40078),
             client_requests: vec![32773],
         });
+    }
+
+    #[test]
+    fn apply_record_state_failed() {
+        log();
+        let mut state = RecordState::new();
+
+        apply_all!(state,
+               123, SLT_Begin,          "req 321 rxreq";
+               123, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
+               123, SLT_ReqMethod,      "GET";
+               123, SLT_ReqURL,         "/foobar";
+               123, SLT_ReqProtocol,    "HTTP/1.1";
+               123, SLT_ReqHeader,      "Host: localhost:8080";
+               123, SLT_ReqHeader,      "User-Agent: curl/7.40.0";
+               123, SLT_ReqHeader,      "Accept-Encoding: gzip";
+               123, SLT_ReqUnset,       "Accept-Encoding: gzip";
+               123, SLT_VCL_call,       "RECV";
+               123, SLT_Link,           "bereq 32774 fetch";
+               123, SLT_RespProtocol,   "HTTP/1.1";
+               123, SLT_RespStatus,     "503";
+               123, SLT_RespReason,     "Service Unavailable";
+               123, SLT_RespReason,     "Backend fetch failed";
+               123, SLT_RespHeader,     "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+               123, SLT_RespHeader,     "Server: Varnish";
+               123, SLT_RespHeader,     "BOOM!";
+               123, SLT_RespUnset,      "Cache-Control: no-store";
+               123, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
+               123, SLT_Timestamp,      "Resp: 1469180763.484544 0.000000 0.000000";
+               );
+
+        apply!(state, 123, SLT_End, "");
+        assert!(state.is_tombstone(123));
     }
 
     #[test]
