@@ -347,7 +347,6 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
     }
 }
 
-//TODO: move session stuff to SessionBuilder
 #[derive(Debug)]
 struct RecordBuilder {
     ident: VslIdent,
@@ -661,47 +660,6 @@ impl RecordBuilder {
                         }
                     }
                 }
-
-                // Request
-                SLT_BereqProtocol | SLT_ReqProtocol |
-                SLT_BereqMethod | SLT_ReqMethod |
-                SLT_BereqURL | SLT_ReqURL |
-                SLT_BereqHeader | SLT_ReqHeader |
-                SLT_BereqUnset | SLT_ReqUnset => {
-                    RecordBuilder {
-                        http_request: try!(self.http_request.apply(vsl.tag, message)),
-                        .. self
-                    }
-                }
-
-                // Response
-                SLT_BerespProtocol | SLT_RespProtocol |
-                SLT_BerespStatus | SLT_RespStatus |
-                SLT_BerespReason | SLT_RespReason |
-                SLT_BerespHeader | SLT_RespHeader |
-                SLT_BerespUnset | SLT_RespUnset => {
-                    RecordBuilder {
-                        http_response: try!(self.http_response.apply(vsl.tag, message)),
-                        .. self
-                    }
-                }
-
-                // Session
-                SLT_SessOpen => {
-                    let (remote_ip, remote_port, _listen_sock, local_ip, local_port, timestamp, _fd)
-                        = try!(slt_session(message).into_result().context(vsl.tag));
-
-                    RecordBuilder {
-                        sess_open: Some(try!(timestamp.parse().context("timestamp"))),
-                        sess_remote: if remote_ip != "-" && remote_port != "-" {
-                            Some((remote_ip.to_string(), try!(remote_port.parse().context("remote_port"))))
-                        } else {
-                            None
-                        },
-                        sess_local: Some((local_ip.to_string(), try!(local_port.parse().context("local_port")))),
-                        .. self
-                    }
-                }
                 SLT_Link => {
                     let (reason, child_vxid, child_type) = try!(slt_link(message).into_result().context(vsl.tag));
 
@@ -742,6 +700,47 @@ impl RecordBuilder {
                             warn!("Ignoring unknown SLT_Link reason variant: {}", reason);
                             self
                         }
+                    }
+                }
+
+                // Request
+                SLT_BereqProtocol | SLT_ReqProtocol |
+                SLT_BereqMethod | SLT_ReqMethod |
+                SLT_BereqURL | SLT_ReqURL |
+                SLT_BereqHeader | SLT_ReqHeader |
+                SLT_BereqUnset | SLT_ReqUnset => {
+                    RecordBuilder {
+                        http_request: try!(self.http_request.apply(vsl.tag, message)),
+                        .. self
+                    }
+                }
+
+                // Response
+                SLT_BerespProtocol | SLT_RespProtocol |
+                SLT_BerespStatus | SLT_RespStatus |
+                SLT_BerespReason | SLT_RespReason |
+                SLT_BerespHeader | SLT_RespHeader |
+                SLT_BerespUnset | SLT_RespUnset => {
+                    RecordBuilder {
+                        http_response: try!(self.http_response.apply(vsl.tag, message)),
+                        .. self
+                    }
+                }
+
+                // Session
+                SLT_SessOpen => {
+                    let (remote_ip, remote_port, _listen_sock, local_ip, local_port, timestamp, _fd)
+                        = try!(slt_session(message).into_result().context(vsl.tag));
+
+                    RecordBuilder {
+                        sess_open: Some(try!(timestamp.parse().context("timestamp"))),
+                        sess_remote: if remote_ip != "-" && remote_port != "-" {
+                            Some((remote_ip.to_string(), try!(remote_port.parse().context("remote_port"))))
+                        } else {
+                            None
+                        },
+                        sess_local: Some((local_ip.to_string(), try!(local_port.parse().context("local_port")))),
+                        .. self
                     }
                 }
                 SLT_SessClose => {
