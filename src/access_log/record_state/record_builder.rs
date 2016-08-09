@@ -19,6 +19,7 @@ use vsl::VslRecordTag::*;
 /// * Linking information: SLT_Link
 /// * Byte counts: SLT_ReqAcct
 /// * Handle the "<not set>" headers
+/// * Support for non-UTF8 data lines - log warnings?
 ///
 /// Client headers:
 /// ---
@@ -343,6 +344,14 @@ impl<B, C> BuilderResult<B, C> {
         match self {
             BuilderResult::Building(buidling) => panic!("Trying to unwrap BuilderResult::Building: {:?}", buidling),
             BuilderResult::Complete(complete) => complete,
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_building(self) -> B where C: Debug {
+        match self {
+            BuilderResult::Building(buidling) => buidling,
+            BuilderResult::Complete(complete) => panic!("Trying to unwrap BuilderResult::Complete: {:?}", complete),
         }
     }
 
@@ -855,166 +864,170 @@ impl RecordBuilder {
 #[cfg(test)]
 mod tests {
     pub use super::*;
-    use vsl::{VslRecord, VslRecordTag, VslIdent};
-    use vsl::VslRecordTag::*;
+    pub use super::super::super::test_helpers::*;
 
-    /* TODO: need to rethink purpose of this test
-     * they should not be using RecordState
+    macro_rules! apply {
+        ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{
+            let res = $state.apply(&vsl($tag, $ident, $message));
+            if let Err(err) = res {
+                panic!("expected apply to return Ok after applying: `{}, {:?}, {};`; got: {}", $ident, $tag, $message, err)
+            }
+            res.unwrap().unwrap_building()
+        }};
+    }
+
+    macro_rules! apply_all {
+        ($builder:ident, $ident:expr, $tag:ident, $message:expr;) => {{
+            apply!($builder, $ident, $tag, $message)
+        }};
+        ($builder:ident, $ident:expr, $tag:ident, $message:expr; $($t_ident:expr, $t_tag:ident, $t_message:expr;)+) => {{
+            let builder = apply!($builder, $ident, $tag, $message);
+            apply_all!(builder, $($t_ident, $t_tag, $t_message;)*)
+        }};
+    }
+
     #[test]
     fn apply_non_utf8() {
-        let mut state = RecordState::new();
+        let builder = RecordBuilder::new(1);
 
-        state.apply(&VslRecord {
+        use vsl::VslRecord;
+        let result = builder.apply(&VslRecord {
             tag: SLT_Begin,
             marker: 0,
             ident: 123,
             data: &[255, 0, 1, 2, 3]
         });
 
-        assert_none!(state.get(123));
+        assert!(result.is_err());
     }
 
     #[test]
     fn apply_begin() {
-        let mut state = RecordState::new();
+        let builder = RecordBuilder::new(123);
 
-        state.apply(&vsl(SLT_Begin, 123, "bereq 321 fetch"));
+        let builder = builder.apply(&vsl(SLT_Begin, 123, "bereq 321 fetch"))
+            .unwrap().unwrap_building();
 
-        let builder = state.get(123).unwrap();
-        let record_type = builder.record_type.as_ref().unwrap();
-
-        assert_matches!(record_type, &RecordType::BackendAccess { parent: 321, ref reason } if reason == "fetch");
+        assert_matches!(builder.record_type,
+            Some(RecordType::BackendAccess { parent: 321, ref reason }) if reason == "fetch");
     }
 
     #[test]
     fn apply_begin_unimpl_transaction_type() {
-        let mut state = RecordState::new();
+        let builder = RecordBuilder::new(123);
 
-        state.apply(&vsl(SLT_Begin, 123, "foo 231 fetch"));
-        assert_none!(state.get(123));
+        let result = builder.apply(&vsl(SLT_Begin, 123, "foo 231 fetch"));
+        assert_matches!(result.unwrap_err(),
+            RecordBuilderError::UnimplementedTransactionType(ref record_type) if record_type == "foo");
     }
 
     #[test]
     fn apply_begin_parser_fail() {
-        let mut state = RecordState::new();
+        let builder = RecordBuilder::new(123);
 
-        state.apply(&vsl(SLT_Begin, 123, "foo bar"));
-        assert_none!(state.get(123));
+        let result = builder.apply(&vsl(SLT_Begin, 123, "foo bar"));
+        assert_matches!(result.unwrap_err(),
+            RecordBuilderError::InvalidMessageFormat(_));
     }
 
     #[test]
-    fn apply_begin_float_parse_fail() {
-        let mut state = RecordState::new();
+    fn apply_begin_int_parse_fail() {
+        let builder = RecordBuilder::new(123);
 
-        state.apply(&vsl(SLT_Begin, 123, "bereq bar fetch"));
-        assert_none!(state.get(123));
+        let result = builder.apply(&vsl(SLT_Begin, 123, "bereq foo fetch"));
+        assert_matches!(result.unwrap_err(),
+            RecordBuilderError::InvalidMessageFieldFormat(field_name, _) if field_name == "vxid");
     }
 
     #[test]
     fn apply_timestamp() {
-        let mut state = RecordState::new();
+        let builder = RecordBuilder::new(123);
 
-        state.apply(&vsl(SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"));
+        let builder = builder.apply(&vsl(SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"))
+            .unwrap().unwrap_building();
 
-        let builder = state.get(123).unwrap().clone();
         assert_eq!(builder.req_start, Some(1469180762.484544));
     }
 
     #[test]
-    fn apply_backend_request() {
-        log();
-        let mut state = RecordState::new();
+    fn apply_backend_request_response() {
+        let builder = RecordBuilder::new(123);
 
-        apply_all!(state,
-               123, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
-               123, SLT_BereqMethod,    "GET";
-               123, SLT_BereqURL,       "/foobar";
-               123, SLT_BereqProtocol,  "HTTP/1.1";
-               123, SLT_BereqHeader,    "Host: localhost:8080";
-               123, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
-               123, SLT_BereqHeader,    "Accept-Encoding: gzip";
-               123, SLT_BereqUnset,     "Accept-Encoding: gzip";
-               123, SLT_VCL_call,       "BACKEND_RESPONSE";
-              );
+        let builder = apply_all!(builder,
+                                 123, SLT_Timestamp,        "Start: 1469180762.484544 0.000000 0.000000";
+                                 123, SLT_BereqMethod,      "GET";
+                                 123, SLT_BereqURL,         "/foobar";
+                                 123, SLT_BereqProtocol,    "HTTP/1.1";
+                                 123, SLT_BereqHeader,      "Host: localhost:8080";
+                                 123, SLT_BereqHeader,      "User-Agent: curl/7.40.0";
+                                 123, SLT_BereqHeader,      "Accept-Encoding: gzip";
+                                 123, SLT_BereqUnset,       "Accept-Encoding: gzip";
+                                 123, SLT_Timestamp,        "Beresp: 1469180762.484544 0.000000 0.000000";
+                                 123, SLT_BerespProtocol,   "HTTP/1.1";
+                                 123, SLT_BerespStatus,     "503";
+                                 123, SLT_BerespReason,     "Service Unavailable";
+                                 123, SLT_BerespReason,     "Backend fetch failed";
+                                 123, SLT_BerespHeader,     "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+                                 123, SLT_BerespHeader,     "Server: Varnish";
+                                 123, SLT_BerespHeader,     "Cache-Control: no-store";
+                                 123, SLT_BerespUnset,      "Cache-Control: no-store";
+                                 123, SLT_VCL_call,         "BACKEND_RESPONSE";
+                                );
 
-        let builder = state.get(123).unwrap();
         assert_eq!(builder.req_start, Some(1469180762.484544));
 
-        let builder = builder.http_request.as_ref().unwrap();
-        assert_eq!(builder.method, "GET".to_string());
-        assert_eq!(builder.url, "/foobar".to_string());
-        assert_eq!(builder.protocol, "HTTP/1.1".to_string());
-        assert_eq!(builder.headers, &[
+        let request = builder.http_request.as_ref().unwrap();
+        assert_eq!(request.method, "GET".to_string());
+        assert_eq!(request.url, "/foobar".to_string());
+        assert_eq!(request.protocol, "HTTP/1.1".to_string());
+        assert_eq!(request.headers, &[
                    ("Host".to_string(), "localhost:8080".to_string()),
                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
-    }
 
-    #[test]
-    fn apply_backend_response() {
-        let mut state = RecordState::new();
-
-        apply_all!(state,
-               123, SLT_Timestamp, "Beresp: 1469180762.484544 0.000000 0.000000";
-               123, SLT_BerespProtocol, "HTTP/1.1";
-               123, SLT_BerespStatus, "503";
-               123, SLT_BerespReason, "Service Unavailable";
-               123, SLT_BerespReason, "Backend fetch failed";
-               123, SLT_BerespHeader, "Date: Fri, 22 Jul 2016 09:46:02 GMT";
-               123, SLT_BerespHeader, "Server: Varnish";
-               123, SLT_BerespHeader, "Cache-Control: no-store";
-               123, SLT_BerespUnset, "Cache-Control: no-store";
-               );
-
-        let builder = state.get(123).unwrap();
         assert_eq!(builder.resp_end, Some(1469180762.484544));
 
-        let builder = builder.http_response.complete().unwrap().get_complete().unwrap();
-        assert_eq!(builder.protocol, "HTTP/1.1".to_string());
-        assert_eq!(builder.status, 503);
-        assert_eq!(builder.reason, "Backend fetch failed".to_string());
-        assert_eq!(builder.headers, &[
+        let response = builder.http_response.as_ref().unwrap();
+        assert_eq!(response.protocol, "HTTP/1.1".to_string());
+        assert_eq!(response.status, 503);
+        assert_eq!(response.reason, "Backend fetch failed".to_string());
+        assert_eq!(response.headers, &[
                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                    ("Server".to_string(), "Varnish".to_string())]);
     }
 
     #[test]
     fn apply_backend_request_locking() {
-        let mut state = RecordState::new();
+        let builder = RecordBuilder::new(123);
 
-        apply_all!(state,
-               123, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
-               123, SLT_BereqMethod,    "GET";
-               123, SLT_BereqURL,       "/foobar";
-               123, SLT_BereqProtocol,  "HTTP/1.1";
-               123, SLT_BereqHeader,    "Host: localhost:8080";
-               123, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
-               123, SLT_BereqHeader,    "Accept-Encoding: gzip";
-               123, SLT_BereqUnset,     "Accept-Encoding: gzip";
-               123, SLT_BerespProtocol, "HTTP/1.1";
-               123, SLT_BerespStatus,   "503";
-               123, SLT_BerespReason,   "Service Unavailable";
-               123, SLT_BerespReason,   "Backend fetch failed";
-               123, SLT_BerespHeader,   "Date: Fri, 22 Jul 2016 09:46:02 GMT";
-               123, SLT_VCL_call,       "BACKEND_RESPONSE";
+        let builder = apply_all!(builder,
+                   123, SLT_BereqMethod,    "GET";
+                   123, SLT_BereqURL,       "/foobar";
+                   123, SLT_BereqProtocol,  "HTTP/1.1";
+                   123, SLT_BereqHeader,    "Host: localhost:8080";
+                   123, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
+                   123, SLT_BereqHeader,    "Accept-Encoding: gzip";
+                   123, SLT_BereqUnset,     "Accept-Encoding: gzip";
+                   123, SLT_BerespProtocol, "HTTP/1.1";
+                   123, SLT_BerespStatus,   "503";
+                   123, SLT_BerespReason,   "Service Unavailable";
+                   123, SLT_BerespReason,   "Backend fetch failed";
+                   123, SLT_BerespHeader,   "Date: Fri, 22 Jul 2016 09:46:02 GMT";
+                   123, SLT_VCL_call,       "BACKEND_RESPONSE";
 
-               // try tp change headers after request (which can be done form VCL)
-               123, SLT_BereqMethod,    "POST";
-               123, SLT_BereqURL,       "/quix";
-               123, SLT_BereqProtocol,  "HTTP/2.0";
-               123, SLT_BereqHeader,    "Host: foobar:666";
-               123, SLT_BereqHeader,    "Baz: bar";
-              );
+                   // try tp change headers after request (which can be done form VCL)
+                   123, SLT_BereqMethod,    "POST";
+                   123, SLT_BereqURL,       "/quix";
+                   123, SLT_BereqProtocol,  "HTTP/2.0";
+                   123, SLT_BereqHeader,    "Host: foobar:666";
+                   123, SLT_BereqHeader,    "Baz: bar";
+                   );
 
-        let builder = state.get(123).unwrap().clone();
-        assert_eq!(builder.req_start, Some(1469180762.484544));
-
-        let builder = builder.http_request.as_ref().unwrap();
-        assert_eq!(builder.method, "GET".to_string());
-        assert_eq!(builder.url, "/foobar".to_string());
-        assert_eq!(builder.protocol, "HTTP/1.1".to_string());
-        assert_eq!(builder.headers, &[
+        let requests = builder.http_request.as_ref().unwrap();
+        assert_eq!(requests.method, "GET".to_string());
+        assert_eq!(requests.url, "/foobar".to_string());
+        assert_eq!(requests.protocol, "HTTP/1.1".to_string());
+        assert_eq!(requests.headers, &[
                    ("Host".to_string(), "localhost:8080".to_string()),
                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
     }
-*/
 }
