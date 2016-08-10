@@ -30,6 +30,70 @@
 ///
 /// Beresp:
 /// * What backend sent us (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
+///
+/// Timestamps
+/// ===
+///
+/// Req (logs/varnish20160805-3559-f6sifo45103025c06abad14.vsl):
+/// ---
+/// * parse (req_process) - Start to Req
+/// * fetch (resp_fetch) - Req to Fetch
+/// * ttfb (resp_ttfb) - Start to Process
+/// * serve (req_took)- Start to Resp
+///
+/// Note that we may have no process time for ESI requests as they don't get Req: record
+///
+///     2 SLT_Timestamp      Start: 1470403414.647192 0.000000 0.000000
+///     2 SLT_Timestamp      Req: 1470403414.647192 0.000000 0.000000
+///     2 SLT_ReqStart       127.0.0.1 39792
+///     2 SLT_VCL_call       RECV
+///     2 SLT_VCL_call       HASH
+///     2 SLT_VCL_return     lookup
+///     2 SLT_VCL_call       SYNTH
+///     2 SLT_Timestamp      Process: 1470403414.647272 0.000081 0.000081
+///     2 SLT_VCL_return     deliver
+///     2 SLT_RespHeader     Connection: keep-alive
+///     2 SLT_Timestamp      Resp: 1470403414.647359 0.000167 0.000086
+///     2 SLT_ReqAcct        148 0 148 185 25 210
+///     2 SLT_End
+///
+///     4 SLT_Timestamp      Start: 1470403414.653332 0.000000 0.000000
+///     4 SLT_Timestamp      Req: 1470403414.653332 0.000000 0.000000
+///     4 SLT_ReqStart       127.0.0.1 39794
+///     4 SLT_VCL_call       MISS
+///     4 SLT_ReqHeader      X-Varnish-Result: miss
+///     4 SLT_VCL_return     fetch
+///     4 SLT_Link           bereq 5 fetch
+///     4 SLT_Timestamp      Fetch: 1470403414.658863 0.005531 0.005531
+///     4 SLT_VCL_call       DELIVER
+///     4 SLT_VCL_return     deliver
+///     4 SLT_Timestamp      Process: 1470403414.658956 0.005624 0.000093
+///     4 SLT_Debug          RES_MODE 2
+///     4 SLT_RespHeader     Connection: keep-alive
+///     4 SLT_Timestamp      Resp: 1470403414.658984 0.005652 0.000028
+///     4 SLT_ReqAcct 90 0 90 369 9 378 4 SLT_End
+///
+/// Bereq:
+/// ---
+/// Note that we may not have process time as backend request can be abandoned in vcl_backend_fetch.
+///
+/// * send (req_process) - Start to Bereq
+/// * ttfb (resp_ttfb) - Start to Beresp
+/// * wait (resp_fetch) - Bereq to Beresp
+/// * fetch (req_took) - Start to BerespBody
+///
+///     5 SLT_Begin          bereq 4 fetch
+///     5 SLT_Timestamp      Start: 1470403414.653455 0.000000 0.000000
+///     5 SLT_VCL_return     fetch
+///     5 SLT_BackendOpen    19 boot.default 127.0.0.1 42001 127.0.0.1 37606
+///     5 SLT_BackendStart   127.0.0.1 42001
+///     5 SLT_Timestamp      Bereq: 1470403414.653592 0.000137 0.000137
+///     5 SLT_Timestamp      Beresp: 1470403414.658717 0.005262 0.005124
+///     5 SLT_Timestamp      BerespBody: 1470403414.658833 0.005378 0.000116
+///     5 SLT_Length         9
+///     5 SLT_BereqAcct      504 0 504 351 9 360
+///     5 SLT_End
+///
 
 use std::fmt::Debug;
 use std::str::Utf8Error;
@@ -45,6 +109,7 @@ pub type TimeStamp = f64;
 pub type Duration = f64;
 pub type Address = (String, u16);
 
+/// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
     pub ident: VslIdent,
@@ -54,8 +119,21 @@ pub struct ClientAccessRecord {
     pub backend_requests: Vec<VslIdent>,
     pub restart_request: Option<VslIdent>,
     pub http_transaction: HttpTransaction,
+    /// Start of request processing
+    pub start: TimeStamp,
+    /// Time it took to parse request; Note that ESI requests are already parsed (None)
+    pub parse: Option<Duration>,
+    /// Time waiting for backend response fetch to finish
+    pub fetch: Option<Duration>,
+    /// Time it took to get first byte of response
+    pub ttfb: Option<Duration>,
+    /// Total duration it took to serve the whole response
+    pub serve: Option<Duration>,
+    /// End of request processing
+    pub end: TimeStamp,
 }
 
+/// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendAccessRecord {
     pub ident: VslIdent,
@@ -63,6 +141,18 @@ pub struct BackendAccessRecord {
     pub reason: String,
     pub retry_request: Option<VslIdent>,
     pub http_transaction: HttpTransaction,
+    /// Start of backend request processing
+    pub start: TimeStamp,
+    /// Time it took to send backend request, e.g. it may include backend access/connect time
+    pub send: Option<Duration>,
+    /// Time it took to get first byte of backend response
+    pub ttfb: Option<Duration>,
+    /// Time waiting for first byte of backend response
+    pub wait: Option<Duration>,
+    /// Total duration it took to fetch the whole response
+    pub fetch: Option<Duration>,
+    /// End of response processing; maby be None if it was abandoned
+    pub end: Option<TimeStamp>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,12 +165,8 @@ pub struct SessionRecord {
     pub client_requests: Vec<VslIdent>,
 }
 
-// TODO: store duration (use relative timing (?) from log as TS can go backwards)
-// check Varnish code to see if relative timing is immune to clock going backwards
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpTransaction {
-    pub start: TimeStamp,
-    pub end: TimeStamp,
     pub request: HttpRequest,
     pub response: Option<HttpResponse>,
 }
@@ -516,6 +602,10 @@ pub struct RecordBuilder {
     req_start: Option<TimeStamp>,
     http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
     http_response: BuilderResult<HttpResponseBuilder, HttpResponse>,
+    resp_fetch: Option<Duration>,
+    req_process: Option<Duration>,
+    resp_ttfb: Option<Duration>,
+    req_took: Option<Duration>,
     resp_end: Option<TimeStamp>,
     sess_open: Option<TimeStamp>,
     sess_duration: Option<Duration>,
@@ -535,6 +625,10 @@ impl RecordBuilder {
             req_start: None,
             http_request: Building(HttpRequestBuilder::new()),
             http_response: Building(HttpResponseBuilder::new()),
+            req_process: None,
+            resp_fetch: None,
+            resp_ttfb: None,
+            req_took: None,
             resp_end: None,
             sess_open: None,
             sess_duration: None,
@@ -577,17 +671,40 @@ impl RecordBuilder {
                     }
                 }
                 SLT_Timestamp => {
-                    let (label, timestamp, _sice_work_start, _since_last_timestamp) = try!(slt_timestamp(message).into_result().context(vsl.tag));
+                    let (label, timestamp, since_work_start, since_last_timestamp) = try!(slt_timestamp(message).into_result().context(vsl.tag));
                     match label {
                         "Start" => RecordBuilder {
                             req_start: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
                         },
+                        "Req" => RecordBuilder {
+                            req_process: Some(try!(since_work_start.parse().context("since_work_start"))),
+                            .. self
+                        },
+                        "Bereq" => RecordBuilder {
+                            req_process: Some(try!(since_work_start.parse().context("since_work_start"))),
+                            .. self
+                        },
                         "Beresp" => RecordBuilder {
-                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            resp_ttfb: Some(try!(since_work_start.parse().context("since_last_timestamp"))),
+                            resp_fetch: Some(try!(since_last_timestamp.parse().context("since_last_timestamp"))),
+                            .. self
+                        },
+                        "Fetch" => RecordBuilder {
+                            resp_fetch: Some(try!(since_last_timestamp.parse().context("since_last_timestamp"))),
+                            .. self
+                        },
+                        "Process" => RecordBuilder {
+                            resp_ttfb: Some(try!(since_work_start.parse().context("since_work_start"))),
                             .. self
                         },
                         "Resp" => RecordBuilder {
+                            req_took: Some(try!(since_work_start.parse().context("since_work_start"))),
+                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            .. self
+                        },
+                        "BerespBody" => RecordBuilder {
+                            req_took: Some(try!(since_work_start.parse().context("since_work_start"))),
                             resp_end: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
                         },
@@ -745,8 +862,6 @@ impl RecordBuilder {
                             };
 
                             let http_transaction = HttpTransaction {
-                                start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                                end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
                                 request: request,
                                 response: response,
                             };
@@ -761,6 +876,12 @@ impl RecordBuilder {
                                         backend_requests: self.backend_requests,
                                         restart_request: self.restart_request,
                                         http_transaction: http_transaction,
+                                        start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                                        parse: self.req_process,
+                                        fetch: self.resp_fetch,
+                                        ttfb: self.resp_ttfb,
+                                        serve: self.req_took,
+                                        end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
                                     };
 
                                     return Ok(Complete(Record::ClientAccess(record)))
@@ -772,6 +893,12 @@ impl RecordBuilder {
                                         reason: reason,
                                         retry_request: self.retry_request,
                                         http_transaction: http_transaction,
+                                        start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                                        send: self.req_process,
+                                        ttfb: self.resp_ttfb,
+                                        wait: self.resp_fetch,
+                                        fetch: self.req_took,
+                                        end: self.resp_end,
                                     };
 
                                     return Ok(Complete(Record::BackendAccess(record)))

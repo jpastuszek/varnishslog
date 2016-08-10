@@ -264,6 +264,8 @@ mod tests {
         assert_matches!(client, ClientAccessRecord {
             ident: 100,
             parent: 10,
+            start: 1469180762.484544,
+            end: 1469180763.484544,
             ref reason,
             ref backend_requests,
             ref esi_requests,
@@ -273,11 +275,6 @@ mod tests {
             backend_requests == &[1000] &&
             esi_requests.is_empty()
         );
-        assert_matches!(client.http_transaction, HttpTransaction {
-            start: 1469180762.484544,
-            end: 1469180763.484544,
-            ..
-        });
         assert_eq!(client.http_transaction.request, HttpRequest {
             method: "GET".to_string(),
             url: "/foobar".to_string(),
@@ -302,14 +299,11 @@ mod tests {
         assert_matches!(backend, &BackendAccessRecord {
             ident: 1000,
             parent: 100,
+            start: 1469180762.484544,
+            end: Some(1469180763.484544),
             ref reason,
             ..
         } if reason == "fetch");
-        assert_matches!(backend.http_transaction, HttpTransaction {
-            start: 1469180762.484544,
-            end: 1469180763.484544,
-            ..
-        });
         assert_eq!(backend.http_transaction.request, HttpRequest {
             method: "GET".to_string(),
             url: "/foobar".to_string(),
