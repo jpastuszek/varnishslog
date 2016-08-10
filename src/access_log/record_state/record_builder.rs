@@ -145,10 +145,10 @@ pub struct BackendAccessRecord {
     pub start: TimeStamp,
     /// Time it took to send backend request, e.g. it may include backend access/connect time
     pub send: Option<Duration>,
-    /// Time it took to get first byte of backend response
-    pub ttfb: Option<Duration>,
     /// Time waiting for first byte of backend response
     pub wait: Option<Duration>,
+    /// Time it took to get first byte of backend response
+    pub ttfb: Option<Duration>,
     /// Total duration it took to fetch the whole response
     pub fetch: Option<Duration>,
     /// End of response processing; maby be None if it was abandoned
@@ -895,8 +895,8 @@ impl RecordBuilder {
                                         http_transaction: http_transaction,
                                         start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                                         send: self.req_process,
-                                        ttfb: self.resp_ttfb,
                                         wait: self.resp_fetch,
+                                        ttfb: self.resp_ttfb,
                                         fetch: self.req_took,
                                         end: self.resp_end,
                                     };
@@ -932,6 +932,16 @@ mod tests {
                 panic!("expected apply to return Ok after applying: `{}, {:?}, {};`; got: {}", $ident, $tag, $message, err)
             }
             res.unwrap().unwrap_building()
+        }};
+    }
+
+    macro_rules! apply_last {
+        ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{
+            let res = $state.apply(&vsl($tag, $ident, $message));
+            if let Err(err) = res {
+                panic!("expected apply to return Ok after applying: `{}, {:?}, {};`; got: {}", $ident, $tag, $message, err)
+            }
+            res.unwrap().unwrap()
         }};
     }
 
@@ -996,17 +1006,6 @@ mod tests {
         let result = builder.apply(&vsl(SLT_Begin, 123, "bereq foo fetch"));
         assert_matches!(result.unwrap_err(),
             RecordBuilderError::InvalidMessageFieldFormat(field_name, _) if field_name == "vxid");
-    }
-
-    #[test]
-    fn apply_timestamp() {
-        //TODO: more tests
-        let builder = RecordBuilder::new(123);
-
-        let builder = builder.apply(&vsl(SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"))
-            .unwrap().unwrap_building();
-
-        assert_eq!(builder.req_start, Some(1469180762.484544));
     }
 
     #[test]
@@ -1084,4 +1083,82 @@ mod tests {
                    ("Host".to_string(), "localhost:8080".to_string()),
                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
     }
+
+    #[test]
+    fn apply_client_access_record_timing() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 7, SLT_Begin,        "req 6 rxreq";
+                                 7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+                                 7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+                                 7, SLT_ReqStart,     "127.0.0.1 39798";
+                                 7, SLT_ReqMethod,    "GET";
+                                 7, SLT_ReqURL,       "/retry";
+                                 7, SLT_ReqProtocol,  "HTTP/1.1";
+                                 7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 7, SLT_VCL_call,     "RECV";
+                                 7, SLT_Link,         "bereq 8 fetch";
+                                 7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+                                 7, SLT_RespProtocol, "HTTP/1.1";
+                                 7, SLT_RespStatus,   "200";
+                                 7, SLT_RespReason,   "OK";
+                                 7, SLT_RespHeader,   "Content-Type: image/jpeg";
+                                 7, SLT_VCL_return,   "deliver";
+                                 7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+                                 7, SLT_RespHeader,   "Accept-Ranges: bytes";
+                                 7, SLT_Debug,        "RES_MODE 2";
+                                 7, SLT_RespHeader,   "Connection: keep-alive";
+                                 7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+                                 7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
+                                 );
+
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.start, 1470403413.664824);
+        assert_eq!(record.parse, Some(1.0));
+        assert_eq!(record.fetch, Some(0.007491));
+        assert_eq!(record.ttfb, Some(1.007601));
+        assert_eq!(record.serve, Some(1.007634));
+        assert_eq!(record.end, 1470403414.672458);
+    }
+
+    #[test]
+    fn apply_backend_access_record_timing() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 32769, SLT_Begin,            "bereq 8 retry";
+                                 32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                                 32769, SLT_BereqMethod,      "GET";
+                                 32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                                 32769, SLT_BereqProtocol,    "HTTP/1.1";
+                                 32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                                 32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                                 32769, SLT_BerespProtocol,   "HTTP/1.1";
+                                 32769, SLT_BerespStatus,     "200";
+                                 32769, SLT_BerespReason,     "OK";
+                                 32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                                 32769, SLT_Fetch_Body,       "3 length stream";
+                                 32769, SLT_BackendReuse,     "19 boot.iss";
+                                 32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                                 32769, SLT_Length,           "6962";
+                                 32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+                                 );
+
+       let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, 1470403414.669375);
+       assert_eq!(record.send, Some(0.004549));
+       assert_eq!(record.ttfb, Some(0.007262));
+       assert_eq!(record.wait, Some(0.002713));
+       assert_eq!(record.fetch, Some(0.007367));
+       assert_eq!(record.end, Some(1470403414.672290));
+   }
 }
