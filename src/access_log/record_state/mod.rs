@@ -188,7 +188,7 @@ mod tests {
             ident: 123,
             parent: 321,
             start: 1469180762.484544,
-            end: Some(1469180763.484544),
+            end: None,
             ref reason,
             ..
         } if reason == "fetch");

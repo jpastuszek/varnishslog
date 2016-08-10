@@ -208,6 +208,7 @@ mod tests {
         apply_all!(state,
                100, SLT_Begin,          "req 10 rxreq";
                100, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
+               100, SLT_Timestamp,      "Req: 1469180762.484544 0.000000 0.000000";
                100, SLT_ReqMethod,      "GET";
                100, SLT_ReqURL,         "/foobar";
                100, SLT_ReqProtocol,    "HTTP/1.1";
@@ -217,6 +218,7 @@ mod tests {
                100, SLT_ReqUnset,       "Accept-Encoding: gzip";
                100, SLT_VCL_call,       "RECV";
                100, SLT_Link,           "bereq 1000 fetch";
+               100, SLT_Timestamp,      "Fetch: 1469180763.484544 1.000000 0.000000";
                100, SLT_RespProtocol,   "HTTP/1.1";
                100, SLT_RespStatus,     "503";
                100, SLT_RespReason,     "Service Unavailable";
@@ -226,7 +228,8 @@ mod tests {
                100, SLT_RespHeader,     "Cache-Control: no-store";
                100, SLT_RespUnset,      "Cache-Control: no-store";
                100, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
-               100, SLT_Timestamp,      "Resp: 1469180763.484544 0.000000 0.000000";
+               100, SLT_Timestamp,      "Process: 1469180765.484544 2.000000 1.000000";
+               100, SLT_Timestamp,      "Resp: 1469180766.484544 3.000000 1.000000";
                100, SLT_End,            "";
 
                1000, SLT_Begin,         "bereq 100 fetch";
@@ -239,7 +242,8 @@ mod tests {
                1000, SLT_BereqHeader,   "Accept-Encoding: gzip";
                1000, SLT_BereqUnset,    "Accept-Encoding: gzip";
                1000, SLT_VCL_return,    "fetch";
-               1000, SLT_Timestamp,     "Beresp: 1469180763.484544 0.000000 0.000000";
+               1000, SLT_Timestamp,     "Bereq: 1469180763.484544 1.000000 1.000000";
+               1000, SLT_Timestamp,     "Beresp: 1469180764.484544 2.000000 1.000000";
                1000, SLT_BerespProtocol, "HTTP/1.1";
                1000, SLT_BerespStatus,  "503";
                1000, SLT_BerespReason,  "Service Unavailable";
@@ -249,7 +253,7 @@ mod tests {
                1000, SLT_BerespHeader,  "Cache-Control: no-store";
                1000, SLT_BerespUnset,   "Cache-Control: no-store";
                1000, SLT_BerespHeader,  "Content-Type: text/html; charset=utf-8";
-               1000, SLT_VCL_call,       "BACKEND_ERROR";
+               1000, SLT_VCL_call,      "BACKEND_ERROR";
                1000, SLT_End,           "";
 
                10, SLT_Begin,       "sess 0 HTTP/1";
@@ -265,7 +269,7 @@ mod tests {
             ident: 100,
             parent: 10,
             start: 1469180762.484544,
-            end: 1469180763.484544,
+            end: 1469180766.484544,
             ref reason,
             ref backend_requests,
             ref esi_requests,
@@ -300,7 +304,7 @@ mod tests {
             ident: 1000,
             parent: 100,
             start: 1469180762.484544,
-            end: Some(1469180763.484544),
+            end: None,
             ref reason,
             ..
         } if reason == "fetch");

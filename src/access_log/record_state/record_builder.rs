@@ -1000,6 +1000,7 @@ mod tests {
 
     #[test]
     fn apply_timestamp() {
+        //TODO: more tests
         let builder = RecordBuilder::new(123);
 
         let builder = builder.apply(&vsl(SLT_Timestamp, 123, "Start: 1469180762.484544 0.000000 0.000000"))
@@ -1013,7 +1014,6 @@ mod tests {
         let builder = RecordBuilder::new(123);
 
         let builder = apply_all!(builder,
-                                 123, SLT_Timestamp,        "Start: 1469180762.484544 0.000000 0.000000";
                                  123, SLT_BereqMethod,      "GET";
                                  123, SLT_BereqURL,         "/foobar";
                                  123, SLT_BereqProtocol,    "HTTP/1.1";
@@ -1021,7 +1021,6 @@ mod tests {
                                  123, SLT_BereqHeader,      "User-Agent: curl/7.40.0";
                                  123, SLT_BereqHeader,      "Accept-Encoding: gzip";
                                  123, SLT_BereqUnset,       "Accept-Encoding: gzip";
-                                 123, SLT_Timestamp,        "Beresp: 1469180762.484544 0.000000 0.000000";
                                  123, SLT_BerespProtocol,   "HTTP/1.1";
                                  123, SLT_BerespStatus,     "503";
                                  123, SLT_BerespReason,     "Service Unavailable";
@@ -1033,8 +1032,6 @@ mod tests {
                                  123, SLT_VCL_call,         "BACKEND_RESPONSE";
                                 );
 
-        assert_eq!(builder.req_start, Some(1469180762.484544));
-
         let request = builder.http_request.as_ref().unwrap();
         assert_eq!(request.method, "GET".to_string());
         assert_eq!(request.url, "/foobar".to_string());
@@ -1042,8 +1039,6 @@ mod tests {
         assert_eq!(request.headers, &[
                    ("Host".to_string(), "localhost:8080".to_string()),
                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
-
-        assert_eq!(builder.resp_end, Some(1469180762.484544));
 
         let response = builder.http_response.as_ref().unwrap();
         assert_eq!(response.protocol, "HTTP/1.1".to_string());
