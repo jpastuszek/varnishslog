@@ -7,7 +7,6 @@ extern crate stderrlog;
 extern crate clap;
 #[macro_use]
 extern crate quick_error;
-extern crate linked_hash_map;
 #[macro_use]
 extern crate assert_matches;
 

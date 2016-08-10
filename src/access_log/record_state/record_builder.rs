@@ -3,14 +3,18 @@
 /// * Collect errors: SLT_FetchError
 /// * Collect Debug messages: SLT_Debug
 /// * miss/hit etc
+/// * TTL
+/// * Bogo/Lost headers
+/// * ReqAcct byte counts
 /// * client IP: SLT_SessOpen
 /// * Call trace
 /// * ACL trace
 /// * Linking information: SLT_Link
 /// * Byte counts: SLT_ReqAcct
-/// * Handle the "<not set>" headers
 /// * Support for non-UTF8 data lines - log warnings?
 /// * more tests
+/// * pipe sessions
+/// * SLT_ExpBan         196625 banned lookup
 ///
 /// Client headers:
 /// ---
@@ -100,7 +104,6 @@ use std::str::Utf8Error;
 use std::num::{ParseIntError, ParseFloatError};
 use nom::{self, IResult};
 use quick_error::ResultExt;
-use linked_hash_map::LinkedHashMap;
 
 use vsl::{VslRecord, VslIdent, VslRecordTag};
 use vsl::VslRecordTag::*;
@@ -278,9 +281,15 @@ named!(slt_protocol<&str, &str>, complete!(rest_s));
 named!(slt_status<&str, &str>, complete!(rest_s));
 named!(slt_reason<&str, &str>, complete!(rest_s));
 
-named!(slt_header<&str, (&str, &str)>, complete!(tuple!(
-        label,      // Header name
-        rest_s)));  // Header value
+named!(header_name<&str, &str>, terminated!(take_until_s!(":"), tag_s!(":")));
+fn header_value<'a>(input: &'a str) -> nom::IResult<&'a str, Option<&'a str>> {
+    delimited!(input, opt!(space), opt!(rest_s), eof)
+}
+fn slt_header<'a>(input: &'a str) -> nom::IResult<&'a str, (&'a str, Option<&'a str>)> {
+    complete!(input, tuple!(
+        header_name,
+        header_value))
+}
 
 named!(slt_session<&str, (&str, &str, &str, &str, &str, &str, &str)>, complete!(tuple!(
         space_terminated,           // Remote IPv4/6 address
@@ -407,11 +416,39 @@ trait DetailBuilder<C>: Sized {
 }
 
 #[derive(Debug)]
+struct Headers {
+    headers: Vec<(String, String)>,
+}
+
+impl Headers {
+    fn new() -> Headers {
+        Headers {
+            headers: Vec::new()
+        }
+    }
+
+    fn set(&mut self, name: String, value: String) {
+        self.headers.push((name, value));
+    }
+
+    fn unset(&mut self, name: &str, value: &str) {
+        self.headers.retain(|header| {
+            let &(ref t_name, ref t_value) = header;
+            (t_name.as_str(), t_value.as_str()) != (name, value)
+        });
+    }
+
+    fn unwrap(self) -> Vec<(String, String)> {
+        self.headers
+    }
+}
+
+#[derive(Debug)]
 struct HttpRequestBuilder {
     protocol: Option<String>,
     method: Option<String>,
     url: Option<String>,
-    headers: LinkedHashMap<String, String>,
+    headers: Headers,
 }
 
 impl HttpRequestBuilder {
@@ -420,7 +457,7 @@ impl HttpRequestBuilder {
             protocol: None,
             method: None,
             url: None,
-            headers: LinkedHashMap::new(),
+            headers: Headers::new(),
         }
     }
 }
@@ -457,25 +494,31 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 }
             }
             SLT_BereqHeader | SLT_ReqHeader => {
-                let (name, value) = try!(slt_header(message).into_result().context(tag));
+                if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
+                    let mut headers = self.headers;
+                    headers.set(name.to_string(), value.to_string());
 
-                let mut headers = self.headers;
-                headers.insert(name.to_string(), value.to_string());
-
-                HttpRequestBuilder {
-                    headers: headers,
-                    .. self
+                    HttpRequestBuilder {
+                        headers: headers,
+                        .. self
+                    }
+                } else {
+                    debug!("Not setting empty request header: {}", message);
+                    self
                 }
             }
             SLT_BereqUnset | SLT_ReqUnset => {
-                let (name, _) = try!(slt_header(message).into_result().context(tag));
+                if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
+                    let mut headers = self.headers;
+                    headers.unset(name, value);
 
-                let mut headers = self.headers;
-                headers.remove(name);
-
-                HttpRequestBuilder {
-                    headers: headers,
-                    .. self
+                    HttpRequestBuilder {
+                        headers: headers,
+                        .. self
+                    }
+                } else {
+                    debug!("Not unsetting empty request header: {}", message);
+                    self
                 }
             }
             _ => panic!("Got unexpected VSL record with tag {:?} in request builder", tag)
@@ -489,7 +532,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
             protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Request.protocol"))),
             method: try!(self.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))),
             url: try!(self.url.ok_or(RecordBuilderError::RecordIncomplete("Request.url"))),
-            headers: self.headers.into_iter().collect(),
+            headers: self.headers.unwrap(),
         })
     }
 }
@@ -499,7 +542,7 @@ struct HttpResponseBuilder {
     protocol: Option<String>,
     status: Option<u32>,
     reason: Option<String>,
-    headers: LinkedHashMap<String, String>,
+    headers: Headers,
 }
 
 impl HttpResponseBuilder {
@@ -508,7 +551,7 @@ impl HttpResponseBuilder {
             protocol: None,
             status: None,
             reason: None,
-            headers: LinkedHashMap::new(),
+            headers: Headers::new(),
         }
     }
 }
@@ -545,25 +588,31 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 }
             }
             SLT_BerespHeader | SLT_RespHeader => {
-                let (name, value) = try!(slt_header(message).into_result().context(tag));
+                if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
+                    let mut headers = self.headers;
+                    headers.set(name.to_string(), value.to_string());
 
-                let mut headers = self.headers;
-                headers.insert(name.to_string(), value.to_string());
-
-                HttpResponseBuilder {
-                    headers: headers,
-                    .. self
+                    HttpResponseBuilder {
+                        headers: headers,
+                        .. self
+                    }
+                } else {
+                    debug!("Not setting empty response header: {}", message);
+                    self
                 }
             }
             SLT_BerespUnset | SLT_RespUnset => {
-                let (name, _) = try!(slt_header(message).into_result().context(tag));
+                if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
+                    let mut headers = self.headers;
+                    headers.unset(name, value);
 
-                let mut headers = self.headers;
-                headers.remove(name);
-
-                HttpResponseBuilder {
-                    headers: headers,
-                    .. self
+                    HttpResponseBuilder {
+                        headers: headers,
+                        .. self
+                    }
+                } else {
+                    debug!("Not unsetting empty response header: {}", message);
+                    self
                 }
             }
             _ => panic!("Got unexpected VSL record with tag {:?} in response builder", tag)
@@ -577,7 +626,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
             protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Response.protocol"))),
             status: try!(self.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))),
             reason: try!(self.reason.ok_or(RecordBuilderError::RecordIncomplete("Response.reason"))),
-            headers: self.headers.into_iter().collect(),
+            headers: self.headers.unwrap(),
         })
     }
 }
@@ -1046,6 +1095,94 @@ mod tests {
         assert_eq!(response.headers, &[
                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                    ("Server".to_string(), "Varnish".to_string())]);
+    }
+
+    #[test]
+    fn apply_request_header_updates() {
+        let builder = RecordBuilder::new(123);
+
+        // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
+        let builder = apply_all!(builder,
+                                 15, SLT_ReqMethod,     "GET";
+                                 15, SLT_ReqURL,        "/test_page/abc";
+                                 15, SLT_ReqProtocol,   "HTTP/1.1";
+                                 15, SLT_ReqHeader,     "Host: 127.0.0.1:1209";
+                                 15, SLT_ReqHeader,     "Test: 1";
+                                 15, SLT_ReqHeader,     "Test: 2";
+                                 15, SLT_ReqHeader,     "Test: 3";
+                                 15, SLT_ReqHeader,     "X-Varnish-Data-Source: 1";
+                                 15, SLT_ReqHeader,     "X-Varnish-Data-Source: 2";
+                                 15, SLT_ReqHeader,     "X-Varnish-Data-Source: 3";
+                                 15, SLT_ReqHeader,     "X-Forwarded-For: 127.0.0.1";
+                                 15, SLT_ReqHeader,     "X-Varnish-User-Agent-Class: Other";
+                                 15, SLT_ReqUnset,      "X-Varnish-Data-Source: 1";
+                                 15, SLT_ReqUnset,      "X-Varnish-Data-Source: 2";
+                                 15, SLT_ReqUnset,      "X-Varnish-Data-Source: 3";
+                                 15, SLT_ReqHeader,     "X-Varnish-Data-Source: Backend";
+                                 15, SLT_ReqUnset,      "X-Forwarded-For: 127.0.0.1";
+                                 15, SLT_ReqHeader,     "X-Forwarded-For: 127.0.0.1";
+                                 15, SLT_ReqUnset,      "X-Varnish-User-Agent-Class: Other";
+                                 15, SLT_ReqHeader,     "X-Varnish-User-Agent-Class: Unknown-Bot";
+                                 15, SLT_ReqHeader,     "X-Varnish-Client-Device: D";
+                                 15, SLT_ReqHeader,     "X-Varnish-Client-Country:";
+                                 15, SLT_ReqUnset,      "X-Varnish-Client-Country:";
+                                 15, SLT_ReqHeader,     "X-Varnish-Client-Country: Unknown";
+                                 15, SLT_ReqHeader,     "X-Varnish-Original-URL: /test_page/abc";
+                                 15, SLT_ReqUnset,      "X-Varnish-Result: miss";
+                                 15, SLT_ReqHeader,     "X-Varnish-Result: hit_for_pass";
+                                 15, SLT_ReqUnset,      "X-Varnish-Decision: Cacheable";
+                                 15, SLT_ReqHeader,     "X-Varnish-Decision: Uncacheable-NoCacheClass";
+                                 );
+
+        let request = builder.http_request.complete().unwrap().unwrap();
+        assert_eq!(request.headers, &[
+                   ("Host".to_string(), "127.0.0.1:1209".to_string()),
+                   ("Test".to_string(), "1".to_string()),
+                   ("Test".to_string(), "2".to_string()),
+                   ("Test".to_string(), "3".to_string()),
+                   ("X-Varnish-Data-Source".to_string(), "Backend".to_string()),
+                   ("X-Forwarded-For".to_string(), "127.0.0.1".to_string()),
+                   ("X-Varnish-User-Agent-Class".to_string(), "Unknown-Bot".to_string()),
+                   ("X-Varnish-Client-Device".to_string(), "D".to_string()),
+                   ("X-Varnish-Client-Country".to_string(), "Unknown".to_string()),
+                   ("X-Varnish-Original-URL".to_string(), "/test_page/abc".to_string()),
+                   ("X-Varnish-Result".to_string(), "hit_for_pass".to_string()),
+                   ("X-Varnish-Decision".to_string(), "Uncacheable-NoCacheClass".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn apply_response_header_updates() {
+        let builder = RecordBuilder::new(123);
+
+        // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
+        let builder = apply_all!(builder,
+                                 15, SLT_RespProtocol,   "HTTP/1.1";
+                                 15, SLT_RespStatus,     "200";
+                                 15, SLT_RespReason,     "OK";
+                                 15, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
+                                 15, SLT_RespHeader,     "Test: 1";
+                                 15, SLT_RespHeader,     "Test: 2";
+                                 15, SLT_RespHeader,     "Test: 3";
+                                 15, SLT_RespUnset,      "Test: 2";
+                                 15, SLT_RespHeader,     "Age: 0";
+                                 15, SLT_RespHeader,     "Via: 1.1 varnish-v4";
+                                 15, SLT_RespUnset,      "x-url: /test_page/abc";
+                                 15, SLT_RespUnset,      "Via: 1.1 varnish-v4";
+                                 15, SLT_RespHeader,     "Via: 1.1 test-varnish (Varnish)";
+                                 15, SLT_RespHeader,     "X-Request-ID: rid-15";
+                                 15, SLT_RespUnset,      "X-Varnish: 15";
+                                );
+
+        let response = builder.http_response.complete().unwrap().unwrap();
+        assert_eq!(response.headers, &[
+                   ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
+                   ("Test".to_string(), "1".to_string()),
+                   ("Test".to_string(), "3".to_string()),
+                   ("Age".to_string(), "0".to_string()),
+                   ("Via".to_string(), "1.1 test-varnish (Varnish)".to_string()),
+                   ("X-Request-ID".to_string(), "rid-15".to_string()),
+        ]);
     }
 
     #[test]
