@@ -33,6 +33,15 @@ use vsl::VslRecord;
 
 mod access_log;
 
+arg_enum! {
+    #[derive(Debug)]
+    enum OutputFormat {
+        LogEntries,
+        RecordsDebug,
+        SessionsDebug
+    }
+}
+
 fn main() {
     let arguments = App::new("Varnish VSL log to syslog logger")
         .version(crate_version!())
@@ -49,23 +58,15 @@ fn main() {
         .arg(Arg::with_name("verbose")
              .long("verbose")
              .short("v")
-             .multiple(true)
-             .help("Sets the level of verbosity; e.g. -vv for INFO level, -vvvv for TRACE level"))
-        .arg(Arg::with_name("output-log")
-             .long("output-log")
-             .short("l")
-             .conflicts_with_all(&["output-debug-records", "output-debug-sessions"])
-             .help("Output log content"))
-        .arg(Arg::with_name("output-debug-records")
-             .long("output-debug-records")
-             .short("r")
-             .conflicts_with_all(&["output-log", "output-debug-sessions"])
-             .help("Output debug format records"))
-        .arg(Arg::with_name("output-debug-sessions")
-             .long("output-debug-session")
-             .short("s")
-             .conflicts_with_all(&["output-log", "output-debug-records"]) // TODO: use Set
-             .help("Output debug format sessions"))
+             .help("Sets the level of verbosity; e.g. -vv for INFO level, -vvvv for TRACE level")
+             .multiple(true))
+        .arg(Arg::with_name("output")
+             .long("output-format")
+             .short("o")
+             .help("Format of the output")
+             .takes_value(true)
+             .possible_values(&OutputFormat::variants())
+             .default_value(OutputFormat::variants().last().unwrap()))
         .get_matches();
 
     stderrlog::new()
@@ -74,6 +75,8 @@ fn main() {
         .verbosity(arguments.occurrences_of("verbose") as usize)
         .init()
         .unwrap();
+
+    let output_format = value_t!(arguments, "output", OutputFormat).unwrap_or_else(|e| e.exit());
 
     let stdin = stdin();
     let stdin = stdin.lock();
@@ -130,18 +133,18 @@ fn main() {
             Ok(Some(record)) => record,
         };
 
-        if arguments.is_present("output-log") {
-            println!("{}", record);
-        } else if arguments.is_present("output-debug-records") {
-            if let Some(record) = record_state.apply(&record) {
-                println!("{:#?}", record)
+        match output_format {
+            OutputFormat::LogEntries => println!("{}", record),
+            OutputFormat::RecordsDebug => {
+                if let Some(record) = record_state.apply(&record) {
+                    println!("{:#?}", record)
+                }
             }
-        } else if arguments.is_present("output-debug-sessions") {
-            if let Some(session) = session_state.apply(&record) {
-                println!("{:#?}", session)
+            OutputFormat::SessionsDebug => {
+                if let Some(session) = session_state.apply(&record) {
+                    println!("{:#?}", session)
+                }
             }
-        } else {
-            panic!("default output unipl")
         }
     }
 
