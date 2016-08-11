@@ -1,7 +1,6 @@
 /// TODO:
 /// * miss/hit etc
 /// * TTL
-/// * Bogo/Lost headers
 /// * ReqAcct byte counts
 /// * Call trace
 /// * ACL trace
@@ -872,6 +871,24 @@ impl RecordBuilder {
                         .. self
                     }
                 }
+                SLT_BogoHeader => {
+                    let mut log = self.log;
+                    log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", message)));
+
+                    RecordBuilder {
+                        log: log,
+                        .. self
+                    }
+                }
+                SLT_LostHeader => {
+                    let mut log = self.log;
+                    log.push(LogEntry::Warning(format!("Logs the header name of a failed HTTP header operation due to resource exhaustion or configured limits: {}", message)));
+
+                    RecordBuilder {
+                        log: log,
+                        .. self
+                    }
+                }
 
                 // Request
                 SLT_BereqProtocol | SLT_ReqProtocol |
@@ -1485,6 +1502,7 @@ mod tests {
                                  7, SLT_Debug,        "RES_MODE 2";
                                  7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
                                  7, SLT_Error,        "oh no!";
+                                 7, SLT_LostHeader,   "SetCookie: foo=bar";
                                  7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
                                  );
 
@@ -1498,6 +1516,7 @@ mod tests {
                     LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
                     LogEntry::Debug("RES_MODE 2".to_string()),
                     LogEntry::Error("oh no!".to_string()),
+                    LogEntry::Warning("Logs the header name of a failed HTTP header operation due to resource exhaustion or configured limits: SetCookie: foo=bar".to_string()),
          ]);
     }
 
@@ -1525,6 +1544,7 @@ mod tests {
                                  32769, SLT_BerespReason,     "Service Unavailable";
                                  32769, SLT_BerespReason,     "Backend fetch failed";
                                  32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_BogoHeader,       "foobar!";
                                  32769, SLT_VCL_call,         "BACKEND_ERROR";
                                  32769, SLT_Length,           "6962";
                                  32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
@@ -1538,6 +1558,7 @@ mod tests {
                   LogEntry::Debug("RES_MODE 2".to_string()),
                   LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
                   LogEntry::FetchError("no backend connection".to_string()),
+                  LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
        ]);
    }
 }
