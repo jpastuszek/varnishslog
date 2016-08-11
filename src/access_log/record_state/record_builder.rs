@@ -751,7 +751,7 @@ impl RecordBuilder {
                             resp_end: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
                         },
-                        "BerespBody" => RecordBuilder {
+                        "BerespBody" | "Retry" => RecordBuilder {
                             req_took: Some(try!(since_work_start.parse().context("since_work_start"))),
                             resp_end: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
@@ -1267,6 +1267,43 @@ mod tests {
         assert_eq!(record.serve, Some(1.007634));
         assert_eq!(record.end, 1470403414.672458);
     }
+
+    #[test]
+    fn apply_backend_access_record_timing_retry() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 32769, SLT_Begin,            "bereq 8 retry";
+                                 32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                                 32769, SLT_BereqMethod,      "GET";
+                                 32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                                 32769, SLT_BereqProtocol,    "HTTP/1.1";
+                                 32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                                 32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                                 32769, SLT_BerespProtocol,   "HTTP/1.1";
+                                 32769, SLT_BerespStatus,     "200";
+                                 32769, SLT_BerespReason,     "OK";
+                                 32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                                 32769, SLT_Fetch_Body,       "3 length stream";
+                                 32769, SLT_BackendReuse,     "19 boot.iss";
+                                 32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
+                                 32769, SLT_Link,             "bereq 32769 retry";
+                                 );
+
+       let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, 1470403414.669375);
+       assert_eq!(record.send, Some(0.004549));
+       assert_eq!(record.ttfb, Some(0.007262));
+       assert_eq!(record.wait, Some(0.002713));
+       assert_eq!(record.fetch, Some(0.007367));
+       assert_eq!(record.end, Some(1470403414.672290));
+   }
 
     #[test]
     fn apply_backend_access_record_timing() {
