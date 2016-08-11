@@ -109,6 +109,20 @@ pub type TimeStamp = f64;
 pub type Duration = f64;
 pub type Address = (String, u16);
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogEntry {
+    /// VCL std.log logged messages
+    VCL(String),
+    /// Debug messages that may be logged by Varnish or it's modules
+    Debug(String),
+    /// Varnish logged errors
+    Error(String),
+    /// Errors related to fetch operation
+    FetchError(String),
+    /// Problems with processing headers, log messages etc
+    Warning(String),
+}
+
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
@@ -131,7 +145,7 @@ pub struct ClientAccessRecord {
     pub serve: Option<Duration>,
     /// End of request processing
     pub end: TimeStamp,
-    pub log: Vec<String>,
+    pub log: Vec<LogEntry>,
 }
 
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
@@ -154,7 +168,7 @@ pub struct BackendAccessRecord {
     pub fetch: Option<Duration>,
     /// End of response processing; may be None if it was abandoned
     pub end: Option<TimeStamp>,
-    pub log: Vec<String>,
+    pub log: Vec<LogEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -663,7 +677,7 @@ pub struct RecordBuilder {
     backend_requests: Vec<VslIdent>,
     restart_request: Option<VslIdent>,
     retry_request: Option<VslIdent>,
-    log: Vec<String>,
+    log: Vec<LogEntry>,
 }
 
 impl RecordBuilder {
@@ -820,7 +834,34 @@ impl RecordBuilder {
                 }
                 SLT_VCL_Log => {
                     let mut log = self.log;
-                    log.push(message.to_string());
+                    log.push(LogEntry::VCL(message.to_string()));
+
+                    RecordBuilder {
+                        log: log,
+                        .. self
+                    }
+                }
+                SLT_Debug => {
+                    let mut log = self.log;
+                    log.push(LogEntry::Debug(message.to_string()));
+
+                    RecordBuilder {
+                        log: log,
+                        .. self
+                    }
+                }
+                SLT_Error => {
+                    let mut log = self.log;
+                    log.push(LogEntry::Error(message.to_string()));
+
+                    RecordBuilder {
+                        log: log,
+                        .. self
+                    }
+                }
+                SLT_FetchError => {
+                    let mut log = self.log;
+                    log.push(LogEntry::FetchError(message.to_string()));
 
                     RecordBuilder {
                         log: log,
@@ -1060,9 +1101,9 @@ mod tests {
                                  4, SLT_VCL_Log,        "X-Varnish-Force-Failure: false";
                                 );
         assert_eq!(builder.log, &[
-                   ("X-Varnish-Privileged-Client: false".to_string()),
-                   ("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-                   ("X-Varnish-Force-Failure: false".to_string()),
+                   LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
+                   LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+                   LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
         ]);
     }
 
@@ -1419,9 +1460,10 @@ mod tests {
                                  7, SLT_ReqMethod,    "GET";
                                  7, SLT_ReqURL,       "/retry";
                                  7, SLT_ReqProtocol,  "HTTP/1.1";
-                                 7, SLT_VCL_Log,        "X-Varnish-Privileged-Client: false";
                                  7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  7, SLT_VCL_call,     "RECV";
+                                 7, SLT_Debug,        "geoip2.lookup: No entry for this IP address (127.0.0.1)";
+                                 7, SLT_VCL_Log,      "X-Varnish-Privileged-Client: false";
                                  7, SLT_Link,         "bereq 8 fetch";
                                  7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
                                  7, SLT_RespProtocol, "HTTP/1.1";
@@ -1429,13 +1471,14 @@ mod tests {
                                  7, SLT_RespReason,   "OK";
                                  7, SLT_RespHeader,   "Content-Type: image/jpeg";
                                  7, SLT_VCL_return,   "deliver";
-                                 7, SLT_VCL_Log,        "X-Varnish-User-Agent-Class: Unknown-Bot";
+                                 7, SLT_VCL_Log,      "X-Varnish-User-Agent-Class: Unknown-Bot";
                                  7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
                                  7, SLT_RespHeader,   "Accept-Ranges: bytes";
-                                 7, SLT_Debug,        "RES_MODE 2";
                                  7, SLT_RespHeader,   "Connection: keep-alive";
-                                 7, SLT_VCL_Log,        "X-Varnish-Force-Failure: false";
+                                 7, SLT_VCL_Log,      "X-Varnish-Force-Failure: false";
+                                 7, SLT_Debug,        "RES_MODE 2";
                                  7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+                                 7, SLT_Error,        "oh no!";
                                  7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
                                  );
 
@@ -1443,9 +1486,12 @@ mod tests {
              .unwrap_client_access();
 
          assert_eq!(record.log, &[
-                    ("X-Varnish-Privileged-Client: false".to_string()),
-                    ("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-                    ("X-Varnish-Force-Failure: false".to_string()),
+                    LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
+                    LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
+                    LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+                    LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
+                    LogEntry::Debug("RES_MODE 2".to_string()),
+                    LogEntry::Error("oh no!".to_string()),
          ]);
     }
 
@@ -1462,19 +1508,18 @@ mod tests {
                                  32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  32769, SLT_VCL_Log,          "X-Varnish-Privileged-Client: false";
                                  32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_Debug,            "RES_MODE 2";
                                  32769, SLT_VCL_Log,          "X-Varnish-User-Agent-Class: Unknown-Bot";
                                  32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_FetchError,       "no backend connection";
                                  32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
                                  32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
                                  32769, SLT_BerespProtocol,   "HTTP/1.1";
-                                 32769, SLT_BerespStatus,     "200";
-                                 32769, SLT_BerespReason,     "OK";
+                                 32769, SLT_BerespStatus,     "503";
+                                 32769, SLT_BerespReason,     "Service Unavailable";
+                                 32769, SLT_BerespReason,     "Backend fetch failed";
                                  32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-                                 32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-                                 32769, SLT_VCL_Log,          "X-Varnish-Force-Failure: false";
-                                 32769, SLT_Fetch_Body,       "3 length stream";
-                                 32769, SLT_BackendReuse,     "19 boot.iss";
-                                 32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                                 32769, SLT_VCL_call,         "BACKEND_ERROR";
                                  32769, SLT_Length,           "6962";
                                  32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
                                  );
@@ -1483,9 +1528,10 @@ mod tests {
            .unwrap_backend_access();
 
        assert_eq!(record.log, &[
-                  ("X-Varnish-Privileged-Client: false".to_string()),
-                  ("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-                  ("X-Varnish-Force-Failure: false".to_string()),
+                  LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
+                  LogEntry::Debug("RES_MODE 2".to_string()),
+                  LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+                  LogEntry::FetchError("no backend connection".to_string()),
        ]);
    }
 }
