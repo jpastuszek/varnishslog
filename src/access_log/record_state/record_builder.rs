@@ -147,13 +147,13 @@ pub struct BackendAccessRecord {
     pub start: TimeStamp,
     /// Time it took to send backend request, e.g. it may include backend access/connect time
     pub send: Option<Duration>,
-    /// Time waiting for first byte of backend response
+    /// Time waiting for first byte of backend response after request was sent
     pub wait: Option<Duration>,
     /// Time it took to get first byte of backend response
     pub ttfb: Option<Duration>,
-    /// Total duration it took to fetch the whole response
+    /// Total duration it took to fetch or synthesise the whole response
     pub fetch: Option<Duration>,
-    /// End of response processing; maby be None if it was abandoned
+    /// End of response processing; may be None if it was abandoned
     pub end: Option<TimeStamp>,
 }
 
@@ -756,6 +756,14 @@ impl RecordBuilder {
                             resp_end: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
                         },
+                        "Error" => RecordBuilder {
+                            req_took: Some(try!(since_work_start.parse().context("since_work_start"))),
+                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            // this won't be correct if we got error while accessing backend
+                            resp_ttfb: None,
+                            resp_fetch: None,
+                            .. self
+                        },
                         "Restart" => RecordBuilder {
                             resp_end: Some(try!(timestamp.parse().context("timestamp"))),
                             .. self
@@ -1296,5 +1304,40 @@ mod tests {
        assert_eq!(record.wait, Some(0.002713));
        assert_eq!(record.fetch, Some(0.007367));
        assert_eq!(record.end, Some(1470403414.672290));
+   }
+
+    #[test]
+    fn apply_backend_access_record_timing_error() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 32769, SLT_Begin,            "bereq 8 retry";
+                                 32769, SLT_Timestamp,        "Start: 1470304835.059425 0.000000 0.000000";
+                                 32769, SLT_BereqMethod,      "GET";
+                                 32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                                 32769, SLT_BereqProtocol,    "HTTP/1.1";
+                                 32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_Timestamp,        "Beresp: 1470304835.059475 0.000050 0.000050";
+                                 32769, SLT_Timestamp,        "Error: 1470304835.059479 0.000054 0.000004";
+                                 32769, SLT_BerespProtocol,   "HTTP/1.1";
+                                 32769, SLT_BerespStatus,     "503";
+                                 32769, SLT_BerespReason,     "Service Unavailable";
+                                 32769, SLT_BerespReason,     "Backend fetch failed";
+                                 32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_VCL_call,         "BACKEND_ERROR";
+                                 32769, SLT_Length,           "6962";
+                                 );
+
+       let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, 1470304835.059425);
+       assert_eq!(record.send, None);
+       assert_eq!(record.ttfb, None);
+       assert_eq!(record.wait, None);
+       assert_eq!(record.fetch, Some(0.000054));
+       assert_eq!(record.end, Some(1470304835.059479));
    }
 }
