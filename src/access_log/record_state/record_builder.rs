@@ -1,4 +1,5 @@
 /// TODO:
+/// * Ignoring unknown SLT_Timestamp label variants: Error, Retry
 /// * Collect Log messages
 /// * Collect errors: SLT_FetchError
 /// * Collect Debug messages: SLT_Debug
@@ -6,10 +7,8 @@
 /// * TTL
 /// * Bogo/Lost headers
 /// * ReqAcct byte counts
-/// * client IP: SLT_SessOpen
 /// * Call trace
 /// * ACL trace
-/// * Linking information: SLT_Link
 /// * Byte counts: SLT_ReqAcct
 /// * Support for non-UTF8 data lines - log warnings?
 /// * more tests
@@ -874,7 +873,7 @@ impl RecordBuilder {
                             .. self
                         },
                         _ => {
-                            warn!("Ignoring unknown {:?} method: {}", vsl.tag, method);
+                            debug!("Ignoring unknown {:?} method: {}", vsl.tag, method);
                             self
                         }
                     }
@@ -958,7 +957,7 @@ impl RecordBuilder {
                     }
                 }
                 _ => {
-                    warn!("Ignoring unknown VSL tag: {:?}", vsl.tag);
+                    debug!("Ignoring unknown VSL tag: {:?}", vsl.tag);
                     self
                 }
             },
