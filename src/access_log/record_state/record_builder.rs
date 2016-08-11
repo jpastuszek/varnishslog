@@ -1,10 +1,8 @@
 /// TODO:
 /// * miss/hit etc
 /// * TTL
-/// * ReqAcct byte counts
 /// * Call trace
 /// * ACL trace
-/// * Byte counts: SLT_ReqAcct
 /// * more tests
 /// * pipe sessions
 /// * SLT_ExpBan         196625 banned lookup
@@ -118,6 +116,16 @@ pub enum LogEntry {
     Warning(String),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpByteCounts {
+    pub req_header: u64,
+    pub req_body: u64,
+    pub req_total: u64,
+    pub resp_header: u64,
+    pub resp_body: u64,
+    pub resp_total: u64,
+}
+
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
@@ -140,6 +148,7 @@ pub struct ClientAccessRecord {
     pub serve: Option<Duration>,
     /// End of request processing
     pub end: TimeStamp,
+    pub bytes: HttpByteCounts,
     pub log: Vec<LogEntry>,
 }
 
@@ -282,6 +291,14 @@ named!(slt_timestamp<&str, (&str, &str, &str, &str)>, complete!(tuple!(
         space_terminated,           // Absolute time of event
         space_terminated,           // Time since start of work unit
         space_terminated_eof)));    // Time since last timestamp
+
+named!(slt_reqacc<&str, (&str, &str, &str, &str, &str, &str)>, complete!(tuple!(
+        space_terminated,           // Header bytes received
+        space_terminated,           // Body bytes received
+        space_terminated,           // Total bytes received
+        space_terminated,           // Header bytes transmitted
+        space_terminated,           // Body bytes transmitted
+        space_terminated_eof)));    // Total bytes transmitted
 
 named!(slt_method<&str, &str>, complete!(rest_s));
 named!(slt_url<&str, &str>, complete!(rest_s));
@@ -660,6 +677,7 @@ pub struct RecordBuilder {
     resp_ttfb: Option<Duration>,
     req_took: Option<Duration>,
     resp_end: Option<TimeStamp>,
+    req_acc: Option<HttpByteCounts>,
     sess_open: Option<TimeStamp>,
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
@@ -684,6 +702,7 @@ impl RecordBuilder {
             resp_ttfb: None,
             req_took: None,
             resp_end: None,
+            req_acc: None,
             sess_open: None,
             sess_duration: None,
             sess_remote: None,
@@ -890,6 +909,23 @@ impl RecordBuilder {
                     }
                 }
 
+                SLT_ReqAcct => {
+                    let (req_header, req_body, req_total, resp_header, resp_body, resp_total) = try!(slt_reqacc(message).into_result().context(vsl.tag));
+
+                    let bytes = HttpByteCounts {
+                        req_header: try!(req_header.parse().context("req_header")),
+                        req_body: try!(req_body.parse().context("req_body")),
+                        req_total: try!(req_total.parse().context("req_total")),
+                        resp_header: try!(resp_header.parse().context("resp_header")),
+                        resp_body: try!(resp_body.parse().context("resp_body")),
+                        resp_total: try!(resp_total.parse().context("resp_total")),
+                    };
+                    RecordBuilder {
+                        req_acc: Some(bytes),
+                        .. self
+                    }
+                }
+
                 // Request
                 SLT_BereqProtocol | SLT_ReqProtocol |
                 SLT_BereqMethod | SLT_ReqMethod |
@@ -1011,6 +1047,7 @@ impl RecordBuilder {
                                         ttfb: self.resp_ttfb,
                                         serve: self.req_took,
                                         end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+                                        bytes: try!(self.req_acc.ok_or(RecordBuilderError::RecordIncomplete("req_acc"))),
                                         log: self.log,
                                     };
 
@@ -1560,5 +1597,46 @@ mod tests {
                   LogEntry::FetchError("no backend connection".to_string()),
                   LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
        ]);
-   }
+    }
+
+    #[test]
+    fn apply_client_access_record_byte_counts() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 7, SLT_Begin,        "req 6 rxreq";
+                                 7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+                                 7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+                                 7, SLT_ReqStart,     "127.0.0.1 39798";
+                                 7, SLT_ReqMethod,    "GET";
+                                 7, SLT_ReqURL,       "/retry";
+                                 7, SLT_ReqProtocol,  "HTTP/1.1";
+                                 7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 7, SLT_VCL_call,     "RECV";
+                                 7, SLT_Link,         "bereq 8 fetch";
+                                 7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+                                 7, SLT_RespProtocol, "HTTP/1.1";
+                                 7, SLT_RespStatus,   "200";
+                                 7, SLT_RespReason,   "OK";
+                                 7, SLT_RespHeader,   "Content-Type: image/jpeg";
+                                 7, SLT_VCL_return,   "deliver";
+                                 7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+                                 7, SLT_RespHeader,   "Accept-Ranges: bytes";
+                                 7, SLT_Debug,        "RES_MODE 2";
+                                 7, SLT_RespHeader,   "Connection: keep-alive";
+                                 7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+                                 7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
+                                 );
+
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.bytes.req_header, 82);
+        assert_eq!(record.bytes.req_body, 2);
+        assert_eq!(record.bytes.req_total, 84);
+        assert_eq!(record.bytes.resp_header, 304);
+        assert_eq!(record.bytes.resp_body, 6962);
+        assert_eq!(record.bytes.resp_total, 7266);
+    }
+
 }

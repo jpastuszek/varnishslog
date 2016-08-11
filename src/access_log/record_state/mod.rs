@@ -8,7 +8,7 @@ use self::record_builder::BuilderResult::*;
 
 pub use self::record_builder::Record;
 pub use self::record_builder::{ClientAccessRecord, BackendAccessRecord, SessionRecord};
-pub use self::record_builder::{HttpTransaction, HttpRequest, HttpResponse};
+pub use self::record_builder::{HttpByteCounts, HttpTransaction, HttpRequest, HttpResponse};
 
 #[derive(Debug)]
 enum RecordBuilderSlot {
@@ -107,6 +107,7 @@ mod tests {
                123, SLT_RespUnset,      "Cache-Control: no-store";
                123, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
                123, SLT_Timestamp,      "Resp: 1469180763.484544 0.000000 0.000000";
+               123, SLT_ReqAcct,        "82 0 82 304 6962 7266";
                );
 
         let record = apply_final!(state, 123, SLT_End, "");
@@ -120,6 +121,14 @@ mod tests {
             parent: 321,
             start: 1469180762.484544,
             end: 1469180763.484544,
+            bytes: HttpByteCounts {
+                req_header: 82,
+                req_body: 0,
+                req_total: 82,
+                resp_header: 304,
+                resp_body: 6962,
+                resp_total: 7266,
+            },
             ref reason,
             ref backend_requests,
             ref esi_requests,

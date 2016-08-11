@@ -230,6 +230,7 @@ mod tests {
                100, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
                100, SLT_Timestamp,      "Process: 1469180765.484544 2.000000 1.000000";
                100, SLT_Timestamp,      "Resp: 1469180766.484544 3.000000 1.000000";
+               100, SLT_ReqAcct,        "82 2 84 304 6962 7266";
                100, SLT_End,            "";
 
                1000, SLT_Begin,         "bereq 100 fetch";
@@ -511,6 +512,7 @@ mod tests {
                65540, SLT_RespHeader,       "X-Varnish-Privileged-Client: true";
                65540, SLT_Timestamp,        "Process: 1470304835.059589 0.000270 0.000117";
                65540, SLT_Timestamp,        "Resp: 1470304835.059629 0.000311 0.000041";
+               65540, SLT_ReqAcct,          "82 2 84 304 6962 7266";
                65540, SLT_End,              "";
 
                65541, SLT_Begin,            "bereq 65540 bgfetch";
@@ -562,6 +564,7 @@ mod tests {
                    32770, SLT_VCL_call,         "RECV";
                    32770, SLT_Timestamp,        "Restart: 1470304882.576600 0.000136 0.000136";
                    32770, SLT_Link,             "req 32771 restart";
+                   32770, SLT_ReqAcct,          "82 2 84 304 6962 7266";
                    32770, SLT_End,              "";
 
                    32771, SLT_Begin,            "req 32770 restart";
