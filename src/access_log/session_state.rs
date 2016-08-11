@@ -421,6 +421,11 @@ mod tests {
                65542, SLT_BerespStatus,     "200";
                65542, SLT_BerespReason,     "OK";
                65542, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+               65542, SLT_ObjProtocol,      "HTTP/1.1";
+               65542, SLT_ObjStatus,        "200";
+               65542, SLT_ObjReason,        "OK";
+               65542, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+               65542, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
                65542, SLT_Fetch_Body,       "3 length -";
                65542, SLT_BackendReuse,     "19 boot.default";
                65542, SLT_VCL_call,         "BACKEND_RESPONSE";
@@ -444,6 +449,11 @@ mod tests {
                65543, SLT_BerespStatus,     "200";
                65543, SLT_BerespReason,     "OK";
                65543, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+               65543, SLT_ObjProtocol,      "HTTP/1.1";
+               65543, SLT_ObjStatus,        "200";
+               65543, SLT_ObjReason,        "OK";
+               65543, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+               65543, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
                65543, SLT_Fetch_Body,       "3 length -";
                65543, SLT_BackendReuse,     "19 boot.default";
                65543, SLT_VCL_call,         "BACKEND_RESPONSE";
@@ -604,6 +614,11 @@ mod tests {
                    32772, SLT_BerespReason,     "OK";
                    32772, SLT_BerespHeader,     "Content-Type: image/jpeg";
                    32772, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   32772, SLT_ObjProtocol,      "HTTP/1.1";
+                   32772, SLT_ObjStatus,        "200";
+                   32772, SLT_ObjReason,        "OK";
+                   32772, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+                   32772, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
                    32772, SLT_Fetch_Body,       "3 length stream";
                    32772, SLT_BackendReuse,     "19 boot.iss";
                    32772, SLT_Timestamp,        "BerespBody: 1470304882.615228 0.038584 0.036172";
@@ -671,6 +686,11 @@ mod tests {
                    32769, SLT_BerespReason,     "OK";
                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   32769, SLT_ObjProtocol,      "HTTP/1.1";
+                   32769, SLT_ObjStatus,        "200";
+                   32769, SLT_ObjReason,        "OK";
+                   32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+                   32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
                    32769, SLT_Fetch_Body,       "3 length stream";
                    32769, SLT_BackendReuse,     "19 boot.iss";
                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";

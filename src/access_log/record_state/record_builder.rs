@@ -1,6 +1,9 @@
 /// TODO:
+/// * parse ints and floats with nom map_res
 /// * miss/hit etc
-/// * TTL
+/// * Cache object info
+///  * TTL
+///  * SLT_Storage
 /// * Call trace
 /// * ACL trace
 /// * more tests
@@ -148,6 +151,21 @@ pub struct ClientAccessRecord {
     pub log: Vec<LogEntry>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct CacheObject {
+    /*
+    storage_type: String,
+    storage_name: String,
+    ttl: Duration,
+    grace: Duration,
+    keep: Duration,
+    since: TimeStamp,
+    */
+    fetch_mode: String,
+    fetch_streamed: bool,
+    response: HttpResponse
+}
+
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendAccessRecord {
@@ -156,6 +174,7 @@ pub struct BackendAccessRecord {
     pub reason: String,
     pub retry_request: Option<VslIdent>,
     pub http_transaction: HttpTransaction,
+    pub cache_object: Option<CacheObject>,
     /// Start of backend request processing
     pub start: TimeStamp,
     /// Time it took to send backend request, e.g. it may include backend access/connect time
@@ -331,6 +350,11 @@ named!(slt_sess_close<&str, (&str, &str)>, complete!(tuple!(
         space_terminated_eof)));    // How long the session was open
 
 named!(stl_call<&str, &str>, complete!(space_terminated_eof));      // VCL method name
+
+named!(stl_fetch_body<&str, (&str, &str, &str)>, complete!(tuple!(
+        space_terminated,           // Body fetch mode
+        space_terminated,           // Text description of body fetch mode
+        space_terminated_eof)));    // 'stream' or '-'
 
 // Builders
 
@@ -580,7 +604,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
 
     fn apply(self, tag: VslRecordTag, message: &str) -> Result<HttpResponseBuilder, RecordBuilderError> {
         let builder = match tag {
-            SLT_BerespProtocol | SLT_RespProtocol => {
+            SLT_BerespProtocol | SLT_RespProtocol | SLT_ObjProtocol => {
                 let protocol = try!(slt_protocol(message).into_result().context(tag));
 
                 HttpResponseBuilder {
@@ -588,7 +612,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                     .. self
                 }
             }
-            SLT_BerespStatus | SLT_RespStatus => {
+            SLT_BerespStatus | SLT_RespStatus | SLT_ObjStatus => {
                 let status = try!(slt_status(message).into_result().context(tag));
 
                 HttpResponseBuilder {
@@ -596,7 +620,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                     .. self
                 }
             }
-            SLT_BerespReason | SLT_RespReason => {
+            SLT_BerespReason | SLT_RespReason | SLT_ObjReason => {
                 let reason = try!(slt_reason(message).into_result().context(tag));
 
                 HttpResponseBuilder {
@@ -604,7 +628,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                     .. self
                 }
             }
-            SLT_BerespHeader | SLT_RespHeader => {
+            SLT_BerespHeader | SLT_RespHeader | SLT_ObjHeader => {
                 if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
                     let mut headers = self.headers;
                     headers.set(name.to_string(), value.to_string());
@@ -618,7 +642,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                     self
                 }
             }
-            SLT_BerespUnset | SLT_RespUnset => {
+            SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
                 if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
                     let mut headers = self.headers;
                     headers.unset(name, value);
@@ -678,6 +702,9 @@ pub struct RecordBuilder {
     req_start: Option<TimeStamp>,
     http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
     http_response: BuilderResult<HttpResponseBuilder, HttpResponse>,
+    cache_object: BuilderResult<HttpResponseBuilder, HttpResponse>,
+    fetch_mode: Option<String>,
+    fetch_streamed: Option<bool>,
     resp_fetch: Option<Duration>,
     req_process: Option<Duration>,
     resp_ttfb: Option<Duration>,
@@ -703,6 +730,9 @@ impl RecordBuilder {
             req_start: None,
             http_request: Building(HttpRequestBuilder::new()),
             http_response: Building(HttpResponseBuilder::new()),
+            cache_object: Building(HttpResponseBuilder::new()),
+            fetch_mode: None,
+            fetch_streamed: None,
             req_process: None,
             resp_fetch: None,
             resp_ttfb: None,
@@ -958,6 +988,18 @@ impl RecordBuilder {
                     }
                 }
 
+                // Cache Object
+                SLT_ObjProtocol |
+                SLT_ObjStatus |
+                SLT_ObjReason |
+                SLT_ObjHeader |
+                SLT_ObjUnset => {
+                    RecordBuilder {
+                        cache_object: try!(self.cache_object.apply(vsl.tag, message)),
+                        .. self
+                    }
+                }
+
                 // Session
                 SLT_SessOpen => {
                     let (remote_ip, remote_port, _listen_sock, local_ip, local_port, timestamp, _fd)
@@ -1001,6 +1043,17 @@ impl RecordBuilder {
                             debug!("Ignoring unknown {:?} method: {}", vsl.tag, method);
                             self
                         }
+                    }
+                }
+                SLT_Fetch_Body => {
+                    let (_mode, mode_name, stream) = try!(stl_fetch_body(message).into_result().context(vsl.tag));
+                    let stream = if stream == "stream" { true } else { false };
+
+                    RecordBuilder {
+                        cache_object: try!(self.cache_object.complete()),
+                        fetch_mode: Some(mode_name.to_string()),
+                        fetch_streamed: Some(stream),
+                        .. self
                     }
                 }
                 SLT_End => {
@@ -1071,12 +1124,24 @@ impl RecordBuilder {
                                     return Ok(Complete(Record::ClientAccess(record)))
                                 },
                                 RecordType::BackendAccess { parent, reason } => {
+                                    //TODO: use proper predicate
+                                    let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
+                                        Some(CacheObject {
+                                            response: cache_object,
+                                            fetch_mode: try!(self.fetch_mode.ok_or(RecordBuilderError::RecordIncomplete("fetch_mode"))),
+                                            fetch_streamed: try!(self.fetch_streamed.ok_or(RecordBuilderError::RecordIncomplete("fetch_streamed"))),
+                                        })
+                                    } else {
+                                        None
+                                    };
+
                                     let record = BackendAccessRecord {
                                         ident: self.ident,
                                         parent: parent,
                                         reason: reason,
                                         retry_request: self.retry_request,
                                         http_transaction: http_transaction,
+                                        cache_object: cache_object,
                                         start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                                         send: self.req_process,
                                         wait: self.resp_fetch,
@@ -1435,7 +1500,6 @@ mod tests {
                                  32769, SLT_BerespReason,     "OK";
                                  32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
                                  32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-                                 32769, SLT_Fetch_Body,       "3 length stream";
                                  32769, SLT_BackendReuse,     "19 boot.iss";
                                  32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
                                  32769, SLT_Link,             "bereq 32769 retry";
@@ -1472,7 +1536,6 @@ mod tests {
                                  32769, SLT_BerespReason,     "OK";
                                  32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
                                  32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-                                 32769, SLT_Fetch_Body,       "3 length stream";
                                  32769, SLT_BackendReuse,     "19 boot.iss";
                                  32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
                                  32769, SLT_Length,           "6962";
@@ -1656,4 +1719,51 @@ mod tests {
         assert_eq!(record.sent_total, 7266);
     }
 
+    #[test]
+    fn apply_backend_access_record_cache_object() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 32769, SLT_Begin,            "bereq 8 retry";
+                                 32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                                 32769, SLT_BereqMethod,      "GET";
+                                 32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                                 32769, SLT_BereqProtocol,    "HTTP/1.1";
+                                 32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                                 32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                                 32769, SLT_BerespProtocol,   "HTTP/1.1";
+                                 32769, SLT_BerespStatus,     "200";
+                                 32769, SLT_BerespReason,     "OK";
+                                 32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                                 32769, SLT_BackendReuse,     "19 boot.iss";
+                                 32769, SLT_ObjProtocol,      "HTTP/1.1";
+                                 32769, SLT_ObjStatus,        "200";
+                                 32769, SLT_ObjReason,        "OK";
+                                 32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+                                 32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+                                 32769, SLT_Fetch_Body,       "3 length stream";
+                                 32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                                 32769, SLT_Length,           "6962";
+                                 32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+                                 );
+
+       let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       let cache_object = record.cache_object.unwrap();
+       assert_eq!(cache_object.fetch_mode, "length".to_string());
+       assert_eq!(cache_object.fetch_streamed, true);
+
+       let response = cache_object.response;
+       assert_eq!(response.protocol, "HTTP/1.1".to_string());
+       assert_eq!(response.status, 200);
+       assert_eq!(response.reason, "OK".to_string());
+       assert_eq!(response.headers, &[
+                  ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
+                  ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]);
+   }
 }
