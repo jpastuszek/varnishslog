@@ -292,28 +292,53 @@ impl<I, O, E> IResultExt<O, nom::Err<I, E>> for IResult<I, O, E> {
 }
 
 use nom::{rest_s, space, eof};
+use std::str::FromStr;
+
 named!(label<&str, &str>, terminated!(take_until_s!(": "), tag_s!(": ")));
-named!(space_terminated<&str, &str>, terminated!(is_not_s!(" "), space));
-named!(space_terminated_eof<&str, &str>, terminated!(is_not_s!(" "), eof));
+
+named!(str_space<&str, &str>, terminated!(is_not_s!(" "), space));
+named!(str_space_eof<&str, &str>, terminated!(is_not_s!(" "), eof));
+
+named!(decimal_space<&str, u64>, map_res!(str_space, FromStr::from_str));
+named!(decimal_space_eof<&str, u64>, map_res!(str_space_eof, FromStr::from_str));
 
 named!(slt_begin<&str, (&str, &str, &str)>, complete!(tuple!(
-        space_terminated,           // Type ("sess", "req" or "bereq")
-        space_terminated,           // Parent vxid
-        space_terminated_eof)));    // Reason
+        str_space,           // Type ("sess", "req" or "bereq")
+        str_space,           // Parent vxid
+        str_space_eof)));    // Reason
 
 named!(slt_timestamp<&str, (&str, &str, &str, &str)>, complete!(tuple!(
         label,                      // Event label
-        space_terminated,           // Absolute time of event
-        space_terminated,           // Time since start of work unit
-        space_terminated_eof)));    // Time since last timestamp
+        str_space,           // Absolute time of event
+        str_space,           // Time since start of work unit
+        str_space_eof)));    // Time since last timestamp
 
-named!(slt_reqacc<&str, (&str, &str, &str, &str, &str, &str)>, complete!(tuple!(
-        space_terminated,           // Header bytes received
-        space_terminated,           // Body bytes received
-        space_terminated,           // Total bytes received
-        space_terminated,           // Header bytes transmitted
-        space_terminated,           // Body bytes transmitted
-        space_terminated_eof)));    // Total bytes transmitted
+#[derive(Debug)]
+pub struct ReqAcct {
+    pub recv_header: Bytes,
+    pub recv_body: Bytes,
+    pub recv_total: Bytes,
+    pub sent_header: Bytes,
+    pub sent_body: Bytes,
+    pub sent_total: Bytes,
+}
+named!(slt_reqacc<&str, ReqAcct>, complete!(chain!(
+        recv_header:    decimal_space ~     // Header bytes received
+        recv_body:      decimal_space ~     // Body bytes received
+        recv_total:     decimal_space ~     // Total bytes received
+        sent_header:    decimal_space ~     // Header bytes transmitted
+        sent_body:      decimal_space ~     // Body bytes transmitted
+        sent_total:     decimal_space_eof,  // Total bytes transmitted
+        || {
+            ReqAcct {
+                recv_header: recv_header,
+                recv_body: recv_body,
+                recv_total: recv_total,
+                sent_header: sent_header,
+                sent_body: sent_body,
+                sent_total: sent_total,
+            }
+        })));
 
 named!(slt_method<&str, &str>, complete!(rest_s));
 named!(slt_url<&str, &str>, complete!(rest_s));
@@ -332,29 +357,41 @@ fn slt_header<'a>(input: &'a str) -> nom::IResult<&'a str, (&'a str, Option<&'a 
 }
 
 named!(slt_session<&str, (&str, &str, &str, &str, &str, &str, &str)>, complete!(tuple!(
-        space_terminated,           // Remote IPv4/6 address
-        space_terminated,           // Remote TCP port
-        space_terminated,           // Listen socket (-a argument)
-        space_terminated,           // Local IPv4/6 address ('-' if !$log_local_addr)
-        space_terminated,           // Local TCP port ('-' if !$log_local_addr)
-        space_terminated,           // Time stamp (undocumented)
-        space_terminated_eof)));    // File descriptor number
+        str_space,           // Remote IPv4/6 address
+        str_space,           // Remote TCP port
+        str_space,           // Listen socket (-a argument)
+        str_space,           // Local IPv4/6 address ('-' if !$log_local_addr)
+        str_space,           // Local TCP port ('-' if !$log_local_addr)
+        str_space,           // Time stamp (undocumented)
+        str_space_eof)));    // File descriptor number
 
 named!(slt_link<&str, (&str, &str, &str)>, complete!(tuple!(
-        space_terminated,           // Child type ("req" or "bereq")
-        space_terminated,           // Child vxid
-        space_terminated_eof)));    // Reason
+        str_space,           // Child type ("req" or "bereq")
+        str_space,           // Child vxid
+        str_space_eof)));    // Reason
 
 named!(slt_sess_close<&str, (&str, &str)>, complete!(tuple!(
-        space_terminated,           // Why the connection closed
-        space_terminated_eof)));    // How long the session was open
+        str_space,           // Why the connection closed
+        str_space_eof)));    // How long the session was open
 
-named!(stl_call<&str, &str>, complete!(space_terminated_eof));      // VCL method name
+named!(stl_call<&str, &str>, complete!(rest_s));      // VCL method name
 
-named!(stl_fetch_body<&str, (&str, &str, &str)>, complete!(tuple!(
-        space_terminated,           // Body fetch mode
-        space_terminated,           // Text description of body fetch mode
-        space_terminated_eof)));    // 'stream' or '-'
+#[derive(Debug)]
+pub struct FetchBody {
+    mode: String,
+    streamed: bool,
+}
+named!(stl_fetch_body<&str, FetchBody>, complete!(chain!(
+        _mode: str_space ~       // Body fetch mode
+        mode_name: str_space ~   // Text description of body fetch mode
+        streamed: alt_complete!(tag_s!("stream") | tag_s!("-")) ~ // 'stream' or '-'
+        eof,
+        || {
+            FetchBody {
+                mode: mode_name.to_string(),
+                streamed: streamed == "stream",
+            }
+        })));
 
 // Builders
 
@@ -673,16 +710,6 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
 }
 
 #[derive(Debug)]
-pub struct ReqAcct {
-    pub recv_header: Bytes,
-    pub recv_body: Bytes,
-    pub recv_total: Bytes,
-    pub sent_header: Bytes,
-    pub sent_body: Bytes,
-    pub sent_total: Bytes,
-}
-
-#[derive(Debug)]
 pub enum RecordType {
     ClientAccess {
         parent: VslIdent,
@@ -703,8 +730,7 @@ pub struct RecordBuilder {
     http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
     http_response: BuilderResult<HttpResponseBuilder, HttpResponse>,
     cache_object: BuilderResult<HttpResponseBuilder, HttpResponse>,
-    fetch_mode: Option<String>,
-    fetch_streamed: Option<bool>,
+    fetch_body: Option<FetchBody>,
     resp_fetch: Option<Duration>,
     req_process: Option<Duration>,
     resp_ttfb: Option<Duration>,
@@ -731,8 +757,7 @@ impl RecordBuilder {
             http_request: Building(HttpRequestBuilder::new()),
             http_response: Building(HttpResponseBuilder::new()),
             cache_object: Building(HttpResponseBuilder::new()),
-            fetch_mode: None,
-            fetch_streamed: None,
+            fetch_body: None,
             req_process: None,
             resp_fetch: None,
             resp_ttfb: None,
@@ -946,18 +971,8 @@ impl RecordBuilder {
                 }
 
                 SLT_ReqAcct => {
-                    let (recv_header, recv_body, recv_total,
-                         sent_header, sent_body, sent_total) =
-                        try!(slt_reqacc(message).into_result().context(vsl.tag));
+                    let req_acct = try!(slt_reqacc(message).into_result().context(vsl.tag));
 
-                    let req_acct = ReqAcct {
-                        recv_header: try!(recv_header.parse().context("recv_header")),
-                        recv_body: try!(recv_body.parse().context("recv_body")),
-                        recv_total: try!(recv_total.parse().context("recv_total")),
-                        sent_header: try!(sent_header.parse().context("sent_header")),
-                        sent_body: try!(sent_body.parse().context("sent_body")),
-                        sent_total: try!(sent_total.parse().context("sent_total")),
-                    };
                     RecordBuilder {
                         req_acct: Some(req_acct),
                         .. self
@@ -1046,13 +1061,11 @@ impl RecordBuilder {
                     }
                 }
                 SLT_Fetch_Body => {
-                    let (_mode, mode_name, stream) = try!(stl_fetch_body(message).into_result().context(vsl.tag));
-                    let stream = if stream == "stream" { true } else { false };
+                    let fetch_body = try!(stl_fetch_body(message).into_result().context(vsl.tag));
 
                     RecordBuilder {
                         cache_object: try!(self.cache_object.complete()),
-                        fetch_mode: Some(mode_name.to_string()),
-                        fetch_streamed: Some(stream),
+                        fetch_body: Some(fetch_body),
                         .. self
                     }
                 }
@@ -1126,10 +1139,11 @@ impl RecordBuilder {
                                 RecordType::BackendAccess { parent, reason } => {
                                     //TODO: use proper predicate
                                     let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
+                                        let fetch_body = try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")));
                                         Some(CacheObject {
                                             response: cache_object,
-                                            fetch_mode: try!(self.fetch_mode.ok_or(RecordBuilderError::RecordIncomplete("fetch_mode"))),
-                                            fetch_streamed: try!(self.fetch_streamed.ok_or(RecordBuilderError::RecordIncomplete("fetch_streamed"))),
+                                            fetch_mode: fetch_body.mode,
+                                            fetch_streamed: fetch_body.streamed,
                                         })
                                     } else {
                                         None
