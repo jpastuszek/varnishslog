@@ -100,6 +100,7 @@ use vsl::VslRecordTag::*;
 
 pub type TimeStamp = f64;
 pub type Duration = f64;
+pub type Bytes = u64;
 pub type Address = (String, u16);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -114,16 +115,6 @@ pub enum LogEntry {
     FetchError(String),
     /// Problems with processing headers, log messages etc
     Warning(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpByteCounts {
-    pub req_header: u64,
-    pub req_body: u64,
-    pub req_total: u64,
-    pub resp_header: u64,
-    pub resp_body: u64,
-    pub resp_total: u64,
 }
 
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
@@ -148,7 +139,12 @@ pub struct ClientAccessRecord {
     pub serve: Option<Duration>,
     /// End of request processing
     pub end: TimeStamp,
-    pub bytes: HttpByteCounts,
+    pub recv_header: Bytes,
+    pub recv_body: Bytes,
+    pub recv_total: Bytes,
+    pub sent_header: Bytes,
+    pub sent_body: Bytes,
+    pub sent_total: Bytes,
     pub log: Vec<LogEntry>,
 }
 
@@ -653,6 +649,16 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
 }
 
 #[derive(Debug)]
+pub struct ReqAcct {
+    pub recv_header: Bytes,
+    pub recv_body: Bytes,
+    pub recv_total: Bytes,
+    pub sent_header: Bytes,
+    pub sent_body: Bytes,
+    pub sent_total: Bytes,
+}
+
+#[derive(Debug)]
 pub enum RecordType {
     ClientAccess {
         parent: VslIdent,
@@ -677,7 +683,7 @@ pub struct RecordBuilder {
     resp_ttfb: Option<Duration>,
     req_took: Option<Duration>,
     resp_end: Option<TimeStamp>,
-    req_acc: Option<HttpByteCounts>,
+    req_acct: Option<ReqAcct>,
     sess_open: Option<TimeStamp>,
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
@@ -702,7 +708,7 @@ impl RecordBuilder {
             resp_ttfb: None,
             req_took: None,
             resp_end: None,
-            req_acc: None,
+            req_acct: None,
             sess_open: None,
             sess_duration: None,
             sess_remote: None,
@@ -910,18 +916,20 @@ impl RecordBuilder {
                 }
 
                 SLT_ReqAcct => {
-                    let (req_header, req_body, req_total, resp_header, resp_body, resp_total) = try!(slt_reqacc(message).into_result().context(vsl.tag));
+                    let (recv_header, recv_body, recv_total,
+                         sent_header, sent_body, sent_total) =
+                        try!(slt_reqacc(message).into_result().context(vsl.tag));
 
-                    let bytes = HttpByteCounts {
-                        req_header: try!(req_header.parse().context("req_header")),
-                        req_body: try!(req_body.parse().context("req_body")),
-                        req_total: try!(req_total.parse().context("req_total")),
-                        resp_header: try!(resp_header.parse().context("resp_header")),
-                        resp_body: try!(resp_body.parse().context("resp_body")),
-                        resp_total: try!(resp_total.parse().context("resp_total")),
+                    let req_acct = ReqAcct {
+                        recv_header: try!(recv_header.parse().context("recv_header")),
+                        recv_body: try!(recv_body.parse().context("recv_body")),
+                        recv_total: try!(recv_total.parse().context("recv_total")),
+                        sent_header: try!(sent_header.parse().context("sent_header")),
+                        sent_body: try!(sent_body.parse().context("sent_body")),
+                        sent_total: try!(sent_total.parse().context("sent_total")),
                     };
                     RecordBuilder {
-                        req_acc: Some(bytes),
+                        req_acct: Some(req_acct),
                         .. self
                     }
                 }
@@ -1033,6 +1041,7 @@ impl RecordBuilder {
 
                             match record_type {
                                 RecordType::ClientAccess { parent, reason } => {
+                                    let req_acct = try!(self.req_acct.ok_or(RecordBuilderError::RecordIncomplete("req_acct")));
                                     let record = ClientAccessRecord {
                                         ident: self.ident,
                                         parent: parent,
@@ -1041,13 +1050,21 @@ impl RecordBuilder {
                                         backend_requests: self.backend_requests,
                                         restart_request: self.restart_request,
                                         http_transaction: http_transaction,
+
                                         start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                                         parse: self.req_process,
                                         fetch: self.resp_fetch,
                                         ttfb: self.resp_ttfb,
                                         serve: self.req_took,
                                         end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
-                                        bytes: try!(self.req_acc.ok_or(RecordBuilderError::RecordIncomplete("req_acc"))),
+
+                                        recv_header: req_acct.recv_header,
+                                        recv_body: req_acct.recv_body,
+                                        recv_total: req_acct.recv_total,
+                                        sent_header: req_acct.sent_header,
+                                        sent_body: req_acct.sent_body,
+                                        sent_total: req_acct.sent_total,
+
                                         log: self.log,
                                     };
 
@@ -1631,12 +1648,12 @@ mod tests {
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
 
-        assert_eq!(record.bytes.req_header, 82);
-        assert_eq!(record.bytes.req_body, 2);
-        assert_eq!(record.bytes.req_total, 84);
-        assert_eq!(record.bytes.resp_header, 304);
-        assert_eq!(record.bytes.resp_body, 6962);
-        assert_eq!(record.bytes.resp_total, 7266);
+        assert_eq!(record.recv_header, 82);
+        assert_eq!(record.recv_body, 2);
+        assert_eq!(record.recv_total, 84);
+        assert_eq!(record.sent_header, 304);
+        assert_eq!(record.sent_body, 6962);
+        assert_eq!(record.sent_total, 7266);
     }
 
 }
