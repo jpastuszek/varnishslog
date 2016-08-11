@@ -95,16 +95,11 @@
 
 use std::fmt::Debug;
 use std::num::{ParseIntError, ParseFloatError};
-use nom::{self, IResult};
 use quick_error::ResultExt;
+use nom;
 
-use vsl::{VslRecord, VslIdent, VslRecordTag};
+use vsl::*;
 use vsl::VslRecordTag::*;
-
-pub type TimeStamp = f64;
-pub type Duration = f64;
-pub type Bytes = u64;
-pub type Address = (String, u16);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LogEntry {
@@ -274,124 +269,6 @@ impl Record {
         }
     }
 }
-
-// Parsers
-
-trait IResultExt<O, E> {
-    fn into_result(self) -> Result<O, E>;
-}
-
-impl<I, O, E> IResultExt<O, nom::Err<I, E>> for IResult<I, O, E> {
-    fn into_result(self) -> Result<O, nom::Err<I, E>> {
-        match self {
-            IResult::Done(_, o) => Ok(o),
-            IResult::Error(err) => Err(err),
-            IResult::Incomplete(_) => panic!("got Incomplete IResult!"),
-        }
-    }
-}
-
-use nom::{rest_s, space, eof};
-use std::str::FromStr;
-
-named!(label<&str, &str>, terminated!(take_until_s!(": "), tag_s!(": ")));
-
-named!(str_space<&str, &str>, terminated!(is_not_s!(" "), space));
-named!(str_space_eof<&str, &str>, terminated!(is_not_s!(" "), eof));
-
-named!(decimal_space<&str, u64>, map_res!(str_space, FromStr::from_str));
-named!(decimal_space_eof<&str, u64>, map_res!(str_space_eof, FromStr::from_str));
-
-named!(slt_begin<&str, (&str, &str, &str)>, complete!(tuple!(
-        str_space,           // Type ("sess", "req" or "bereq")
-        str_space,           // Parent vxid
-        str_space_eof)));    // Reason
-
-named!(slt_timestamp<&str, (&str, &str, &str, &str)>, complete!(tuple!(
-        label,                      // Event label
-        str_space,           // Absolute time of event
-        str_space,           // Time since start of work unit
-        str_space_eof)));    // Time since last timestamp
-
-#[derive(Debug)]
-pub struct ReqAcct {
-    pub recv_header: Bytes,
-    pub recv_body: Bytes,
-    pub recv_total: Bytes,
-    pub sent_header: Bytes,
-    pub sent_body: Bytes,
-    pub sent_total: Bytes,
-}
-named!(slt_reqacc<&str, ReqAcct>, complete!(chain!(
-        recv_header:    decimal_space ~     // Header bytes received
-        recv_body:      decimal_space ~     // Body bytes received
-        recv_total:     decimal_space ~     // Total bytes received
-        sent_header:    decimal_space ~     // Header bytes transmitted
-        sent_body:      decimal_space ~     // Body bytes transmitted
-        sent_total:     decimal_space_eof,  // Total bytes transmitted
-        || {
-            ReqAcct {
-                recv_header: recv_header,
-                recv_body: recv_body,
-                recv_total: recv_total,
-                sent_header: sent_header,
-                sent_body: sent_body,
-                sent_total: sent_total,
-            }
-        })));
-
-named!(slt_method<&str, &str>, complete!(rest_s));
-named!(slt_url<&str, &str>, complete!(rest_s));
-named!(slt_protocol<&str, &str>, complete!(rest_s));
-named!(slt_status<&str, &str>, complete!(rest_s));
-named!(slt_reason<&str, &str>, complete!(rest_s));
-
-named!(header_name<&str, &str>, terminated!(take_until_s!(":"), tag_s!(":")));
-fn header_value<'a>(input: &'a str) -> nom::IResult<&'a str, Option<&'a str>> {
-    delimited!(input, opt!(space), opt!(rest_s), eof)
-}
-fn slt_header<'a>(input: &'a str) -> nom::IResult<&'a str, (&'a str, Option<&'a str>)> {
-    complete!(input, tuple!(
-        header_name,
-        header_value))
-}
-
-named!(slt_session<&str, (&str, &str, &str, &str, &str, &str, &str)>, complete!(tuple!(
-        str_space,           // Remote IPv4/6 address
-        str_space,           // Remote TCP port
-        str_space,           // Listen socket (-a argument)
-        str_space,           // Local IPv4/6 address ('-' if !$log_local_addr)
-        str_space,           // Local TCP port ('-' if !$log_local_addr)
-        str_space,           // Time stamp (undocumented)
-        str_space_eof)));    // File descriptor number
-
-named!(slt_link<&str, (&str, &str, &str)>, complete!(tuple!(
-        str_space,           // Child type ("req" or "bereq")
-        str_space,           // Child vxid
-        str_space_eof)));    // Reason
-
-named!(slt_sess_close<&str, (&str, &str)>, complete!(tuple!(
-        str_space,           // Why the connection closed
-        str_space_eof)));    // How long the session was open
-
-named!(stl_call<&str, &str>, complete!(rest_s));      // VCL method name
-
-#[derive(Debug)]
-pub struct FetchBody {
-    mode: String,
-    streamed: bool,
-}
-named!(stl_fetch_body<&str, FetchBody>, complete!(chain!(
-        _mode: str_space ~       // Body fetch mode
-        mode_name: str_space ~   // Text description of body fetch mode
-        streamed: alt_complete!(tag_s!("stream") | tag_s!("-")) ~ // 'stream' or '-'
-        eof,
-        || {
-            FetchBody {
-                mode: mode_name.to_string(),
-                streamed: streamed == "stream",
-            }
-        })));
 
 // Builders
 
@@ -792,8 +669,7 @@ impl RecordBuilder {
             }
             Ok(message) => match vsl.tag {
                 SLT_Begin => {
-                    let (record_type, parent, reason) = try!(slt_begin(message).into_result().context(vsl.tag));
-                    let vxid = try!(parent.parse().context("vxid"));
+                    let (record_type, vxid, reason) = try!(slt_begin(message).into_result().context(vsl.tag));
 
                     match record_type {
                         "bereq" => RecordBuilder {
@@ -1287,7 +1163,7 @@ mod tests {
 
         let result = builder.apply(&vsl(SLT_Begin, 123, "bereq foo fetch"));
         assert_matches!(result.unwrap_err(),
-            RecordBuilderError::InvalidMessageFieldFormat(field_name, _) if field_name == "vxid");
+            RecordBuilderError::InvalidMessageFormat(_));
     }
 
     #[test]

@@ -25,7 +25,6 @@ use access_log::{RecordState, SessionState};
 // https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
 // https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags.h
 // https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags_http.h
-mod vsl_tag_e;
 mod vsl;
 use vsl::{binary_vsl_tag, vsl_record_v3, vsl_record_v4};
 use vsl::VslRecord;

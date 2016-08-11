@@ -3,7 +3,11 @@ use std::str::{from_utf8, Utf8Error};
 use nom::{self, le_u32};
 use std::mem;
 
-pub use vsl_tag_e::VSL_tag_e as VslRecordTag;
+mod tag_e;
+pub use self::tag_e::VSL_tag_e as VslRecordTag;
+
+mod message_parsers;
+pub use self::message_parsers::*;
 
 /*
  * Shared memory log format
@@ -36,11 +40,11 @@ pub type VslIdent = u32;
 named!(pub binary_vsl_tag<&[u8], &[u8]>, tag!(b"VSL\0"));
 
 #[derive(Debug)]
-pub struct VslRecordHeader {
-    pub tag: u8,
-    pub len: u16,
-    pub marker: u8,
-    pub ident: VslIdent,
+struct VslRecordHeader {
+    tag: u8,
+    len: u16,
+    marker: u8,
+    ident: VslIdent,
 }
 
 fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeader, u32> {
