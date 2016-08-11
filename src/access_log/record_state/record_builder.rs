@@ -1,6 +1,4 @@
 /// TODO:
-/// * Collect errors: SLT_FetchError
-/// * Collect Debug messages: SLT_Debug
 /// * miss/hit etc
 /// * TTL
 /// * Bogo/Lost headers
@@ -8,7 +6,6 @@
 /// * Call trace
 /// * ACL trace
 /// * Byte counts: SLT_ReqAcct
-/// * Support for non-UTF8 data lines - log warnings?
 /// * more tests
 /// * pipe sessions
 /// * SLT_ExpBan         196625 banned lookup
@@ -97,7 +94,6 @@
 ///
 
 use std::fmt::Debug;
-use std::str::Utf8Error;
 use std::num::{ParseIntError, ParseFloatError};
 use nom::{self, IResult};
 use quick_error::ResultExt;
@@ -329,10 +325,6 @@ named!(stl_call<&str, &str>, complete!(space_terminated_eof));      // VCL metho
 quick_error! {
     #[derive(Debug)]
     pub enum RecordBuilderError {
-        NonUtf8VslMessage(err: Utf8Error) {
-            display("VSL record message is not valid UTF-8 encoded string: {}", err)
-            cause(err)
-        }
         UnimplementedTransactionType(record_type: String) {
             display("Unimplemented record type '{}'", record_type)
         }
@@ -707,6 +699,18 @@ impl RecordBuilder {
 
     pub fn apply<'r>(self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
         let builder = match vsl.message() {
+            Err(err) => {
+                let msg = format!("Cannot get VSL record message with tag {:?}: {} message was: {:?}", vsl.tag, err, String::from_utf8_lossy(vsl.data));
+                warn!("{}", &msg);
+
+                let mut log = self.log;
+                log.push(LogEntry::Warning(msg));
+
+                RecordBuilder {
+                    log: log,
+                    .. self
+                }
+            }
             Ok(message) => match vsl.tag {
                 SLT_Begin => {
                     let (record_type, parent, reason) = try!(slt_begin(message).into_result().context(vsl.tag));
@@ -1022,8 +1026,7 @@ impl RecordBuilder {
                     debug!("Ignoring unknown VSL tag: {:?}", vsl.tag);
                     self
                 }
-            },
-            Err(err) => return Err(RecordBuilderError::NonUtf8VslMessage(err))
+            }
         };
 
         Ok(Building(builder))
@@ -1066,21 +1069,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_non_utf8() {
-        let builder = RecordBuilder::new(1);
-
-        use vsl::VslRecord;
-        let result = builder.apply(&VslRecord {
-            tag: SLT_Begin,
-            marker: 0,
-            ident: 123,
-            data: &[255, 0, 1, 2, 3]
-        });
-
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn apply_begin() {
         let builder = RecordBuilder::new(123);
 
@@ -1104,6 +1092,24 @@ mod tests {
                    LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
                    LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
                    LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn apply_non_utf8() {
+        let builder = RecordBuilder::new(1);
+
+        use vsl::VslRecord;
+        let result = builder.apply(&VslRecord {
+            tag: SLT_Begin,
+            marker: 0,
+            ident: 123,
+            data: &[255, 0, 1, 2, 3]
+        });
+
+        let builder = result.unwrap().unwrap_building();
+        assert_eq!(builder.log, &[
+                   LogEntry::Warning("Cannot get VSL record message with tag SLT_Begin: invalid utf-8: invalid byte near index 0 message was: \"\\u{fffd}\\u{0}\\u{1}\\u{2}\\u{3}\"".to_string()),
         ]);
     }
 
