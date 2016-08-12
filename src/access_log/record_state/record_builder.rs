@@ -1,5 +1,4 @@
 /// TODO:
-/// * parse ints and floats with nom map_res
 /// * miss/hit etc
 /// * Cache object info
 ///  * TTL
@@ -136,12 +135,12 @@ pub struct ClientAccessRecord {
     pub serve: Option<Duration>,
     /// End of request processing
     pub end: TimeStamp,
-    pub recv_header: Bytes,
-    pub recv_body: Bytes,
-    pub recv_total: Bytes,
-    pub sent_header: Bytes,
-    pub sent_body: Bytes,
-    pub sent_total: Bytes,
+    pub recv_header: ByteCount,
+    pub recv_body: ByteCount,
+    pub recv_total: ByteCount,
+    pub sent_header: ByteCount,
+    pub sent_body: ByteCount,
+    pub sent_total: ByteCount,
     pub log: Vec<LogEntry>,
 }
 
@@ -595,12 +594,12 @@ pub enum RecordType {
 
 #[derive(Debug)]
 struct ReqAcct {
-    recv_header: Bytes,
-    recv_body: Bytes,
-    recv_total: Bytes,
-    sent_header: Bytes,
-    sent_body: Bytes,
-    sent_total: Bytes,
+    recv_header: ByteCount,
+    recv_body: ByteCount,
+    recv_total: ByteCount,
+    sent_header: ByteCount,
+    sent_body: ByteCount,
+    sent_total: ByteCount,
 }
 
 #[derive(Debug)]
