@@ -279,7 +279,7 @@ quick_error! {
             display("Unimplemented record type '{}'", record_type)
         }
         InvalidMessageFormat(err: VslRecordParseError) {
-            display("Failed to parse VSL record body: {}", err)
+            display("Failed to parse VSL record data: {}", err)
             from()
         }
         DetailAlreadyBuilt(detail_name: &'static str) {

@@ -72,13 +72,8 @@ pub struct VslRecord<'b> {
 quick_error! {
     #[derive(Debug)]
     pub enum VslRecordParseError {
-        Utf8(err: Utf8Error, tag: VslRecordTag, data: Vec<u8>) {
-            context(record: (VslRecordTag, Vec<u8>), err: Utf8Error) -> (err, record.0, record.1)
-            display("Cannot interpret VSL record message as UTF-8 string: {}; tag: {:?} lossy message: {:?}",
-                    err, tag, String::from_utf8_lossy(data))
-        }
         Nom(nom_err: String, tag: VslRecordTag, message: String) {
-            context(record: (VslRecordTag, String), err: nom::Err<&'a str>) -> (format!("{}", err), record.0, record.1)
+            context(record: (VslRecordTag, String), err: nom::Err<&'a [u8]>) -> (format!("{}", err), record.0, record.1)
             display("Nom parser failed on VSL record: {}; tag: {:?} message: {:?}", nom_err, tag, message)
         }
     }
@@ -106,9 +101,8 @@ impl<'b> VslRecord<'b> {
 
     //TODO: work with bytes; rename to parse_data?
     pub fn parsed_message<T, P>(&'b self, parser: P) -> Result<T, VslRecordParseError> where
-        P: Fn(&'b str) -> nom::IResult<&'b str, T> {
-        let message = try!(self.message().context((self.tag, self.data.into())));
-        Ok(try!(complete!(message, parser).into_result().context((self.tag, message.to_string()))))
+        P: Fn(&'b [u8]) -> nom::IResult<&'b [u8], T> {
+        Ok(try!(complete!(self.data, parser).into_result().context((self.tag, self.message().unwrap().to_string()))))
     }
 
     #[cfg(test)]
