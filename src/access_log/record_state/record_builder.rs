@@ -278,11 +278,9 @@ quick_error! {
         UnimplementedTransactionType(record_type: String) {
             display("Unimplemented record type '{}'", record_type)
         }
-        InvalidMessageFormat(err: String) {
-            display("Failed to parse message: {}", err)
-            // Note: using context() since from() does not support lifetimes
-            context(tag: VslRecordTag ,err: nom::Err<&'a str>)
-                -> (format!("Nom parser failed on VSL record {:?}: {}", tag, err))
+        InvalidMessageFormat(err: VslRecordParseError) {
+            display("Failed to parse VSL record body: {}", err)
+            from()
         }
         DetailAlreadyBuilt(detail_name: &'static str) {
             display("Expected {} to be still building but got it complete", detail_name)
@@ -330,12 +328,12 @@ impl<B, C> BuilderResult<B, C> {
         }
     }
 
-    fn apply(self, tag: VslRecordTag, message: &str) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C>
+    fn apply(self, vsl: &VslRecord) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C>
     {
         let builder_result = if let Building(builder) = self {
-            Building(try!(builder.apply(tag, message)))
+            Building(try!(builder.apply(vsl)))
         } else {
-            debug!("Ignoring VSL record with tag {:?} and message '{}' as we have finished building {}", tag, message, B::result_name());
+            debug!("Ignoring VSL record with tag {:?} and message {:?} as we have finished building {}", vsl.tag, vsl.message(), B::result_name());
             self
         };
 
@@ -359,7 +357,7 @@ impl<B, C> BuilderResult<B, C> {
 
 trait DetailBuilder<C>: Sized {
     fn result_name() -> &'static str;
-    fn apply(self, tag: VslRecordTag, message: &str) -> Result<Self, RecordBuilderError>;
+    fn apply(self, vsl: &VslRecord) -> Result<Self, RecordBuilderError>;
     fn complete(self) -> Result<C, RecordBuilderError>;
 }
 
@@ -415,10 +413,10 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
         "HTTP Request"
     }
 
-    fn apply(self, tag: VslRecordTag, message: &str) -> Result<HttpRequestBuilder, RecordBuilderError> {
-        let builder = match tag {
+    fn apply(self, vsl: &VslRecord) -> Result<HttpRequestBuilder, RecordBuilderError> {
+        let builder = match vsl.tag {
             SLT_BereqProtocol | SLT_ReqProtocol => {
-                let protocol = try!(slt_protocol(message).into_result().context(tag));
+                let protocol = try!(vsl.parsed_message(slt_protocol));
 
                 HttpRequestBuilder {
                     protocol: Some(protocol.to_string()),
@@ -426,7 +424,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 }
             }
             SLT_BereqMethod | SLT_ReqMethod => {
-                let method = try!(slt_method(message).into_result().context(tag));
+                let method = try!(vsl.parsed_message(slt_method));
 
                 HttpRequestBuilder {
                     method: Some(method.to_string()),
@@ -434,7 +432,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 }
             }
             SLT_BereqURL | SLT_ReqURL => {
-                let url = try!(slt_url(message).into_result().context(tag));
+                let url = try!(vsl.parsed_message(slt_url));
 
                 HttpRequestBuilder {
                     url: Some(url.to_string()),
@@ -442,7 +440,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 }
             }
             SLT_BereqHeader | SLT_ReqHeader => {
-                if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
+                if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
                     let mut headers = self.headers;
                     headers.set(name.to_string(), value.to_string());
 
@@ -451,12 +449,12 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                         .. self
                     }
                 } else {
-                    debug!("Not setting empty request header: {}", message);
+                    debug!("Not setting empty request header: {:?}", vsl.message());
                     self
                 }
             }
             SLT_BereqUnset | SLT_ReqUnset => {
-                if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
+                if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
                     let mut headers = self.headers;
                     headers.unset(name, value);
 
@@ -465,11 +463,11 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                         .. self
                     }
                 } else {
-                    debug!("Not unsetting empty request header: {}", message);
+                    debug!("Not unsetting empty request header: {:?}", vsl.message());
                     self
                 }
             }
-            _ => panic!("Got unexpected VSL record with tag {:?} in request builder", tag)
+            _ => panic!("Got unexpected VSL record with tag {:?} in request builder", vsl.tag)
         };
 
         Ok(builder)
@@ -509,10 +507,10 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
         "HTTP Response"
     }
 
-    fn apply(self, tag: VslRecordTag, message: &str) -> Result<HttpResponseBuilder, RecordBuilderError> {
-        let builder = match tag {
+    fn apply(self, vsl: &VslRecord) -> Result<HttpResponseBuilder, RecordBuilderError> {
+        let builder = match vsl.tag {
             SLT_BerespProtocol | SLT_RespProtocol | SLT_ObjProtocol => {
-                let protocol = try!(slt_protocol(message).into_result().context(tag));
+                let protocol = try!(vsl.parsed_message(slt_protocol));
 
                 HttpResponseBuilder {
                     protocol: Some(protocol.to_string()),
@@ -520,7 +518,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 }
             }
             SLT_BerespStatus | SLT_RespStatus | SLT_ObjStatus => {
-                let status = try!(slt_status(message).into_result().context(tag));
+                let status = try!(vsl.parsed_message(slt_status));
 
                 HttpResponseBuilder {
                     status: Some(status),
@@ -528,7 +526,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 }
             }
             SLT_BerespReason | SLT_RespReason | SLT_ObjReason => {
-                let reason = try!(slt_reason(message).into_result().context(tag));
+                let reason = try!(vsl.parsed_message(slt_reason));
 
                 HttpResponseBuilder {
                     reason: Some(reason.to_string()),
@@ -536,7 +534,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 }
             }
             SLT_BerespHeader | SLT_RespHeader | SLT_ObjHeader => {
-                if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
+                if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
                     let mut headers = self.headers;
                     headers.set(name.to_string(), value.to_string());
 
@@ -545,12 +543,12 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                         .. self
                     }
                 } else {
-                    debug!("Not setting empty response header: {}", message);
+                    debug!("Not setting empty response header: {:?}", vsl.message());
                     self
                 }
             }
             SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
-                if let (name, Some(value)) = try!(slt_header(message).into_result().context(tag)) {
+                if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
                     let mut headers = self.headers;
                     headers.unset(name, value);
 
@@ -559,11 +557,11 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                         .. self
                     }
                 } else {
-                    debug!("Not unsetting empty response header: {}", message);
+                    debug!("Not unsetting empty response header: {:?}", vsl.message());
                     self
                 }
             }
-            _ => panic!("Got unexpected VSL record with tag {:?} in response builder", tag)
+            _ => panic!("Got unexpected VSL record with tag {:?} in response builder", vsl.tag)
         };
 
         Ok(builder)
@@ -663,417 +661,401 @@ impl RecordBuilder {
     }
 
     pub fn apply<'r>(self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
-        let builder = match vsl.message() {
-            Err(err) => {
-                let msg = format!("Cannot get VSL record message with tag {:?}: {} message was: {:?}", vsl.tag, err, String::from_utf8_lossy(vsl.data));
-                warn!("{}", &msg);
+        let builder = match vsl.tag {
+            SLT_Begin => {
+                let (record_type, vxid, reason) = try!(vsl.parsed_message(slt_begin));
 
+                match record_type {
+                    "bereq" => RecordBuilder {
+                        record_type: Some(RecordType::BackendAccess {
+                            parent: vxid,
+                            reason: reason.to_owned()
+                        }),
+                        .. self
+                    },
+                    "req" => RecordBuilder {
+                        record_type: Some(RecordType::ClientAccess {
+                            parent: vxid,
+                            reason: reason.to_owned()
+                        }),
+                        .. self
+                    },
+                    "sess" => RecordBuilder {
+                        record_type: Some(RecordType::Session),
+                        .. self
+                    },
+                    _ => return Err(RecordBuilderError::UnimplementedTransactionType(record_type.to_string()))
+                }
+            }
+            SLT_Timestamp => {
+                let (label, timestamp, since_work_start, since_last_timestamp) = try!(vsl.parsed_message(slt_timestamp));
+                match label {
+                    "Start" => RecordBuilder {
+                        req_start: Some(timestamp),
+                        .. self
+                    },
+                    "Req" => RecordBuilder {
+                        req_process: Some(since_work_start),
+                        .. self
+                    },
+                    "Bereq" => RecordBuilder {
+                        req_process: Some(since_work_start),
+                        .. self
+                    },
+                    "Beresp" => RecordBuilder {
+                        resp_ttfb: Some(since_work_start),
+                        resp_fetch: Some(since_last_timestamp),
+                        .. self
+                    },
+                    "Fetch" => RecordBuilder {
+                        resp_fetch: Some(since_last_timestamp),
+                        .. self
+                    },
+                    "Process" => RecordBuilder {
+                        resp_ttfb: Some(since_work_start),
+                        .. self
+                    },
+                    "Resp" => RecordBuilder {
+                        req_took: Some(since_work_start),
+                        resp_end: Some(timestamp),
+                        .. self
+                    },
+                    "BerespBody" | "Retry" => RecordBuilder {
+                        req_took: Some(since_work_start),
+                        resp_end: Some(timestamp),
+                        .. self
+                    },
+                    "Error" => RecordBuilder {
+                        req_took: Some(since_work_start),
+                        resp_end: Some(timestamp),
+                        // this won't be correct if we got error while accessing backend
+                        resp_ttfb: None,
+                        resp_fetch: None,
+                        .. self
+                    },
+                    "Restart" => RecordBuilder {
+                        resp_end: Some(timestamp),
+                        .. self
+                    },
+                    _ => {
+                        warn!("Ignoring unknown SLT_Timestamp label variant: {}", label);
+                        self
+                    }
+                }
+            }
+            SLT_Link => {
+                let (reason, child_vxid, child_type) = try!(vsl.parsed_message(slt_link));
+
+                let child_vxid = child_vxid;
+
+                match (reason, child_type) {
+                    ("req", "restart") => {
+                        RecordBuilder {
+                            restart_request: Some(child_vxid),
+                            .. self
+                        }
+                    },
+                    ("req", _) => {
+                        let mut client_requests = self.client_requests;
+                        client_requests.push(child_vxid);
+
+                        RecordBuilder {
+                            client_requests: client_requests,
+                            .. self
+                        }
+                    },
+                    ("bereq", "retry") => {
+                        RecordBuilder {
+                            retry_request: Some(child_vxid),
+                            .. self
+                        }
+                    },
+                    ("bereq", _) => {
+                        let mut backend_requests = self.backend_requests;
+                        backend_requests.push(child_vxid);
+
+                        RecordBuilder {
+                            backend_requests: backend_requests,
+                            .. self
+                        }
+                    },
+                    _ => {
+                        warn!("Ignoring unknown SLT_Link reason variant: {}", reason);
+                        self
+                    }
+                }
+            }
+            SLT_VCL_Log => {
                 let mut log = self.log;
-                log.push(LogEntry::Warning(msg));
+                log.push(LogEntry::VCL(try!(vsl.parsed_message(slt_log)).to_string()));
 
                 RecordBuilder {
                     log: log,
                     .. self
                 }
             }
-            Ok(message) => match vsl.tag {
-                SLT_Begin => {
-                    let (record_type, vxid, reason) = try!(slt_begin(message).into_result().context(vsl.tag));
+            SLT_Debug => {
+                let mut log = self.log;
+                log.push(LogEntry::Debug(try!(vsl.parsed_message(slt_log)).to_string()));
 
-                    match record_type {
-                        "bereq" => RecordBuilder {
-                            record_type: Some(RecordType::BackendAccess {
-                                parent: vxid,
-                                reason: reason.to_owned()
-                            }),
-                            .. self
-                        },
-                        "req" => RecordBuilder {
-                            record_type: Some(RecordType::ClientAccess {
-                                parent: vxid,
-                                reason: reason.to_owned()
-                            }),
-                            .. self
-                        },
-                        "sess" => RecordBuilder {
-                            record_type: Some(RecordType::Session),
-                            .. self
-                        },
-                        _ => return Err(RecordBuilderError::UnimplementedTransactionType(record_type.to_string()))
-                    }
+                RecordBuilder {
+                    log: log,
+                    .. self
                 }
-                SLT_Timestamp => {
-                    let (label, timestamp, since_work_start, since_last_timestamp) = try!(slt_timestamp(message).into_result().context(vsl.tag));
-                    match label {
-                        "Start" => RecordBuilder {
-                            req_start: Some(timestamp),
-                            .. self
-                        },
-                        "Req" => RecordBuilder {
-                            req_process: Some(since_work_start),
-                            .. self
-                        },
-                        "Bereq" => RecordBuilder {
-                            req_process: Some(since_work_start),
-                            .. self
-                        },
-                        "Beresp" => RecordBuilder {
-                            resp_ttfb: Some(since_work_start),
-                            resp_fetch: Some(since_last_timestamp),
-                            .. self
-                        },
-                        "Fetch" => RecordBuilder {
-                            resp_fetch: Some(since_last_timestamp),
-                            .. self
-                        },
-                        "Process" => RecordBuilder {
-                            resp_ttfb: Some(since_work_start),
-                            .. self
-                        },
-                        "Resp" => RecordBuilder {
-                            req_took: Some(since_work_start),
-                            resp_end: Some(timestamp),
-                            .. self
-                        },
-                        "BerespBody" | "Retry" => RecordBuilder {
-                            req_took: Some(since_work_start),
-                            resp_end: Some(timestamp),
-                            .. self
-                        },
-                        "Error" => RecordBuilder {
-                            req_took: Some(since_work_start),
-                            resp_end: Some(timestamp),
-                            // this won't be correct if we got error while accessing backend
-                            resp_ttfb: None,
-                            resp_fetch: None,
-                            .. self
-                        },
-                        "Restart" => RecordBuilder {
-                            resp_end: Some(timestamp),
-                            .. self
-                        },
-                        _ => {
-                            warn!("Ignoring unknown SLT_Timestamp label variant: {}", label);
-                            self
-                        }
-                    }
+            }
+            SLT_Error => {
+                let mut log = self.log;
+                log.push(LogEntry::Error(try!(vsl.parsed_message(slt_log)).to_string()));
+
+                RecordBuilder {
+                    log: log,
+                    .. self
                 }
-                SLT_Link => {
-                    let (reason, child_vxid, child_type) = try!(slt_link(message).into_result().context(vsl.tag));
+            }
+            SLT_FetchError => {
+                let mut log = self.log;
+                log.push(LogEntry::FetchError(try!(vsl.parsed_message(slt_log)).to_string()));
 
-                    let child_vxid = child_vxid;
-
-                    match (reason, child_type) {
-                        ("req", "restart") => {
-                            RecordBuilder {
-                                restart_request: Some(child_vxid),
-                                .. self
-                            }
-                        },
-                        ("req", _) => {
-                            let mut client_requests = self.client_requests;
-                            client_requests.push(child_vxid);
-
-                            RecordBuilder {
-                                client_requests: client_requests,
-                                .. self
-                            }
-                        },
-                        ("bereq", "retry") => {
-                            RecordBuilder {
-                                retry_request: Some(child_vxid),
-                                .. self
-                            }
-                        },
-                        ("bereq", _) => {
-                            let mut backend_requests = self.backend_requests;
-                            backend_requests.push(child_vxid);
-
-                            RecordBuilder {
-                                backend_requests: backend_requests,
-                                .. self
-                            }
-                        },
-                        _ => {
-                            warn!("Ignoring unknown SLT_Link reason variant: {}", reason);
-                            self
-                        }
-                    }
+                RecordBuilder {
+                    log: log,
+                    .. self
                 }
-                SLT_VCL_Log => {
-                    let mut log = self.log;
-                    log.push(LogEntry::VCL(message.to_string()));
-
-                    RecordBuilder {
-                        log: log,
-                        .. self
-                    }
+            }
+            SLT_BogoHeader => {
+                let mut log = self.log;
+                log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", try!(vsl.parsed_message(slt_log)))));
+                RecordBuilder {
+                    log: log,
+                    .. self
                 }
-                SLT_Debug => {
-                    let mut log = self.log;
-                    log.push(LogEntry::Debug(message.to_string()));
-
-                    RecordBuilder {
-                        log: log,
-                        .. self
-                    }
+            }
+            SLT_LostHeader => {
+                let mut log = self.log;
+                log.push(LogEntry::Warning(format!("Logs the header name of a failed HTTP header operation due to resource exhaustion or configured limits: {}", try!(vsl.parsed_message(slt_log)))));
+                RecordBuilder {
+                    log: log,
+                    .. self
                 }
-                SLT_Error => {
-                    let mut log = self.log;
-                    log.push(LogEntry::Error(message.to_string()));
+            }
 
-                    RecordBuilder {
-                        log: log,
-                        .. self
-                    }
+            SLT_ReqAcct => {
+                let (recv_header, recv_body, recv_total,
+                     sent_header, sent_body, sent_total) =
+                    try!(vsl.parsed_message(slt_reqacc));
+
+                RecordBuilder {
+                    req_acct: Some(ReqAcct {
+                        recv_header: recv_header,
+                        recv_body: recv_body,
+                        recv_total: recv_total,
+                        sent_header: sent_header,
+                        sent_body: sent_body,
+                        sent_total: sent_total,
+                    }),
+                    .. self
                 }
-                SLT_FetchError => {
-                    let mut log = self.log;
-                    log.push(LogEntry::FetchError(message.to_string()));
+            }
 
-                    RecordBuilder {
-                        log: log,
-                        .. self
-                    }
-                }
-                SLT_BogoHeader => {
-                    let mut log = self.log;
-                    log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", message)));
-
-                    RecordBuilder {
-                        log: log,
-                        .. self
-                    }
-                }
-                SLT_LostHeader => {
-                    let mut log = self.log;
-                    log.push(LogEntry::Warning(format!("Logs the header name of a failed HTTP header operation due to resource exhaustion or configured limits: {}", message)));
-
-                    RecordBuilder {
-                        log: log,
-                        .. self
-                    }
-                }
-
-                SLT_ReqAcct => {
-                    let (recv_header, recv_body, recv_total,
-                         sent_header, sent_body, sent_total) =
-                        try!(slt_reqacc(message).into_result().context(vsl.tag));
-
-                    RecordBuilder {
-                        req_acct: Some(ReqAcct {
-                            recv_header: recv_header,
-                            recv_body: recv_body,
-                            recv_total: recv_total,
-                            sent_header: sent_header,
-                            sent_body: sent_body,
-                            sent_total: sent_total,
-                        }),
-                        .. self
-                    }
-                }
-
-                // Request
-                SLT_BereqProtocol | SLT_ReqProtocol |
+            // Request
+            SLT_BereqProtocol | SLT_ReqProtocol |
                 SLT_BereqMethod | SLT_ReqMethod |
                 SLT_BereqURL | SLT_ReqURL |
                 SLT_BereqHeader | SLT_ReqHeader |
                 SLT_BereqUnset | SLT_ReqUnset => {
                     RecordBuilder {
-                        http_request: try!(self.http_request.apply(vsl.tag, message)),
+                        http_request: try!(self.http_request.apply(vsl)),
                         .. self
                     }
                 }
 
-                // Response
-                SLT_BerespProtocol | SLT_RespProtocol |
+            // Response
+            SLT_BerespProtocol | SLT_RespProtocol |
                 SLT_BerespStatus | SLT_RespStatus |
                 SLT_BerespReason | SLT_RespReason |
                 SLT_BerespHeader | SLT_RespHeader |
                 SLT_BerespUnset | SLT_RespUnset => {
                     RecordBuilder {
-                        http_response: try!(self.http_response.apply(vsl.tag, message)),
+                        http_response: try!(self.http_response.apply(vsl)),
                         .. self
                     }
                 }
 
-                // Cache Object
-                SLT_ObjProtocol |
+            // Cache Object
+            SLT_ObjProtocol |
                 SLT_ObjStatus |
                 SLT_ObjReason |
                 SLT_ObjHeader |
                 SLT_ObjUnset => {
                     RecordBuilder {
-                        cache_object: try!(self.cache_object.apply(vsl.tag, message)),
+                        cache_object: try!(self.cache_object.apply(vsl)),
                         .. self
                     }
                 }
 
-                // Session
-                SLT_SessOpen => {
-                    let (remote_address, _listen_sock, local_address, timestamp, _fd)
-                        = try!(slt_sess_open(message).into_result().context(vsl.tag));
+            // Session
+            SLT_SessOpen => {
+                let (remote_address, _listen_sock, local_address, timestamp, _fd)
+                    = try!(vsl.parsed_message(slt_sess_open));
 
-                    let remote_address = (remote_address.0.to_string(), remote_address.1);
-                    let local_address = local_address.map(|(ip, port)| (ip.to_string(), port));
+                let remote_address = (remote_address.0.to_string(), remote_address.1);
+                let local_address = local_address.map(|(ip, port)| (ip.to_string(), port));
 
-                    RecordBuilder {
-                        sess_open: Some(timestamp),
-                        sess_remote: Some(remote_address),
-                        sess_local: local_address,
+                RecordBuilder {
+                    sess_open: Some(timestamp),
+                    sess_remote: Some(remote_address),
+                    sess_local: local_address,
+                    .. self
+                }
+            }
+            SLT_SessClose => {
+                let (_reason, duration) = try!(vsl.parsed_message(slt_sess_close));
+
+                RecordBuilder {
+                    sess_duration: Some(duration),
+                    .. self
+                }
+            }
+
+            // Final
+            SLT_VCL_call => {
+                let method = try!(vsl.parsed_message(slt_call));
+
+                match method {
+                    "RECV" => RecordBuilder {
+                        http_request: try!(self.http_request.complete()),
                         .. self
-                    }
-                }
-                SLT_SessClose => {
-                    let (_reason, duration) = try!(slt_sess_close(message).into_result().context(vsl.tag));
-
-                    RecordBuilder {
-                        sess_duration: Some(duration),
+                    },
+                    "BACKEND_RESPONSE" | "BACKEND_ERROR" => RecordBuilder {
+                        http_request: try!(self.http_request.complete()),
+                        http_response: try!(self.http_response.complete()),
                         .. self
+                    },
+                    _ => {
+                        debug!("Ignoring unknown {:?} method: {}", vsl.tag, method);
+                        self
                     }
                 }
+            }
+            SLT_Fetch_Body => {
+                let (_fetch_mode, fetch_mode_name, streamed) =
+                    try!(vsl.parsed_message(slt_fetch_body));
 
-                // Final
-                SLT_VCL_call => {
-                    let method = try!(stl_call(message).into_result().context(vsl.tag));
-
-                    match method {
-                        "RECV" => RecordBuilder {
-                            http_request: try!(self.http_request.complete()),
-                            .. self
-                        },
-                        "BACKEND_RESPONSE" | "BACKEND_ERROR" => RecordBuilder {
-                            http_request: try!(self.http_request.complete()),
-                            http_response: try!(self.http_response.complete()),
-                            .. self
-                        },
-                        _ => {
-                            debug!("Ignoring unknown {:?} method: {}", vsl.tag, method);
-                            self
-                        }
-                    }
+                RecordBuilder {
+                    cache_object: try!(self.cache_object.complete()),
+                    fetch_body: Some( FetchBody {
+                        mode: fetch_mode_name.to_string(),
+                        streamed: streamed,
+                    }),
+                    .. self
                 }
-                SLT_Fetch_Body => {
-                    let (_fetch_mode, fetch_mode_name, streamed) =
-                        try!(stl_fetch_body(message).into_result().context(vsl.tag));
+            }
+            SLT_End => {
+                let record_type = try!(self.record_type.ok_or(RecordBuilderError::RecordIncomplete("record_type")));
+                match record_type {
+                    RecordType::Session => {
+                        // Try to build SessionRecord
+                        let record = SessionRecord {
+                            ident: self.ident,
+                            open: try!(self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))),
+                            duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
+                            local: self.sess_local,
+                            remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
+                            client_requests: self.client_requests,
+                        };
 
-                    RecordBuilder {
-                        cache_object: try!(self.cache_object.complete()),
-                        fetch_body: Some( FetchBody {
-                            mode: fetch_mode_name.to_string(),
-                            streamed: streamed,
-                        }),
-                        .. self
-                    }
-                }
-                SLT_End => {
-                    let record_type = try!(self.record_type.ok_or(RecordBuilderError::RecordIncomplete("record_type")));
-                    match record_type {
-                        RecordType::Session => {
-                            // Try to build SessionRecord
-                            let record = SessionRecord {
-                                ident: self.ident,
-                                open: try!(self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))),
-                                duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
-                                local: self.sess_local,
-                                remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
-                                client_requests: self.client_requests,
-                            };
-
-                            return Ok(Complete(Record::Session(record)))
-                        },
-                        RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
-                            let request = try!(self.http_request.get_complete());
-                            let response = if self.restart_request.is_some() {
-                                // Restarted requests have no response
-                                None
+                        return Ok(Complete(Record::Session(record)))
+                    },
+                    RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
+                        let request = try!(self.http_request.get_complete());
+                        let response = if self.restart_request.is_some() {
+                            // Restarted requests have no response
+                            None
+                        } else {
+                            let response = if let RecordType::ClientAccess { .. } = record_type {
+                                // SLT_End tag is completing the client response
+                                try!(self.http_response.complete())
                             } else {
-                                let response = if let RecordType::ClientAccess { .. } = record_type {
-                                    // SLT_End tag is completing the client response
-                                    try!(self.http_response.complete())
-                                } else {
-                                    self.http_response
+                                self.http_response
+                            };
+                            Some(try!(response.get_complete()))
+                        };
+
+                        let http_transaction = HttpTransaction {
+                            request: request,
+                            response: response,
+                        };
+
+                        match record_type {
+                            RecordType::ClientAccess { parent, reason } => {
+                                let req_acct = try!(self.req_acct.ok_or(RecordBuilderError::RecordIncomplete("req_acct")));
+                                let record = ClientAccessRecord {
+                                    ident: self.ident,
+                                    parent: parent,
+                                    reason: reason,
+                                    esi_requests: self.client_requests,
+                                    backend_requests: self.backend_requests,
+                                    restart_request: self.restart_request,
+                                    http_transaction: http_transaction,
+
+                                    start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                                    parse: self.req_process,
+                                    fetch: self.resp_fetch,
+                                    ttfb: self.resp_ttfb,
+                                    serve: self.req_took,
+                                    end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+
+                                    recv_header: req_acct.recv_header,
+                                    recv_body: req_acct.recv_body,
+                                    recv_total: req_acct.recv_total,
+                                    sent_header: req_acct.sent_header,
+                                    sent_body: req_acct.sent_body,
+                                    sent_total: req_acct.sent_total,
+
+                                    log: self.log,
                                 };
-                                Some(try!(response.get_complete()))
-                            };
 
-                            let http_transaction = HttpTransaction {
-                                request: request,
-                                response: response,
-                            };
+                                return Ok(Complete(Record::ClientAccess(record)))
+                            },
+                            RecordType::BackendAccess { parent, reason } => {
+                                //TODO: use proper predicate
+                                let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
+                                    let fetch_body = try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")));
 
-                            match record_type {
-                                RecordType::ClientAccess { parent, reason } => {
-                                    let req_acct = try!(self.req_acct.ok_or(RecordBuilderError::RecordIncomplete("req_acct")));
-                                    let record = ClientAccessRecord {
-                                        ident: self.ident,
-                                        parent: parent,
-                                        reason: reason,
-                                        esi_requests: self.client_requests,
-                                        backend_requests: self.backend_requests,
-                                        restart_request: self.restart_request,
-                                        http_transaction: http_transaction,
+                                    Some(CacheObject {
+                                        response: cache_object,
+                                        fetch_mode: fetch_body.mode,
+                                        fetch_streamed: fetch_body.streamed,
+                                    })
+                                } else {
+                                    None
+                                };
 
-                                        start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                                        parse: self.req_process,
-                                        fetch: self.resp_fetch,
-                                        ttfb: self.resp_ttfb,
-                                        serve: self.req_took,
-                                        end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+                                let record = BackendAccessRecord {
+                                    ident: self.ident,
+                                    parent: parent,
+                                    reason: reason,
+                                    retry_request: self.retry_request,
+                                    http_transaction: http_transaction,
+                                    cache_object: cache_object,
+                                    start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                                    send: self.req_process,
+                                    wait: self.resp_fetch,
+                                    ttfb: self.resp_ttfb,
+                                    fetch: self.req_took,
+                                    end: self.resp_end,
+                                    log: self.log,
+                                };
 
-                                        recv_header: req_acct.recv_header,
-                                        recv_body: req_acct.recv_body,
-                                        recv_total: req_acct.recv_total,
-                                        sent_header: req_acct.sent_header,
-                                        sent_body: req_acct.sent_body,
-                                        sent_total: req_acct.sent_total,
-
-                                        log: self.log,
-                                    };
-
-                                    return Ok(Complete(Record::ClientAccess(record)))
-                                },
-                                RecordType::BackendAccess { parent, reason } => {
-                                    //TODO: use proper predicate
-                                    let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
-                                        let fetch_body = try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")));
-
-                                        Some(CacheObject {
-                                            response: cache_object,
-                                            fetch_mode: fetch_body.mode,
-                                            fetch_streamed: fetch_body.streamed,
-                                        })
-                                    } else {
-                                        None
-                                    };
-
-                                    let record = BackendAccessRecord {
-                                        ident: self.ident,
-                                        parent: parent,
-                                        reason: reason,
-                                        retry_request: self.retry_request,
-                                        http_transaction: http_transaction,
-                                        cache_object: cache_object,
-                                        start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                                        send: self.req_process,
-                                        wait: self.resp_fetch,
-                                        ttfb: self.resp_ttfb,
-                                        fetch: self.req_took,
-                                        end: self.resp_end,
-                                        log: self.log,
-                                    };
-
-                                    return Ok(Complete(Record::BackendAccess(record)))
-                                },
-                                _ => unreachable!(),
-                            }
-                        },
-                    }
+                                return Ok(Complete(Record::BackendAccess(record)))
+                            },
+                            _ => unreachable!(),
+                        }
+                    },
                 }
-                _ => {
-                    debug!("Ignoring unknown VSL tag: {:?}", vsl.tag);
-                    self
-                }
+            }
+            _ => {
+                debug!("Ignoring unknown VSL tag: {:?}", vsl.tag);
+                self
             }
         };
 

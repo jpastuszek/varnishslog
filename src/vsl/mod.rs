@@ -1,7 +1,9 @@
 use std::fmt::{self, Debug, Display};
 use std::str::{from_utf8, Utf8Error};
-use nom::{self, le_u32};
 use std::mem;
+
+use nom::{self, le_u32, IResult};
+use quick_error::ResultExt;
 
 mod tag_e;
 pub use self::tag_e::VSL_tag_e as VslRecordTag;
@@ -67,9 +69,46 @@ pub struct VslRecord<'b> {
     pub data: &'b[u8],
 }
 
+quick_error! {
+    #[derive(Debug)]
+    pub enum VslRecordParseError {
+        Utf8(err: Utf8Error, tag: VslRecordTag, data: Vec<u8>) {
+            context(record: (VslRecordTag, Vec<u8>), err: Utf8Error) -> (err, record.0, record.1)
+            display("Cannot interpret VSL record message as UTF-8 string: {}; tag: {:?} lossy message: {:?}",
+                    err, tag, String::from_utf8_lossy(data))
+        }
+        Nom(nom_err: String, tag: VslRecordTag, message: String) {
+            context(record: (VslRecordTag, String), err: nom::Err<&'a str>) -> (format!("{}", err), record.0, record.1)
+            display("Nom parser failed on VSL record: {}; tag: {:?} message: {:?}", nom_err, tag, message)
+        }
+    }
+}
+
+trait IResultExt<O, E> {
+    fn into_result(self) -> Result<O, E>;
+}
+
+impl<I, O, E> IResultExt<O, nom::Err<I, E>> for IResult<I, O, E> {
+    fn into_result(self) -> Result<O, nom::Err<I, E>> {
+        match self {
+            IResult::Done(_, o) => Ok(o),
+            IResult::Error(err) => Err(err),
+            IResult::Incomplete(_) => panic!("assuming that parser is wrapped around complete!()"),
+        }
+    }
+}
+
 impl<'b> VslRecord<'b> {
+    //TODO: return MaybeString so can be used in logging
     pub fn message(&'b self) -> Result<&'b str, Utf8Error> {
         from_utf8(self.data)
+    }
+
+    //TODO: work with bytes; rename to parse_data?
+    pub fn parsed_message<T, P>(&'b self, parser: P) -> Result<T, VslRecordParseError> where
+        P: Fn(&'b str) -> nom::IResult<&'b str, T> {
+        let message = try!(self.message().context((self.tag, self.data.into())));
+        Ok(try!(complete!(message, parser).into_result().context((self.tag, message.to_string()))))
     }
 
     #[cfg(test)]
