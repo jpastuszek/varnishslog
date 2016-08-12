@@ -5,6 +5,7 @@ pub trait IResultExt<O, E> {
     fn into_result(self) -> Result<O, E>;
 }
 
+//TODO: Move this to VslRecord?
 impl<I, O, E> IResultExt<O, nom::Err<I, E>> for IResult<I, O, E> {
     fn into_result(self) -> Result<O, nom::Err<I, E>> {
         match self {
@@ -21,17 +22,25 @@ use std::str::FromStr;
 pub type TimeStamp = f64;
 pub type Duration = f64;
 pub type Bytes = u64;
+pub type FetchMode = u32;
 pub type Address = (String, u16);
+
+/// Parsers for the message body of the VSL records
+///
+/// This should not allocate memory but do primitive conversion when applicable
+/// To keep this simple they will be returning tuples.
+/// Format and comments are form include/tbl/vsl_tags.h and include/tbl/vsl_tags_http.h.
+///
 
 named!(label<&str, &str>, terminated!(take_until_s!(": "), tag_s!(": ")));
 
 named!(str_space<&str, &str>, terminated!(is_not_s!(" "), space));
 named!(str_space_eof<&str, &str>, terminated!(is_not_s!(" "), eof));
 
-named!(u64_space<&str, u64>, map_res!(str_space, FromStr::from_str));
-named!(u64_space_eof<&str, u64>, map_res!(str_space_eof, FromStr::from_str));
-
+named!(bytes_space<&str, Bytes>, map_res!(str_space, FromStr::from_str));
+named!(bytes_space_eof<&str, Bytes>, map_res!(str_space_eof, FromStr::from_str));
 named!(vsl_ident_space<&str, VslIdent>, map_res!(str_space, FromStr::from_str));
+named!(fech_mode_space<&str, FetchMode>, map_res!(str_space, FromStr::from_str));
 
 named!(pub slt_begin<&str, (&str, VslIdent, &str)>, complete!(tuple!(
         str_space,           // Type ("sess", "req" or "bereq")
@@ -44,30 +53,13 @@ named!(pub slt_timestamp<&str, (&str, &str, &str, &str)>, complete!(tuple!(
         str_space,           // Time since start of work unit
         str_space_eof)));    // Time since last timestamp
 
-#[derive(Debug)]
-pub struct ReqAcct {
-    pub recv_header: Bytes,
-    pub recv_body: Bytes,
-    pub recv_total: Bytes,
-    pub sent_header: Bytes,
-    pub sent_body: Bytes,
-    pub sent_total: Bytes,
-}
-named!(pub slt_reqacc<&str, ReqAcct>, complete!(chain!(
-        recv_header:    u64_space ~     // Header bytes received
-        recv_body:      u64_space ~     // Body bytes received
-        recv_total:     u64_space ~     // Total bytes received
-        sent_header:    u64_space ~     // Header bytes transmitted
-        sent_body:      u64_space ~     // Body bytes transmitted
-        sent_total:     u64_space_eof,  // Total bytes transmitted
-        || ReqAcct {
-            recv_header: recv_header,
-            recv_body: recv_body,
-            recv_total: recv_total,
-            sent_header: sent_header,
-            sent_body: sent_body,
-            sent_total: sent_total,
-        })));
+named!(pub slt_reqacc<&str, (Bytes, Bytes, Bytes, Bytes, Bytes, Bytes) >, complete!(tuple!(
+        bytes_space,            // Header bytes received
+        bytes_space,            // Body bytes received
+        bytes_space,            // Total bytes received
+        bytes_space,            // Header bytes transmitted
+        bytes_space,            // Body bytes transmitted
+        bytes_space_eof)));     // Total bytes transmitted
 
 named!(pub slt_method<&str, &str>, complete!(rest_s));
 named!(pub slt_url<&str, &str>, complete!(rest_s));
@@ -105,18 +97,11 @@ named!(pub slt_sess_close<&str, (&str, &str)>, complete!(tuple!(
 
 named!(pub stl_call<&str, &str>, complete!(rest_s));      // VCL method name
 
-#[derive(Debug)]
-pub struct FetchBody {
-    pub mode: String,
-    pub streamed: bool,
-}
-named!(pub stl_fetch_body<&str, FetchBody>, complete!(chain!(
-        _mode: str_space ~       // Body fetch mode
-        mode_name: str_space ~   // Text description of body fetch mode
-        streamed: alt_complete!(tag_s!("stream") | tag_s!("-")) ~ // 'stream' or '-'
-        eof,
-        || FetchBody {
-            mode: mode_name.to_string(),
-            streamed: streamed == "stream",
-        })));
+named!(pub stl_fetch_body<&str, (FetchMode, &str, bool)>, complete!(tuple!(
+        fech_mode_space,  // Body fetch mode
+        str_space,        // Text description of body fetch mode
+        terminated!(map!(
+                alt_complete!(tag_s!("stream") | tag_s!("-")),
+                |s| s == "stream"), // 'stream' or '-'
+            eof))));
 

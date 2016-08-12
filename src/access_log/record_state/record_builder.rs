@@ -600,6 +600,22 @@ pub enum RecordType {
 }
 
 #[derive(Debug)]
+struct ReqAcct {
+    recv_header: Bytes,
+    recv_body: Bytes,
+    recv_total: Bytes,
+    sent_header: Bytes,
+    sent_body: Bytes,
+    sent_total: Bytes,
+}
+
+#[derive(Debug)]
+pub struct FetchBody {
+    pub mode: String,
+    pub streamed: bool,
+}
+
+#[derive(Debug)]
 pub struct RecordBuilder {
     ident: VslIdent,
     record_type: Option<RecordType>,
@@ -847,10 +863,19 @@ impl RecordBuilder {
                 }
 
                 SLT_ReqAcct => {
-                    let req_acct = try!(slt_reqacc(message).into_result().context(vsl.tag));
+                    let (recv_header, recv_body, recv_total,
+                         sent_header, sent_body, sent_total) =
+                        try!(slt_reqacc(message).into_result().context(vsl.tag));
 
                     RecordBuilder {
-                        req_acct: Some(req_acct),
+                        req_acct: Some(ReqAcct {
+                            recv_header: recv_header,
+                            recv_body: recv_body,
+                            recv_total: recv_total,
+                            sent_header: sent_header,
+                            sent_body: sent_body,
+                            sent_total: sent_total,
+                        }),
                         .. self
                     }
                 }
@@ -937,11 +962,15 @@ impl RecordBuilder {
                     }
                 }
                 SLT_Fetch_Body => {
-                    let fetch_body = try!(stl_fetch_body(message).into_result().context(vsl.tag));
+                    let (_fetch_mode, fetch_mode_name, streamed) =
+                        try!(stl_fetch_body(message).into_result().context(vsl.tag));
 
                     RecordBuilder {
                         cache_object: try!(self.cache_object.complete()),
-                        fetch_body: Some(fetch_body),
+                        fetch_body: Some( FetchBody {
+                            mode: fetch_mode_name.to_string(),
+                            streamed: streamed,
+                        }),
                         .. self
                     }
                 }
@@ -1016,6 +1045,7 @@ impl RecordBuilder {
                                     //TODO: use proper predicate
                                     let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
                                         let fetch_body = try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")));
+
                                         Some(CacheObject {
                                             response: cache_object,
                                             fetch_mode: fetch_body.mode,
