@@ -94,7 +94,6 @@
 ///
 
 use std::fmt::Debug;
-use std::num::{ParseIntError, ParseFloatError};
 use quick_error::ResultExt;
 use nom;
 
@@ -185,6 +184,8 @@ pub struct BackendAccessRecord {
     pub log: Vec<LogEntry>,
 }
 
+pub type Address = (String, Port);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionRecord {
     pub ident: VslIdent,
@@ -212,7 +213,7 @@ pub struct HttpRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponse {
     pub protocol: String,
-    pub status: u32,
+    pub status: Status,
     pub reason: String,
     pub headers: Vec<(String, String)>,
 }
@@ -283,13 +284,6 @@ quick_error! {
             // Note: using context() since from() does not support lifetimes
             context(tag: VslRecordTag ,err: nom::Err<&'a str>)
                 -> (format!("Nom parser failed on VSL record {:?}: {}", tag, err))
-        }
-        InvalidMessageFieldFormat(field_name: &'static str, err: String) {
-            display("Failed to parse message field '{}': {}", field_name, err)
-            context(field_name: &'static str, err: ParseFloatError)
-                -> (field_name, format!("Float parsing error: {}", err))
-            context(field_name: &'static str, err: ParseIntError)
-                -> (field_name, format!("Integer parsing error: {}", err))
         }
         DetailAlreadyBuilt(detail_name: &'static str) {
             display("Expected {} to be still building but got it complete", detail_name)
@@ -495,7 +489,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
 #[derive(Debug)]
 struct HttpResponseBuilder {
     protocol: Option<String>,
-    status: Option<u32>,
+    status: Option<Status>,
     reason: Option<String>,
     headers: Headers,
 }
@@ -530,7 +524,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 let status = try!(slt_status(message).into_result().context(tag));
 
                 HttpResponseBuilder {
-                    status: Some(try!(status.parse().context("status"))),
+                    status: Some(status),
                     .. self
                 }
             }
@@ -713,50 +707,50 @@ impl RecordBuilder {
                     let (label, timestamp, since_work_start, since_last_timestamp) = try!(slt_timestamp(message).into_result().context(vsl.tag));
                     match label {
                         "Start" => RecordBuilder {
-                            req_start: Some(try!(timestamp.parse().context("timestamp"))),
+                            req_start: Some(timestamp),
                             .. self
                         },
                         "Req" => RecordBuilder {
-                            req_process: Some(try!(since_work_start.parse().context("since_work_start"))),
+                            req_process: Some(since_work_start),
                             .. self
                         },
                         "Bereq" => RecordBuilder {
-                            req_process: Some(try!(since_work_start.parse().context("since_work_start"))),
+                            req_process: Some(since_work_start),
                             .. self
                         },
                         "Beresp" => RecordBuilder {
-                            resp_ttfb: Some(try!(since_work_start.parse().context("since_last_timestamp"))),
-                            resp_fetch: Some(try!(since_last_timestamp.parse().context("since_last_timestamp"))),
+                            resp_ttfb: Some(since_work_start),
+                            resp_fetch: Some(since_last_timestamp),
                             .. self
                         },
                         "Fetch" => RecordBuilder {
-                            resp_fetch: Some(try!(since_last_timestamp.parse().context("since_last_timestamp"))),
+                            resp_fetch: Some(since_last_timestamp),
                             .. self
                         },
                         "Process" => RecordBuilder {
-                            resp_ttfb: Some(try!(since_work_start.parse().context("since_work_start"))),
+                            resp_ttfb: Some(since_work_start),
                             .. self
                         },
                         "Resp" => RecordBuilder {
-                            req_took: Some(try!(since_work_start.parse().context("since_work_start"))),
-                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            req_took: Some(since_work_start),
+                            resp_end: Some(timestamp),
                             .. self
                         },
                         "BerespBody" | "Retry" => RecordBuilder {
-                            req_took: Some(try!(since_work_start.parse().context("since_work_start"))),
-                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            req_took: Some(since_work_start),
+                            resp_end: Some(timestamp),
                             .. self
                         },
                         "Error" => RecordBuilder {
-                            req_took: Some(try!(since_work_start.parse().context("since_work_start"))),
-                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            req_took: Some(since_work_start),
+                            resp_end: Some(timestamp),
                             // this won't be correct if we got error while accessing backend
                             resp_ttfb: None,
                             resp_fetch: None,
                             .. self
                         },
                         "Restart" => RecordBuilder {
-                            resp_end: Some(try!(timestamp.parse().context("timestamp"))),
+                            resp_end: Some(timestamp),
                             .. self
                         },
                         _ => {
@@ -768,7 +762,7 @@ impl RecordBuilder {
                 SLT_Link => {
                     let (reason, child_vxid, child_type) = try!(slt_link(message).into_result().context(vsl.tag));
 
-                    let child_vxid = try!(child_vxid.parse().context("child_vxid"));
+                    let child_vxid = child_vxid;
 
                     match (reason, child_type) {
                         ("req", "restart") => {
@@ -918,17 +912,16 @@ impl RecordBuilder {
 
                 // Session
                 SLT_SessOpen => {
-                    let (remote_ip, remote_port, _listen_sock, local_ip, local_port, timestamp, _fd)
-                        = try!(slt_session(message).into_result().context(vsl.tag));
+                    let (remote_address, _listen_sock, local_address, timestamp, _fd)
+                        = try!(slt_sess_open(message).into_result().context(vsl.tag));
+
+                    let remote_address = (remote_address.0.to_string(), remote_address.1);
+                    let local_address = local_address.map(|(ip, port)| (ip.to_string(), port));
 
                     RecordBuilder {
-                        sess_open: Some(try!(timestamp.parse().context("timestamp"))),
-                        sess_remote: if remote_ip != "-" && remote_port != "-" {
-                            Some((remote_ip.to_string(), try!(remote_port.parse().context("remote_port"))))
-                        } else {
-                            None
-                        },
-                        sess_local: Some((local_ip.to_string(), try!(local_port.parse().context("local_port")))),
+                        sess_open: Some(timestamp),
+                        sess_remote: Some(remote_address),
+                        sess_local: local_address,
                         .. self
                     }
                 }
@@ -936,7 +929,7 @@ impl RecordBuilder {
                     let (_reason, duration) = try!(slt_sess_close(message).into_result().context(vsl.tag));
 
                     RecordBuilder {
-                        sess_duration: Some(try!(duration.parse().context("duration"))),
+                        sess_duration: Some(duration),
                         .. self
                     }
                 }
