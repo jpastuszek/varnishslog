@@ -37,15 +37,25 @@ pub type FileDescriptor = isize;
 named!(label<&str, &str>, terminated!(take_until_s!(": "), tag_s!(": ")));
 named!(token<&str, &str>, terminated!(is_not_s!(" "), alt_complete!(space | eof)));
 
-//TODO: needs macro
-named!(vsl_ident<&str, VslIdent>, map_res!(token, FromStr::from_str));
-named!(bytes<&str, Bytes>, map_res!(token, FromStr::from_str));
-named!(fech_mode<&str, FetchMode>, map_res!(token, FromStr::from_str));
-named!(status<&str, Status>, map_res!(token, FromStr::from_str));
-named!(time_stamp<&str, TimeStamp>, map_res!(token, FromStr::from_str));
-named!(duration<&str, Duration>, map_res!(token, FromStr::from_str));
-named!(port<&str, Port>, map_res!(token, FromStr::from_str));
-named!(file_descriptor<&str, FileDescriptor>, map_res!(token, FromStr::from_str));
+macro_rules! named_parsed_token {
+    ($name:ident<$parse:ty>) => {
+        named!($name<&str, $parse>, map_res!(token, FromStr::from_str));
+    }
+}
+
+named_parsed_token!(vsl_ident<VslIdent>);
+named_parsed_token!(bytes<Bytes>);
+named_parsed_token!(fech_mode<FetchMode>);
+named_parsed_token!(status<Status>);
+named_parsed_token!(time_stamp<TimeStamp>);
+named_parsed_token!(duration<Duration>);
+named_parsed_token!(port<Port>);
+named_parsed_token!(file_descriptor<FileDescriptor>);
+
+named!(header_name<&str, &str>, terminated!(take_until_s!(":"), tag_s!(":")));
+fn header_value<'a>(input: &'a str) -> nom::IResult<&'a str, Option<&'a str>> {
+    delimited!(input, opt!(space), opt!(rest_s), eof)
+}
 
 named!(pub slt_begin<&str, (&str, VslIdent, &str)>, complete!(tuple!(
         token,       // Type ("sess", "req" or "bereq")
@@ -72,10 +82,6 @@ named!(pub slt_protocol<&str, &str>, complete!(rest_s));
 named!(pub slt_status<&str, Status>, complete!(status));
 named!(pub slt_reason<&str, &str>, complete!(rest_s));
 
-named!(pub header_name<&str, &str>, terminated!(take_until_s!(":"), tag_s!(":")));
-pub fn header_value<'a>(input: &'a str) -> nom::IResult<&'a str, Option<&'a str>> {
-    delimited!(input, opt!(space), opt!(rest_s), eof)
-}
 pub fn slt_header<'a>(input: &'a str) -> nom::IResult<&'a str, (&'a str, Option<&'a str>)> {
     complete!(input, tuple!(
         header_name,
@@ -117,4 +123,3 @@ named!(pub stl_fetch_body<&str, (FetchMode, &str, bool)>, complete!(tuple!(
                 alt_complete!(tag_s!("stream") | tag_s!("-")),
                 |s| s == "stream"), // 'stream' or '-'
             eof))));
-
