@@ -382,11 +382,11 @@ impl HeadersBuilder {
         }
     }
 
-    fn unset<'b>(self, name: &MaybeStr<'b>, value: &MaybeStr<'b>) -> HeadersBuilder {
+    fn unset(self, name: &MaybeStr, value: &MaybeStr) -> HeadersBuilder {
         let mut headers = self.headers;
         headers.retain(|header| {
             let &(ref t_name, ref t_value) = header;
-            (&t_name.as_maybe_str(), &t_value.as_maybe_str()) != (name, value)
+            (t_name.as_maybe_str(), t_value.as_maybe_str()) != (name, value)
         });
 
         HeadersBuilder {

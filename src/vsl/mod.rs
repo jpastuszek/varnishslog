@@ -61,6 +61,7 @@ fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeade
         })
 }
 
+//TODO: use MaybeStr for data?
 pub struct VslRecord<'b> {
     pub tag: VslRecordTag,
     pub marker: u8,
@@ -115,7 +116,7 @@ impl<'b> Debug for VslRecord<'b> {
             .field("tag", &self.tag)
             .field("marker", &self.marker)
             .field("ident", &self.ident)
-            .field("data", &MaybeStr(&self.data))
+            .field("data", &MaybeStr::from_bytes(&self.data))
             .finish()
     }
 }
@@ -125,9 +126,9 @@ impl<'b> Display for VslRecord<'b> {
         let tag = format!("{:?}", self.tag);
 
         if f.alternate() {
-            write!(f, "{:5} {:18} {}", self.ident, tag, MaybeStr(self.data))
+            write!(f, "{:5} {:18} {}", self.ident, tag, MaybeStr::from_bytes(self.data))
         } else {
-            write!(f, "VSL record (ident: {} tag: {} data: {:?})", self.ident, tag, MaybeStr(self.data))
+            write!(f, "VSL record (ident: {} tag: {} data: {:?})", self.ident, tag, MaybeStr::from_bytes(self.data))
         }
     }
 }
