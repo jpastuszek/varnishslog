@@ -292,16 +292,6 @@ quick_error! {
     }
 }
 
-trait BytesExt {
-    fn to_lossy_string(&self) -> String;
-}
-
-impl BytesExt for [u8] {
-    fn to_lossy_string(&self) -> String {
-        String::from_utf8_lossy(self).into_owned()
-    }
-}
-
 #[derive(Debug)]
 pub enum BuilderResult<B, C> {
     Building(B),

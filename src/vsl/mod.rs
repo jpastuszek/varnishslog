@@ -1,5 +1,4 @@
 use std::fmt::{self, Debug, Display};
-use std::str::from_utf8;
 use std::mem;
 
 use nom::{self, le_u32, IResult};
@@ -107,24 +106,6 @@ impl<'b> VslRecord<'b> {
             ident: ident,
             data: message.as_ref()
         }
-    }
-}
-
-struct MaybeString<'b>(&'b[u8]);
-
-impl<'b> Debug for MaybeString<'b> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        if let Ok(string) = from_utf8(self.0) {
-            write!(f, "{:?}", string)
-        } else {
-            write!(f, "{:?}<non-UTF-8 data: {:?}>", String::from_utf8_lossy(&self.0), &self.0)
-        }
-    }
-}
-
-impl<'b> Display for MaybeString<'b> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", String::from_utf8_lossy(&self.0))
     }
 }
 
