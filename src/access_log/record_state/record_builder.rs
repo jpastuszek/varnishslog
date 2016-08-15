@@ -93,8 +93,6 @@
 ///
 
 use std::fmt::Debug;
-use quick_error::ResultExt;
-use nom;
 
 use vsl::*;
 use vsl::VslRecordTag::*;
@@ -294,6 +292,16 @@ quick_error! {
     }
 }
 
+trait BytesExt {
+    fn to_lossy_string(&self) -> String;
+}
+
+impl BytesExt for [u8] {
+    fn to_lossy_string(&self) -> String {
+        String::from_utf8_lossy(self).into_owned()
+    }
+}
+
 #[derive(Debug)]
 pub enum BuilderResult<B, C> {
     Building(B),
@@ -419,7 +427,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 let protocol = try!(vsl.parsed_message(slt_protocol));
 
                 HttpRequestBuilder {
-                    protocol: Some(protocol.to_string()),
+                    protocol: Some(protocol.to_lossy_string()),
                     .. self
                 }
             }
@@ -427,7 +435,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 let method = try!(vsl.parsed_message(slt_method));
 
                 HttpRequestBuilder {
-                    method: Some(method.to_string()),
+                    method: Some(method.to_lossy_string()),
                     .. self
                 }
             }
@@ -435,14 +443,14 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 let url = try!(vsl.parsed_message(slt_url));
 
                 HttpRequestBuilder {
-                    url: Some(url.to_string()),
+                    url: Some(url.to_lossy_string()),
                     .. self
                 }
             }
             SLT_BereqHeader | SLT_ReqHeader => {
                 if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
                     let mut headers = self.headers;
-                    headers.set(name.to_string(), value.to_string());
+                    headers.set(name.to_lossy_string(), value.to_lossy_string());
 
                     HttpRequestBuilder {
                         headers: headers,
@@ -456,7 +464,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
             SLT_BereqUnset | SLT_ReqUnset => {
                 if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
                     let mut headers = self.headers;
-                    headers.unset(name, value);
+                    headers.unset(&name.to_lossy_string(), &value.to_lossy_string());
 
                     HttpRequestBuilder {
                         headers: headers,
@@ -513,7 +521,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 let protocol = try!(vsl.parsed_message(slt_protocol));
 
                 HttpResponseBuilder {
-                    protocol: Some(protocol.to_string()),
+                    protocol: Some(protocol.to_lossy_string()),
                     .. self
                 }
             }
@@ -529,14 +537,14 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 let reason = try!(vsl.parsed_message(slt_reason));
 
                 HttpResponseBuilder {
-                    reason: Some(reason.to_string()),
+                    reason: Some(reason.to_lossy_string()),
                     .. self
                 }
             }
             SLT_BerespHeader | SLT_RespHeader | SLT_ObjHeader => {
                 if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
                     let mut headers = self.headers;
-                    headers.set(name.to_string(), value.to_string());
+                    headers.set(name.to_lossy_string(), value.to_lossy_string());
 
                     HttpResponseBuilder {
                         headers: headers,
@@ -550,7 +558,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
             SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
                 if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
                     let mut headers = self.headers;
-                    headers.unset(name, value);
+                    headers.unset(&name.to_lossy_string(), &value.to_lossy_string());
 
                     HttpResponseBuilder {
                         headers: headers,
@@ -787,7 +795,7 @@ impl RecordBuilder {
             }
             SLT_VCL_Log => {
                 let mut log = self.log;
-                log.push(LogEntry::VCL(try!(vsl.parsed_message(slt_log)).to_string()));
+                log.push(LogEntry::VCL(try!(vsl.parsed_message(slt_log)).to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -796,7 +804,7 @@ impl RecordBuilder {
             }
             SLT_Debug => {
                 let mut log = self.log;
-                log.push(LogEntry::Debug(try!(vsl.parsed_message(slt_log)).to_string()));
+                log.push(LogEntry::Debug(try!(vsl.parsed_message(slt_log)).to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -805,7 +813,7 @@ impl RecordBuilder {
             }
             SLT_Error => {
                 let mut log = self.log;
-                log.push(LogEntry::Error(try!(vsl.parsed_message(slt_log)).to_string()));
+                log.push(LogEntry::Error(try!(vsl.parsed_message(slt_log)).to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -814,7 +822,7 @@ impl RecordBuilder {
             }
             SLT_FetchError => {
                 let mut log = self.log;
-                log.push(LogEntry::FetchError(try!(vsl.parsed_message(slt_log)).to_string()));
+                log.push(LogEntry::FetchError(try!(vsl.parsed_message(slt_log)).to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -823,7 +831,7 @@ impl RecordBuilder {
             }
             SLT_BogoHeader => {
                 let mut log = self.log;
-                log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", try!(vsl.parsed_message(slt_log)))));
+                log.push(LogEntry::Warning(format!("Bogus HTTP header received: {:?}", vsl.message())));
                 RecordBuilder {
                     log: log,
                     .. self
@@ -831,7 +839,7 @@ impl RecordBuilder {
             }
             SLT_LostHeader => {
                 let mut log = self.log;
-                log.push(LogEntry::Warning(format!("Logs the header name of a failed HTTP header operation due to resource exhaustion or configured limits: {}", try!(vsl.parsed_message(slt_log)))));
+                log.push(LogEntry::Warning(format!("Logs the header name of a failed HTTP header operation due to resource exhaustion or configured limits: {:?}", vsl.message())));
                 RecordBuilder {
                     log: log,
                     .. self
