@@ -1,5 +1,5 @@
 use std::fmt::{self, Debug, Display};
-use std::str::{from_utf8, Utf8Error};
+use std::str::from_utf8;
 use std::mem;
 
 use nom::{self, le_u32, IResult};
@@ -72,9 +72,9 @@ pub struct VslRecord<'b> {
 quick_error! {
     #[derive(Debug)]
     pub enum VslRecordParseError {
-        Nom(nom_err: String, tag: VslRecordTag, message: String) {
-            context(record: (VslRecordTag, String), err: nom::Err<&'a [u8]>) -> (format!("{}", err), record.0, record.1)
-            display("Nom parser failed on VSL record: {}; tag: {:?} message: {:?}", nom_err, tag, message)
+        Nom(nom_err: String, tag: VslRecordTag, record: String) {
+            context(record: &'a VslRecord<'a>, err: nom::Err<&'a [u8]>) -> (format!("{}", err), record.tag, format!("{}", record))
+            display("Nom parser failed on {}: {}", record, nom_err)
         }
     }
 }
@@ -94,15 +94,9 @@ impl<I, O, E> IResultExt<O, nom::Err<I, E>> for IResult<I, O, E> {
 }
 
 impl<'b> VslRecord<'b> {
-    //TODO: return MaybeString so can be used in logging
-    pub fn message(&'b self) -> Result<&'b str, Utf8Error> {
-        from_utf8(self.data)
-    }
-
-    //TODO: work with bytes; rename to parse_data?
-    pub fn parsed_message<T, P>(&'b self, parser: P) -> Result<T, VslRecordParseError> where
+    pub fn parse_data<T, P>(&'b self, parser: P) -> Result<T, VslRecordParseError> where
         P: Fn(&'b [u8]) -> nom::IResult<&'b [u8], T> {
-        Ok(try!(complete!(self.data, parser).into_result().context((self.tag, self.message().unwrap().to_string()))))
+        Ok(try!(complete!(self.data, parser).into_result().context(self)))
     }
 
     #[cfg(test)]
@@ -116,13 +110,31 @@ impl<'b> VslRecord<'b> {
     }
 }
 
+struct MaybeString<'b>(&'b[u8]);
+
+impl<'b> Debug for MaybeString<'b> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        if let Ok(string) = from_utf8(self.0) {
+            write!(f, "{:?}", string)
+        } else {
+            write!(f, "{:?}<non-UTF-8 data: {:?}>", String::from_utf8_lossy(&self.0), &self.0)
+        }
+    }
+}
+
+impl<'b> Display for MaybeString<'b> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}", String::from_utf8_lossy(&self.0))
+    }
+}
+
 impl<'b> Debug for VslRecord<'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("VSL Record")
             .field("tag", &self.tag)
             .field("marker", &self.marker)
             .field("ident", &self.ident)
-            .field("message", &self.message())
+            .field("data", &MaybeString(&self.data))
             .finish()
     }
 }
@@ -130,7 +142,12 @@ impl<'b> Debug for VslRecord<'b> {
 impl<'b> Display for VslRecord<'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let tag = format!("{:?}", self.tag);
-        write!(f, "{:5} {:18} {}", self.ident, tag, self.message().unwrap_or("<non valid UTF-8>"))
+
+        if f.alternate() {
+            write!(f, "{:5} {:18} {}", self.ident, tag, MaybeString(self.data))
+        } else {
+            write!(f, "VSL record (ident: {} tag: {} data: {:?})", self.ident, tag, MaybeString(self.data))
+        }
     }
 }
 

@@ -132,7 +132,7 @@ fn main() {
         };
 
         match output_format {
-            OutputFormat::LogEntries => println!("{}", record),
+            OutputFormat::LogEntries => println!("{:#}", record),
             OutputFormat::RecordsDebug => {
                 if let Some(record) = record_state.apply(&record) {
                     println!("{:#?}", record)

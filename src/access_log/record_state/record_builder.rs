@@ -341,7 +341,7 @@ impl<B, C> BuilderResult<B, C> {
         let builder_result = if let Building(builder) = self {
             Building(try!(builder.apply(vsl)))
         } else {
-            debug!("Ignoring VSL record with tag {:?} and message {:?} as we have finished building {}", vsl.tag, vsl.message(), B::result_name());
+            debug!("Ignoring {} as we have finished building {}", vsl, B::result_name());
             self
         };
 
@@ -424,7 +424,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
     fn apply(self, vsl: &VslRecord) -> Result<HttpRequestBuilder, RecordBuilderError> {
         let builder = match vsl.tag {
             SLT_BereqProtocol | SLT_ReqProtocol => {
-                let protocol = try!(vsl.parsed_message(slt_protocol));
+                let protocol = try!(vsl.parse_data(slt_protocol));
 
                 HttpRequestBuilder {
                     protocol: Some(protocol.to_lossy_string()),
@@ -432,7 +432,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 }
             }
             SLT_BereqMethod | SLT_ReqMethod => {
-                let method = try!(vsl.parsed_message(slt_method));
+                let method = try!(vsl.parse_data(slt_method));
 
                 HttpRequestBuilder {
                     method: Some(method.to_lossy_string()),
@@ -440,7 +440,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 }
             }
             SLT_BereqURL | SLT_ReqURL => {
-                let url = try!(vsl.parsed_message(slt_url));
+                let url = try!(vsl.parse_data(slt_url));
 
                 HttpRequestBuilder {
                     url: Some(url.to_lossy_string()),
@@ -448,7 +448,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                 }
             }
             SLT_BereqHeader | SLT_ReqHeader => {
-                if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
+                if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
                     let mut headers = self.headers;
                     headers.set(name.to_lossy_string(), value.to_lossy_string());
 
@@ -457,12 +457,12 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                         .. self
                     }
                 } else {
-                    debug!("Not setting empty request header: {:?}", vsl.message());
+                    debug!("Not setting empty request header: {:?}", vsl);
                     self
                 }
             }
             SLT_BereqUnset | SLT_ReqUnset => {
-                if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
+                if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
                     let mut headers = self.headers;
                     headers.unset(&name.to_lossy_string(), &value.to_lossy_string());
 
@@ -471,11 +471,11 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
                         .. self
                     }
                 } else {
-                    debug!("Not unsetting empty request header: {:?}", vsl.message());
+                    debug!("Not unsetting empty request header: {:?}", vsl);
                     self
                 }
             }
-            _ => panic!("Got unexpected VSL record with tag {:?} in request builder", vsl.tag)
+            _ => panic!("Got unexpected VSL record in request builder: {:?}", vsl)
         };
 
         Ok(builder)
@@ -518,7 +518,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
     fn apply(self, vsl: &VslRecord) -> Result<HttpResponseBuilder, RecordBuilderError> {
         let builder = match vsl.tag {
             SLT_BerespProtocol | SLT_RespProtocol | SLT_ObjProtocol => {
-                let protocol = try!(vsl.parsed_message(slt_protocol));
+                let protocol = try!(vsl.parse_data(slt_protocol));
 
                 HttpResponseBuilder {
                     protocol: Some(protocol.to_lossy_string()),
@@ -526,7 +526,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 }
             }
             SLT_BerespStatus | SLT_RespStatus | SLT_ObjStatus => {
-                let status = try!(vsl.parsed_message(slt_status));
+                let status = try!(vsl.parse_data(slt_status));
 
                 HttpResponseBuilder {
                     status: Some(status),
@@ -534,7 +534,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 }
             }
             SLT_BerespReason | SLT_RespReason | SLT_ObjReason => {
-                let reason = try!(vsl.parsed_message(slt_reason));
+                let reason = try!(vsl.parse_data(slt_reason));
 
                 HttpResponseBuilder {
                     reason: Some(reason.to_lossy_string()),
@@ -542,7 +542,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                 }
             }
             SLT_BerespHeader | SLT_RespHeader | SLT_ObjHeader => {
-                if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
+                if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
                     let mut headers = self.headers;
                     headers.set(name.to_lossy_string(), value.to_lossy_string());
 
@@ -551,12 +551,12 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                         .. self
                     }
                 } else {
-                    debug!("Not setting empty response header: {:?}", vsl.message());
+                    debug!("Not setting empty response header: {:?}", vsl);
                     self
                 }
             }
             SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
-                if let (name, Some(value)) = try!(vsl.parsed_message(slt_header)) {
+                if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
                     let mut headers = self.headers;
                     headers.unset(&name.to_lossy_string(), &value.to_lossy_string());
 
@@ -565,11 +565,11 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
                         .. self
                     }
                 } else {
-                    debug!("Not unsetting empty response header: {:?}", vsl.message());
+                    debug!("Not unsetting empty response header: {:?}", vsl);
                     self
                 }
             }
-            _ => panic!("Got unexpected VSL record with tag {:?} in response builder", vsl.tag)
+            _ => panic!("Got unexpected VSL record in request builder: {:?}", vsl)
         };
 
         Ok(builder)
@@ -671,7 +671,7 @@ impl RecordBuilder {
     pub fn apply<'r>(self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
         let builder = match vsl.tag {
             SLT_Begin => {
-                let (record_type, vxid, reason) = try!(vsl.parsed_message(slt_begin));
+                let (record_type, vxid, reason) = try!(vsl.parse_data(slt_begin));
 
                 match record_type {
                     "bereq" => RecordBuilder {
@@ -696,7 +696,7 @@ impl RecordBuilder {
                 }
             }
             SLT_Timestamp => {
-                let (label, timestamp, since_work_start, since_last_timestamp) = try!(vsl.parsed_message(slt_timestamp));
+                let (label, timestamp, since_work_start, since_last_timestamp) = try!(vsl.parse_data(slt_timestamp));
                 match label {
                     "Start" => RecordBuilder {
                         req_start: Some(timestamp),
@@ -752,7 +752,7 @@ impl RecordBuilder {
                 }
             }
             SLT_Link => {
-                let (reason, child_vxid, child_type) = try!(vsl.parsed_message(slt_link));
+                let (reason, child_vxid, child_type) = try!(vsl.parse_data(slt_link));
 
                 let child_vxid = child_vxid;
 
@@ -795,7 +795,7 @@ impl RecordBuilder {
             }
             SLT_VCL_Log => {
                 let mut log = self.log;
-                log.push(LogEntry::VCL(try!(vsl.parsed_message(slt_log)).to_lossy_string()));
+                log.push(LogEntry::VCL(try!(vsl.parse_data(slt_log)).to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -804,7 +804,7 @@ impl RecordBuilder {
             }
             SLT_Debug => {
                 let mut log = self.log;
-                log.push(LogEntry::Debug(try!(vsl.parsed_message(slt_log)).to_lossy_string()));
+                log.push(LogEntry::Debug(try!(vsl.parse_data(slt_log)).to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -813,7 +813,7 @@ impl RecordBuilder {
             }
             SLT_Error => {
                 let mut log = self.log;
-                log.push(LogEntry::Error(try!(vsl.parsed_message(slt_log)).to_lossy_string()));
+                log.push(LogEntry::Error(try!(vsl.parse_data(slt_log)).to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -822,7 +822,7 @@ impl RecordBuilder {
             }
             SLT_FetchError => {
                 let mut log = self.log;
-                log.push(LogEntry::FetchError(try!(vsl.parsed_message(slt_log)).to_lossy_string()));
+                log.push(LogEntry::FetchError(try!(vsl.parse_data(slt_log)).to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -831,7 +831,7 @@ impl RecordBuilder {
             }
             SLT_BogoHeader => {
                 let mut log = self.log;
-                log.push(LogEntry::Warning(format!("Bogus HTTP header received: {:?}", vsl.message())));
+                log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", try!(vsl.parse_data(slt_log)).to_lossy_string())));
                 RecordBuilder {
                     log: log,
                     .. self
@@ -839,7 +839,7 @@ impl RecordBuilder {
             }
             SLT_LostHeader => {
                 let mut log = self.log;
-                log.push(LogEntry::Warning(format!("Logs the header name of a failed HTTP header operation due to resource exhaustion or configured limits: {:?}", vsl.message())));
+                log.push(LogEntry::Warning(format!("Failed HTTP header operation due to resource exhaustion or configured limits; header was: {}", try!(vsl.parse_data(slt_log)).to_lossy_string())));
                 RecordBuilder {
                     log: log,
                     .. self
@@ -849,7 +849,7 @@ impl RecordBuilder {
             SLT_ReqAcct => {
                 let (recv_header, recv_body, recv_total,
                      sent_header, sent_body, sent_total) =
-                    try!(vsl.parsed_message(slt_reqacc));
+                    try!(vsl.parse_data(slt_reqacc));
 
                 RecordBuilder {
                     req_acct: Some(ReqAcct {
@@ -903,7 +903,7 @@ impl RecordBuilder {
             // Session
             SLT_SessOpen => {
                 let (remote_address, _listen_sock, local_address, timestamp, _fd)
-                    = try!(vsl.parsed_message(slt_sess_open));
+                    = try!(vsl.parse_data(slt_sess_open));
 
                 let remote_address = (remote_address.0.to_string(), remote_address.1);
                 let local_address = local_address.map(|(ip, port)| (ip.to_string(), port));
@@ -916,7 +916,7 @@ impl RecordBuilder {
                 }
             }
             SLT_SessClose => {
-                let (_reason, duration) = try!(vsl.parsed_message(slt_sess_close));
+                let (_reason, duration) = try!(vsl.parse_data(slt_sess_close));
 
                 RecordBuilder {
                     sess_duration: Some(duration),
@@ -926,7 +926,7 @@ impl RecordBuilder {
 
             // Final
             SLT_VCL_call => {
-                let method = try!(vsl.parsed_message(slt_call));
+                let method = try!(vsl.parse_data(slt_call));
 
                 match method {
                     "RECV" => RecordBuilder {
@@ -946,7 +946,7 @@ impl RecordBuilder {
             }
             SLT_Fetch_Body => {
                 let (_fetch_mode, fetch_mode_name, streamed) =
-                    try!(vsl.parsed_message(slt_fetch_body));
+                    try!(vsl.parse_data(slt_fetch_body));
 
                 RecordBuilder {
                     cache_object: try!(self.cache_object.complete()),
@@ -1075,6 +1075,7 @@ impl RecordBuilder {
 mod tests {
     pub use super::*;
     pub use super::super::super::test_helpers::*;
+    use vsl::VslRecord;
 
     macro_rules! apply {
         ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{
@@ -1119,35 +1120,17 @@ mod tests {
 
     #[test]
     fn apply_log() {
-        let builder = RecordBuilder::new(123);
+        let builder = RecordBuilder::new(1);
 
         let builder = apply_all!(builder,
-                                 4, SLT_VCL_Log,        "X-Varnish-Privileged-Client: false";
-                                 4, SLT_VCL_Log,        "X-Varnish-User-Agent-Class: Unknown-Bot";
-                                 4, SLT_VCL_Log,        "X-Varnish-Force-Failure: false";
+                                 1, SLT_VCL_Log,        "X-Varnish-Privileged-Client: false";
+                                 1, SLT_VCL_Log,        "X-Varnish-User-Agent-Class: Unknown-Bot";
+                                 1, SLT_VCL_Log,        "X-Varnish-Force-Failure: false";
                                 );
         assert_eq!(builder.log, &[
                    LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
                    LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
                    LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
-        ]);
-    }
-
-    #[test]
-    fn apply_non_utf8() {
-        let builder = RecordBuilder::new(1);
-
-        use vsl::VslRecord;
-        let result = builder.apply(&VslRecord {
-            tag: SLT_Begin,
-            marker: 0,
-            ident: 123,
-            data: &[255, 0, 1, 2, 3]
-        });
-
-        let builder = result.unwrap().unwrap_building();
-        assert_eq!(builder.log, &[
-                   LogEntry::Warning("Cannot get VSL record message with tag SLT_Begin: invalid utf-8: invalid byte near index 0 message was: \"\\u{fffd}\\u{0}\\u{1}\\u{2}\\u{3}\"".to_string()),
         ]);
     }
 
@@ -1343,6 +1326,48 @@ mod tests {
     }
 
     #[test]
+    fn apply_backend_request_non_utf8() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                   123, SLT_BereqMethod,    "GET";
+                   );
+
+        let result = builder.apply(&VslRecord {
+            tag: SLT_BereqURL,
+            marker: 0,
+            ident: 123,
+            data: &[0, 159, 146, 150]
+        });
+        let builder = result.unwrap().unwrap_building();
+
+        let builder = apply_all!(builder,
+                   123, SLT_BereqProtocol, "HTTP/1.1";
+                   );
+
+        let result = builder.apply(&VslRecord {
+            tag: SLT_BereqHeader,
+            marker: 0,
+            ident: 123,
+            data: &[72, 111, 115, 116, 58, 32, 0, 159, 146, 150]
+        });
+        let builder = result.unwrap().unwrap_building();
+
+        let builder = apply_all!(builder,
+                   123, SLT_BerespProtocol, "HTTP/1.1";
+                   123, SLT_BerespStatus,   "503";
+                   123, SLT_BerespReason,   "Service Unavailable";
+                   123, SLT_VCL_call,       "BACKEND_RESPONSE";
+                   );
+
+        let requests = builder.http_request.as_ref().unwrap();
+        assert_eq!(requests.url, "\u{0}\u{fffd}\u{fffd}\u{fffd}".to_string());
+        assert_eq!(requests.headers, vec![
+                   ("Host".to_string(), "\u{0}\u{fffd}\u{fffd}\u{fffd}".to_string())
+        ]);
+    }
+
+    #[test]
     fn apply_client_access_record_timing() {
         let builder = RecordBuilder::new(123);
 
@@ -1535,7 +1560,7 @@ mod tests {
                     LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
                     LogEntry::Debug("RES_MODE 2".to_string()),
                     LogEntry::Error("oh no!".to_string()),
-                    LogEntry::Warning("Logs the header name of a failed HTTP header operation due to resource exhaustion or configured limits: SetCookie: foo=bar".to_string()),
+                    LogEntry::Warning("Failed HTTP header operation due to resource exhaustion or configured limits; header was: SetCookie: foo=bar".to_string()),
          ]);
     }
 

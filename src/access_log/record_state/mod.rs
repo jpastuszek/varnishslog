@@ -34,8 +34,8 @@ impl RecordState {
             None => RecordBuilder::new(vsl.ident),
             Some(Builder(builder)) => builder,
             Some(Tombstone(err)) => {
-                debug!("Found tombstone for record with ident {}: ignoring VSL record with tag {:?} and message {:?}; inscription: {}",
-                       vsl.ident, vsl.tag, vsl.message(), &err);
+                debug!("Found tombstone for record with ident {}: ignoring {}; inscription: {}",
+                       &vsl.ident, &vsl, &err);
                 self.builders.insert(vsl.ident, Tombstone(err)); // it's heavy, put it back
                 return None
             }
@@ -48,8 +48,8 @@ impl RecordState {
                 return None
             }
             Err(err) => {
-                error!("Error while building record with ident {} while applying VSL record with tag {:?} and message {:?}: {}",
-                       vsl.ident, vsl.tag, vsl.message(), &err);
+                error!("Error while building record with ident {} while applying {}: {}",
+                       &vsl.ident, &vsl, &err);
                 self.builders.insert(vsl.ident, Tombstone(err));
                 return None
             }
