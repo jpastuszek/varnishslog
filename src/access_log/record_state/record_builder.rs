@@ -360,26 +360,38 @@ trait DetailBuilder<C>: Sized {
 }
 
 #[derive(Debug)]
-struct Headers {
+struct HeadersBuilder {
     headers: Vec<(String, String)>,
 }
 
-impl Headers {
-    fn new() -> Headers {
-        Headers {
+impl HeadersBuilder {
+    fn new() -> HeadersBuilder {
+        HeadersBuilder {
             headers: Vec::new()
         }
     }
 
-    fn set(&mut self, name: String, value: String) {
-        self.headers.push((name, value));
+    fn set(self, name: String, value: String) -> HeadersBuilder {
+        let mut headers = self.headers;
+        headers.push((name, value));
+
+        HeadersBuilder {
+            headers: headers,
+            .. self
+        }
     }
 
-    fn unset(&mut self, name: &str, value: &str) {
-        self.headers.retain(|header| {
+    fn unset(self, name: &str, value: &str) -> HeadersBuilder {
+        let mut headers = self.headers;
+        headers.retain(|header| {
             let &(ref t_name, ref t_value) = header;
             (t_name.as_str(), t_value.as_str()) != (name, value)
         });
+
+        HeadersBuilder {
+            headers: headers,
+            .. self
+        }
     }
 
     fn unwrap(self) -> Vec<(String, String)> {
@@ -392,7 +404,7 @@ struct HttpRequestBuilder {
     protocol: Option<String>,
     method: Option<String>,
     url: Option<String>,
-    headers: Headers,
+    headers: HeadersBuilder,
 }
 
 impl HttpRequestBuilder {
@@ -401,7 +413,7 @@ impl HttpRequestBuilder {
             protocol: None,
             method: None,
             url: None,
-            headers: Headers::new(),
+            headers: HeadersBuilder::new(),
         }
     }
 }
@@ -439,11 +451,8 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
             }
             SLT_BereqHeader | SLT_ReqHeader => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    let mut headers = self.headers;
-                    headers.set(name.to_lossy_string(), value.to_lossy_string());
-
                     HttpRequestBuilder {
-                        headers: headers,
+                        headers: self.headers.set(name.to_lossy_string(), value.to_lossy_string()),
                         .. self
                     }
                 } else {
@@ -453,11 +462,8 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
             }
             SLT_BereqUnset | SLT_ReqUnset => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    let mut headers = self.headers;
-                    headers.unset(&name.to_lossy_string(), &value.to_lossy_string());
-
                     HttpRequestBuilder {
-                        headers: headers,
+                        headers: self.headers.unset(&name.to_lossy_string(), &value.to_lossy_string()),
                         .. self
                     }
                 } else {
@@ -486,7 +492,7 @@ struct HttpResponseBuilder {
     protocol: Option<String>,
     status: Option<Status>,
     reason: Option<String>,
-    headers: Headers,
+    headers: HeadersBuilder,
 }
 
 impl HttpResponseBuilder {
@@ -495,7 +501,7 @@ impl HttpResponseBuilder {
             protocol: None,
             status: None,
             reason: None,
-            headers: Headers::new(),
+            headers: HeadersBuilder::new(),
         }
     }
 }
@@ -533,11 +539,8 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
             }
             SLT_BerespHeader | SLT_RespHeader | SLT_ObjHeader => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    let mut headers = self.headers;
-                    headers.set(name.to_lossy_string(), value.to_lossy_string());
-
                     HttpResponseBuilder {
-                        headers: headers,
+                        headers: self.headers.set(name.to_lossy_string(), value.to_lossy_string()),
                         .. self
                     }
                 } else {
@@ -547,11 +550,8 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
             }
             SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    let mut headers = self.headers;
-                    headers.unset(&name.to_lossy_string(), &value.to_lossy_string());
-
                     HttpResponseBuilder {
-                        headers: headers,
+                        headers: self.headers.unset(&name.to_lossy_string(), &value.to_lossy_string()),
                         .. self
                     }
                 } else {
