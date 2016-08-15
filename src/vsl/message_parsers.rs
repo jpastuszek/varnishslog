@@ -21,11 +21,16 @@ use super::VslIdent;
 ///   will be provided as bytes to the caller - this is to avoid mem alloc of lossless convertion and let the
 ///   client do the checking, logging and converstion etc
 
+#[derive(PartialEq)]
 pub struct MaybeStr<'b>(pub &'b[u8]);
 
 impl<'b> MaybeStr<'b> {
     pub fn to_lossy_string(&self) -> String {
         String::from_utf8_lossy(self.0).into_owned()
+    }
+
+    pub fn to_maybe_string(&self) -> MaybeString {
+        MaybeString(self.0.to_owned())
     }
 }
 
@@ -42,6 +47,25 @@ impl<'b> Debug for MaybeStr<'b> {
 impl<'b> Display for MaybeStr<'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{}", String::from_utf8_lossy(&self.0))
+    }
+}
+
+//TODO: Debug, Display
+#[derive(PartialEq, Debug)]
+pub struct MaybeString(pub Vec<u8>);
+
+impl MaybeString {
+    pub fn to_lossy_string(self) -> String {
+        match String::from_utf8(self.0) {
+            Ok(string) => string,
+            Err(err) => {
+                String::from_utf8_lossy(err.into_bytes().as_slice()).into_owned()
+            }
+        }
+    }
+
+    pub fn as_maybe_str<'b>(&'b self) -> MaybeStr<'b> {
+        MaybeStr(self.0.as_slice())
     }
 }
 

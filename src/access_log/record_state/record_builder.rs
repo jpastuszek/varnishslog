@@ -359,9 +359,10 @@ trait DetailBuilder<C>: Sized {
     fn complete(self) -> Result<C, RecordBuilderError>;
 }
 
+// Note: we need to use bytes here since we need to be 1 to 1 comparable with original byte value
 #[derive(Debug)]
 struct HeadersBuilder {
-    headers: Vec<(String, String)>,
+    headers: Vec<(MaybeString, MaybeString)>,
 }
 
 impl HeadersBuilder {
@@ -371,7 +372,7 @@ impl HeadersBuilder {
         }
     }
 
-    fn set(self, name: String, value: String) -> HeadersBuilder {
+    fn set(self, name: MaybeString, value: MaybeString) -> HeadersBuilder {
         let mut headers = self.headers;
         headers.push((name, value));
 
@@ -381,11 +382,11 @@ impl HeadersBuilder {
         }
     }
 
-    fn unset(self, name: &str, value: &str) -> HeadersBuilder {
+    fn unset<'b>(self, name: &MaybeStr<'b>, value: &MaybeStr<'b>) -> HeadersBuilder {
         let mut headers = self.headers;
         headers.retain(|header| {
             let &(ref t_name, ref t_value) = header;
-            (t_name.as_str(), t_value.as_str()) != (name, value)
+            (&t_name.as_maybe_str(), &t_value.as_maybe_str()) != (name, value)
         });
 
         HeadersBuilder {
@@ -394,7 +395,7 @@ impl HeadersBuilder {
         }
     }
 
-    fn unwrap(self) -> Vec<(String, String)> {
+    fn unwrap(self) -> Vec<(MaybeString, MaybeString)> {
         self.headers
     }
 }
@@ -452,7 +453,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
             SLT_BereqHeader | SLT_ReqHeader => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
                     HttpRequestBuilder {
-                        headers: self.headers.set(name.to_lossy_string(), value.to_lossy_string()),
+                        headers: self.headers.set(name.to_maybe_string(), value.to_maybe_string()),
                         .. self
                     }
                 } else {
@@ -463,7 +464,7 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
             SLT_BereqUnset | SLT_ReqUnset => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
                     HttpRequestBuilder {
-                        headers: self.headers.unset(&name.to_lossy_string(), &value.to_lossy_string()),
+                        headers: self.headers.unset(&name, &value),
                         .. self
                     }
                 } else {
@@ -482,7 +483,9 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
             protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Request.protocol"))),
             method: try!(self.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))),
             url: try!(self.url.ok_or(RecordBuilderError::RecordIncomplete("Request.url"))),
-            headers: self.headers.unwrap(),
+            headers: self.headers.unwrap().into_iter()
+                .map(|(name, value)| (name.to_lossy_string(), value.to_lossy_string()))
+                .collect(),
         })
     }
 }
@@ -540,7 +543,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
             SLT_BerespHeader | SLT_RespHeader | SLT_ObjHeader => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
                     HttpResponseBuilder {
-                        headers: self.headers.set(name.to_lossy_string(), value.to_lossy_string()),
+                        headers: self.headers.set(name.to_maybe_string(), value.to_maybe_string()),
                         .. self
                     }
                 } else {
@@ -551,7 +554,7 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
             SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
                     HttpResponseBuilder {
-                        headers: self.headers.unset(&name.to_lossy_string(), &value.to_lossy_string()),
+                        headers: self.headers.unset(&name, &value),
                         .. self
                     }
                 } else {
@@ -570,7 +573,9 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
             protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Response.protocol"))),
             status: try!(self.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))),
             reason: try!(self.reason.ok_or(RecordBuilderError::RecordIncomplete("Response.reason"))),
-            headers: self.headers.unwrap(),
+            headers: self.headers.unwrap().into_iter()
+                .map(|(name, value)| (name.to_lossy_string(), value.to_lossy_string()))
+                .collect(),
         })
     }
 }
