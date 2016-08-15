@@ -115,7 +115,7 @@ impl<'b> Debug for VslRecord<'b> {
             .field("tag", &self.tag)
             .field("marker", &self.marker)
             .field("ident", &self.ident)
-            .field("data", &MaybeString(&self.data))
+            .field("data", &MaybeStr(&self.data))
             .finish()
     }
 }
@@ -125,9 +125,9 @@ impl<'b> Display for VslRecord<'b> {
         let tag = format!("{:?}", self.tag);
 
         if f.alternate() {
-            write!(f, "{:5} {:18} {}", self.ident, tag, MaybeString(self.data))
+            write!(f, "{:5} {:18} {}", self.ident, tag, MaybeStr(self.data))
         } else {
-            write!(f, "VSL record (ident: {} tag: {} data: {:?})", self.ident, tag, MaybeString(self.data))
+            write!(f, "VSL record (ident: {} tag: {} data: {:?})", self.ident, tag, MaybeStr(self.data))
         }
     }
 }

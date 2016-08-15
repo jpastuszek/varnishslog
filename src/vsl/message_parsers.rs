@@ -17,19 +17,19 @@ use super::VslIdent;
 /// * strings
 ///   * symbol - this are comming from Varnish code (strings or numbers/IP) so they will be mapped to &str or
 ///   parsing will fail; symbols can be trusted to be UTF-8 compatible (ASCII)
-///   * maybe_string - foreign string: URL, headers, methods, etc. - we cannot trust them to be UTF-8 so they
+///   * maybe_str - foreign string: URL, headers, methods, etc. - we cannot trust them to be UTF-8 so they
 ///   will be provided as bytes to the caller - this is to avoid mem alloc of lossless convertion and let the
 ///   client do the checking, logging and converstion etc
 
-pub struct MaybeString<'b>(pub &'b[u8]);
+pub struct MaybeStr<'b>(pub &'b[u8]);
 
-impl<'b> MaybeString<'b> {
+impl<'b> MaybeStr<'b> {
     pub fn to_lossy_string(&self) -> String {
         String::from_utf8_lossy(self.0).into_owned()
     }
 }
 
-impl<'b> Debug for MaybeString<'b> {
+impl<'b> Debug for MaybeStr<'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         if let Ok(string) = from_utf8(self.0) {
             write!(f, "{:?}", string)
@@ -39,7 +39,7 @@ impl<'b> Debug for MaybeString<'b> {
     }
 }
 
-impl<'b> Display for MaybeString<'b> {
+impl<'b> Display for MaybeStr<'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{}", String::from_utf8_lossy(&self.0))
     }
@@ -67,13 +67,13 @@ macro_rules! named_lt {
     };
 }
 
-/// Wrap result in MaybeString type
-macro_rules! maybe_string {
+/// Wrap result in MaybeStr type
+macro_rules! maybe_str {
     ($i:expr, $submac:ident!( $($args:tt)* )) => {
-        map!($i, $submac!($($args)*), MaybeString)
+        map!($i, $submac!($($args)*), MaybeStr)
     };
     ($i:expr, $f:expr) => {
-        map!($i, call!($f), MaybeString)
+        map!($i, call!($f), MaybeStr)
     };
 }
 
@@ -82,10 +82,10 @@ named!(token<&[u8], &[u8]>, terminated!(is_not!(b" "), alt_complete!(space | eof
 named!(label<&[u8], &str>, map_res!(terminated!(take_until!(b": "), tag!(b": ")), from_utf8));
 named!(symbol<&[u8], &str>, map_res!(token, from_utf8));
 
-named_lt!(header_name<&'a[u8], MaybeString<'a> >, maybe_string!(
+named_lt!(header_name<&'a[u8], MaybeStr<'a> >, maybe_str!(
         terminated!(take_until!(b":"), tag!(b":"))));
-named_lt!(header_value<&'a[u8], Option<MaybeString<'a> > >,
-        delimited!(opt!(space), opt!(maybe_string!(rest)), eof));
+named_lt!(header_value<&'a[u8], Option<MaybeStr<'a> > >,
+        delimited!(opt!(space), opt!(maybe_str!(rest)), eof));
 
 macro_rules! named_parsed_symbol {
     ($name:ident<$parse:ty>) => {
@@ -123,22 +123,22 @@ named!(pub slt_reqacc<&[u8], (ByteCount, ByteCount, ByteCount, ByteCount, ByteCo
         byte_count,     // Body bytes transmitted
         byte_count));   // Total bytes transmitted
 
-named_lt!(pub slt_method<&'a[u8], MaybeString<'a> >, maybe_string!(
+named_lt!(pub slt_method<&'a[u8], MaybeStr<'a> >, maybe_str!(
         rest));
 
-named_lt!(pub slt_url<&'a[u8], MaybeString<'a> >, maybe_string!(
+named_lt!(pub slt_url<&'a[u8], MaybeStr<'a> >, maybe_str!(
         rest));
 
-named_lt!(pub slt_protocol<&'a[u8], MaybeString<'a> >, maybe_string!(
+named_lt!(pub slt_protocol<&'a[u8], MaybeStr<'a> >, maybe_str!(
         rest));
 
 named!(pub slt_status<&[u8], Status>, call!(
         status));
 
-named_lt!(pub slt_reason<&'a[u8], MaybeString<'a> >, maybe_string!(
+named_lt!(pub slt_reason<&'a[u8], MaybeStr<'a> >, maybe_str!(
         rest));
 
-named_lt!(pub slt_header<&'a[u8], (MaybeString<'a>, Option<MaybeString<'a> >)>, tuple!(
+named_lt!(pub slt_header<&'a[u8], (MaybeStr<'a>, Option<MaybeStr<'a> >)>, tuple!(
         header_name,
         header_value));
 
@@ -177,5 +177,5 @@ named!(pub slt_fetch_body<&[u8], (FetchMode, &str, bool)>, tuple!(
                 |s| s == b"stream"),
             eof)));
 
-named_lt!(pub slt_log<&'a[u8], MaybeString<'a> >, maybe_string!(
+named_lt!(pub slt_log<&'a[u8], MaybeStr<'a> >, maybe_str!(
         rest));
