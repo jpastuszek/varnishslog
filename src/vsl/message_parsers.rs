@@ -62,6 +62,16 @@ named_parsed_symbol!(duration<Duration>);
 named_parsed_symbol!(port<Port>);
 named_parsed_symbol!(file_descriptor<FileDescriptor>);
 
+fn map_opt_duration(duration: Duration) -> Option<Duration> {
+    if duration == -1.0 {
+        None
+    } else {
+        Some(duration)
+    }
+}
+
+named!(opt_duration<&[u8], Option<Duration> >, map!(duration, map_opt_duration));
+
 // VSL record message parsers by tag
 
 named!(pub slt_begin<&[u8], (&str, VslIdent, &str)>, tuple!(
@@ -127,6 +137,20 @@ named!(pub slt_sess_close<&[u8], (&str, Duration)>, tuple!(
 
 named!(pub slt_call<&[u8], &str>, call!(
         symbol));   // VCL method name
+
+named!(pub slt_ttl<&[u8], (&str, Option<Duration>, Option<Duration>, Option<Duration>, TimeStamp,
+                           Option<(TimeStamp, TimeStamp, TimeStamp, Duration)>)>, tuple!(
+        symbol,         // "RFC" or "VCL"
+        opt_duration,   // TTL (-1 for unset)
+        opt_duration,   // Grace (-1 for unset)
+        opt_duration,   // Keep (-1 for unset)
+        time_stamp,     // Reference time for TTL
+        opt!(tuple!(
+            time_stamp, // Now - Age header (origin time)
+            time_stamp, // Date header
+            time_stamp, // Expires header
+            duration    // Max-Age from Cache-Control header
+        ))));           // The last four fields are only present in "RFC" headers.
 
 named!(pub slt_fetch_body<&[u8], (FetchMode, &str, bool)>, tuple!(
         fech_mode,  // Body fetch mode

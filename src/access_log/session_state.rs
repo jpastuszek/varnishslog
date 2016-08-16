@@ -421,6 +421,8 @@ mod tests {
                65542, SLT_BerespStatus,     "200";
                65542, SLT_BerespReason,     "OK";
                65542, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+               65542, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+               65542, SLT_VCL_call,         "BACKEND_RESPONSE";
                65542, SLT_ObjProtocol,      "HTTP/1.1";
                65542, SLT_ObjStatus,        "200";
                65542, SLT_ObjReason,        "OK";
@@ -428,7 +430,6 @@ mod tests {
                65542, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
                65542, SLT_Fetch_Body,       "3 length -";
                65542, SLT_BackendReuse,     "19 boot.default";
-               65542, SLT_VCL_call,         "BACKEND_RESPONSE";
                65542, SLT_Timestamp,        "BerespBody: 1470304807.479137 0.043759 0.039255";
                65542, SLT_Length,           "5";
                65542, SLT_BereqAcct,        "637 0 637 398 5 403";
@@ -449,6 +450,8 @@ mod tests {
                65543, SLT_BerespStatus,     "200";
                65543, SLT_BerespReason,     "OK";
                65543, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
+               65543, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+               65543, SLT_VCL_call,         "BACKEND_RESPONSE";
                65543, SLT_ObjProtocol,      "HTTP/1.1";
                65543, SLT_ObjStatus,        "200";
                65543, SLT_ObjReason,        "OK";
@@ -456,7 +459,6 @@ mod tests {
                65543, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
                65543, SLT_Fetch_Body,       "3 length -";
                65543, SLT_BackendReuse,     "19 boot.default";
-               65543, SLT_VCL_call,         "BACKEND_RESPONSE";
                65543, SLT_Timestamp,        "BerespBody: 1470304807.479137 0.043759 0.039255";
                65543, SLT_Length,           "5";
                65543, SLT_BereqAcct,        "637 0 637 398 5 403";
@@ -613,6 +615,7 @@ mod tests {
                    32772, SLT_BerespStatus,     "200";
                    32772, SLT_BerespReason,     "OK";
                    32772, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32772, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
                    32772, SLT_VCL_call,         "BACKEND_RESPONSE";
                    32772, SLT_ObjProtocol,      "HTTP/1.1";
                    32772, SLT_ObjStatus,        "200";
@@ -685,6 +688,7 @@ mod tests {
                    32769, SLT_BerespStatus,     "200";
                    32769, SLT_BerespReason,     "OK";
                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
                    32769, SLT_ObjProtocol,      "HTTP/1.1";
                    32769, SLT_ObjStatus,        "200";

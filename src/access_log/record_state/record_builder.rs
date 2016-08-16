@@ -147,11 +147,18 @@ pub struct CacheObject {
     /*
     storage_type: String,
     storage_name: String,
-    ttl: Duration,
-    grace: Duration,
-    keep: Duration,
-    since: TimeStamp,
     */
+    /// TTL; None if unset
+    ttl: Option<Duration>,
+    /// Grace; None if unset
+    grace: Option<Duration>,
+    /// Keep; None if unset
+    keep: Option<Duration>,
+    /// Reference time for TTL
+    since: TimeStamp,
+    /// Reference time for object lifetime (now - Age)
+    origin: TimeStamp,
+    /// Text description of body fetch mode
     fetch_mode: String,
     fetch_streamed: bool,
     response: HttpResponse
@@ -594,6 +601,15 @@ pub enum RecordType {
 }
 
 #[derive(Debug)]
+struct ObjTtl {
+    ttl: Option<Duration>,
+    grace: Option<Duration>,
+    keep: Option<Duration>,
+    since: TimeStamp,
+    origin: Option<TimeStamp>,
+}
+
+#[derive(Debug)]
 struct ReqAcct {
     recv_header: ByteCount,
     recv_body: ByteCount,
@@ -617,6 +633,7 @@ pub struct RecordBuilder {
     http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
     http_response: BuilderResult<HttpResponseBuilder, HttpResponse>,
     cache_object: BuilderResult<HttpResponseBuilder, HttpResponse>,
+    obj_ttl: Option<ObjTtl>,
     fetch_body: Option<FetchBody>,
     resp_fetch: Option<Duration>,
     req_process: Option<Duration>,
@@ -644,6 +661,7 @@ impl RecordBuilder {
             http_request: Building(HttpRequestBuilder::new()),
             http_response: Building(HttpResponseBuilder::new()),
             cache_object: Building(HttpResponseBuilder::new()),
+            obj_ttl: None,
             fetch_body: None,
             req_process: None,
             resp_fetch: None,
@@ -841,6 +859,26 @@ impl RecordBuilder {
                 }
             }
 
+            SLT_TTL => {
+                let (_soruce, ttl, grace, keep, since, rfc) = try!(vsl.parse_data(slt_ttl));
+
+                let origin = match (rfc, self.obj_ttl) {
+                    (Some((origin, _date, _expires, _max_age)), _) => Some(origin),
+                    (None, Some(obj_ttl)) => obj_ttl.origin,
+                    _ => None,
+                };
+
+                RecordBuilder {
+                    obj_ttl: Some(ObjTtl {
+                        ttl: ttl,
+                        grace: grace,
+                        keep: keep,
+                        since: since,
+                        origin: origin,
+                    }),
+                    .. self
+                }
+            }
             SLT_ReqAcct => {
                 let (recv_header, recv_body, recv_total,
                      sent_header, sent_body, sent_total) =
@@ -1022,12 +1060,18 @@ impl RecordBuilder {
                             RecordType::BackendAccess { parent, reason } => {
                                 //TODO: use proper predicate
                                 let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
+                                    let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
                                     let fetch_body = try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")));
 
                                     Some(CacheObject {
-                                        response: cache_object,
+                                        ttl: obj_ttl.ttl,
+                                        grace: obj_ttl.grace,
+                                        keep: obj_ttl.keep,
+                                        since: obj_ttl.since,
+                                        origin: obj_ttl.origin.unwrap_or(obj_ttl.since),
                                         fetch_mode: fetch_body.mode,
                                         fetch_streamed: fetch_body.streamed,
+                                        response: cache_object,
                                     })
                                 } else {
                                     None
@@ -1421,6 +1465,7 @@ mod tests {
                                  32769, SLT_BerespStatus,     "200";
                                  32769, SLT_BerespReason,     "OK";
                                  32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
                                  32769, SLT_VCL_call,         "BACKEND_RESPONSE";
                                  32769, SLT_BackendReuse,     "19 boot.iss";
                                  32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
@@ -1457,6 +1502,7 @@ mod tests {
                                  32769, SLT_BerespStatus,     "200";
                                  32769, SLT_BerespReason,     "OK";
                                  32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
                                  32769, SLT_VCL_call,         "BACKEND_RESPONSE";
                                  32769, SLT_BackendReuse,     "19 boot.iss";
                                  32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
@@ -1660,6 +1706,7 @@ mod tests {
                                  32769, SLT_BerespStatus,     "200";
                                  32769, SLT_BerespReason,     "OK";
                                  32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339883 1340020138 0 0";
                                  32769, SLT_VCL_call,         "BACKEND_RESPONSE";
                                  32769, SLT_BackendReuse,     "19 boot.iss";
                                  32769, SLT_ObjProtocol,      "HTTP/1.1";
@@ -1687,5 +1734,95 @@ mod tests {
        assert_eq!(response.headers, &[
                   ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
                   ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]);
+   }
+
+    #[test]
+    fn apply_backend_access_record_cache_object_ttl() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 32769, SLT_Begin,            "bereq 8 retry";
+                                 32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                                 32769, SLT_BereqMethod,      "GET";
+                                 32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                                 32769, SLT_BereqProtocol,    "HTTP/1.1";
+                                 32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                                 32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                                 32769, SLT_BerespProtocol,   "HTTP/1.1";
+                                 32769, SLT_BerespStatus,     "200";
+                                 32769, SLT_BerespReason,     "OK";
+                                 32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+                                 32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                                 32769, SLT_BackendReuse,     "19 boot.iss";
+                                 32769, SLT_ObjProtocol,      "HTTP/1.1";
+                                 32769, SLT_ObjStatus,        "200";
+                                 32769, SLT_ObjReason,        "OK";
+                                 32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+                                 32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+                                 32769, SLT_Fetch_Body,       "3 length stream";
+                                 32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                                 32769, SLT_Length,           "6962";
+                                 32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+                                 );
+
+       let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       let cache_object = record.cache_object.unwrap();
+       assert_eq!(cache_object.ttl, Some(120.0));
+       assert_eq!(cache_object.grace, Some(10.0));
+       assert_eq!(cache_object.keep, None);
+       assert_eq!(cache_object.since, 1471339883.0);
+       assert_eq!(cache_object.origin, 1471339880.0);
+   }
+
+    #[test]
+    fn apply_backend_access_record_cache_object_ttl_vcl() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 32769, SLT_Begin,            "bereq 8 retry";
+                                 32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                                 32769, SLT_BereqMethod,      "GET";
+                                 32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                                 32769, SLT_BereqProtocol,    "HTTP/1.1";
+                                 32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                                 32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                                 32769, SLT_BerespProtocol,   "HTTP/1.1";
+                                 32769, SLT_BerespStatus,     "200";
+                                 32769, SLT_BerespReason,     "OK";
+                                 32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+                                 32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                                 32769, SLT_TTL,              "VCL 12345 259200 0 1470304807";
+                                 32769, SLT_BackendReuse,     "19 boot.iss";
+                                 32769, SLT_ObjProtocol,      "HTTP/1.1";
+                                 32769, SLT_ObjStatus,        "200";
+                                 32769, SLT_ObjReason,        "OK";
+                                 32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+                                 32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+                                 32769, SLT_Fetch_Body,       "3 length stream";
+                                 32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                                 32769, SLT_Length,           "6962";
+                                 32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+                                 );
+
+       let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       let cache_object = record.cache_object.unwrap();
+       assert_eq!(cache_object.ttl, Some(12345.0));
+       assert_eq!(cache_object.grace, Some(259200.0));
+       assert_eq!(cache_object.keep, Some(0.0));
+       assert_eq!(cache_object.since, 1470304807.0);
+       // Keep time from RFC so we can calculate origin TTL etc
+       assert_eq!(cache_object.origin, 1471339880.0);
    }
 }
