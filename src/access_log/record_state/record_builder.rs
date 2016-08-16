@@ -111,6 +111,16 @@ pub enum LogEntry {
     Warning(String),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Accounting {
+    pub recv_header: ByteCount,
+    pub recv_body: ByteCount,
+    pub recv_total: ByteCount,
+    pub sent_header: ByteCount,
+    pub sent_body: ByteCount,
+    pub sent_total: ByteCount,
+}
+
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
@@ -133,12 +143,8 @@ pub struct ClientAccessRecord {
     pub serve: Option<Duration>,
     /// End of request processing
     pub end: TimeStamp,
-    pub recv_header: ByteCount,
-    pub recv_body: ByteCount,
-    pub recv_total: ByteCount,
-    pub sent_header: ByteCount,
-    pub sent_body: ByteCount,
-    pub sent_total: ByteCount,
+    /// Accounting info; Note restarted requests won't have it (None)
+    pub accounting: Option<Accounting>,
     pub log: Vec<LogEntry>,
 }
 
@@ -610,16 +616,6 @@ struct ObjTtl {
 }
 
 #[derive(Debug)]
-struct ReqAcct {
-    recv_header: ByteCount,
-    recv_body: ByteCount,
-    recv_total: ByteCount,
-    sent_header: ByteCount,
-    sent_body: ByteCount,
-    sent_total: ByteCount,
-}
-
-#[derive(Debug)]
 pub struct FetchBody {
     pub mode: String,
     pub streamed: bool,
@@ -640,7 +636,7 @@ pub struct RecordBuilder {
     resp_ttfb: Option<Duration>,
     req_took: Option<Duration>,
     resp_end: Option<TimeStamp>,
-    req_acct: Option<ReqAcct>,
+    accounting: Option<Accounting>,
     sess_open: Option<TimeStamp>,
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
@@ -668,7 +664,7 @@ impl RecordBuilder {
             resp_ttfb: None,
             req_took: None,
             resp_end: None,
-            req_acct: None,
+            accounting: None,
             sess_open: None,
             sess_duration: None,
             sess_remote: None,
@@ -885,7 +881,7 @@ impl RecordBuilder {
                     try!(vsl.parse_data(slt_reqacc));
 
                 RecordBuilder {
-                    req_acct: Some(ReqAcct {
+                    accounting: Some(Accounting {
                         recv_header: recv_header,
                         recv_body: recv_body,
                         recv_total: recv_total,
@@ -1028,7 +1024,6 @@ impl RecordBuilder {
 
                         match record_type {
                             RecordType::ClientAccess { parent, reason } => {
-                                let req_acct = try!(self.req_acct.ok_or(RecordBuilderError::RecordIncomplete("req_acct")));
                                 let record = ClientAccessRecord {
                                     ident: self.ident,
                                     parent: parent,
@@ -1044,14 +1039,7 @@ impl RecordBuilder {
                                     ttfb: self.resp_ttfb,
                                     serve: self.req_took,
                                     end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
-
-                                    recv_header: req_acct.recv_header,
-                                    recv_body: req_acct.recv_body,
-                                    recv_total: req_acct.recv_total,
-                                    sent_header: req_acct.sent_header,
-                                    sent_body: req_acct.sent_body,
-                                    sent_total: req_acct.sent_total,
-
+                                    accounting: self.accounting,
                                     log: self.log,
                                 };
 
@@ -1679,12 +1667,13 @@ mod tests {
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
 
-        assert_eq!(record.recv_header, 82);
-        assert_eq!(record.recv_body, 2);
-        assert_eq!(record.recv_total, 84);
-        assert_eq!(record.sent_header, 304);
-        assert_eq!(record.sent_body, 6962);
-        assert_eq!(record.sent_total, 7266);
+        let accounting = record.accounting.unwrap();
+        assert_eq!(accounting.recv_header, 82);
+        assert_eq!(accounting.recv_body, 2);
+        assert_eq!(accounting.recv_total, 84);
+        assert_eq!(accounting.sent_header, 304);
+        assert_eq!(accounting.sent_body, 6962);
+        assert_eq!(accounting.sent_total, 7266);
     }
 
     #[test]

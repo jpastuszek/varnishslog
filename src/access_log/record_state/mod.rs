@@ -8,7 +8,7 @@ use self::record_builder::BuilderResult::*;
 
 pub use self::record_builder::Record;
 pub use self::record_builder::{ClientAccessRecord, BackendAccessRecord, SessionRecord};
-pub use self::record_builder::{HttpTransaction, HttpRequest, HttpResponse};
+pub use self::record_builder::{Accounting, HttpTransaction, HttpRequest, HttpResponse};
 
 #[derive(Debug)]
 enum RecordBuilderSlot {
@@ -121,12 +121,14 @@ mod tests {
             parent: 321,
             start: 1469180762.484544,
             end: 1469180763.484544,
-            recv_header: 82,
-            recv_body: 0,
-            recv_total: 82,
-            sent_header: 304,
-            sent_body: 6962,
-            sent_total: 7266,
+            accounting: Some(Accounting {
+                recv_header: 82,
+                recv_body: 0,
+                recv_total: 82,
+                sent_header: 304,
+                sent_body: 6962,
+                sent_total: 7266,
+            }),
             ref reason,
             ref backend_requests,
             ref esi_requests,
