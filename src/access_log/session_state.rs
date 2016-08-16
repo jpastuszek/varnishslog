@@ -423,6 +423,7 @@ mod tests {
                65542, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
                65542, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
                65542, SLT_VCL_call,         "BACKEND_RESPONSE";
+               65542, SLT_Storage,          "malloc s0";
                65542, SLT_ObjProtocol,      "HTTP/1.1";
                65542, SLT_ObjStatus,        "200";
                65542, SLT_ObjReason,        "OK";
@@ -452,6 +453,7 @@ mod tests {
                65543, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
                65543, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
                65543, SLT_VCL_call,         "BACKEND_RESPONSE";
+               65543, SLT_Storage,          "malloc s0";
                65543, SLT_ObjProtocol,      "HTTP/1.1";
                65543, SLT_ObjStatus,        "200";
                65543, SLT_ObjReason,        "OK";
@@ -617,6 +619,7 @@ mod tests {
                    32772, SLT_BerespHeader,     "Content-Type: image/jpeg";
                    32772, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
                    32772, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   32772, SLT_Storage,          "malloc s0";
                    32772, SLT_ObjProtocol,      "HTTP/1.1";
                    32772, SLT_ObjStatus,        "200";
                    32772, SLT_ObjReason,        "OK";
@@ -690,6 +693,7 @@ mod tests {
                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   32769, SLT_Storage,          "malloc s0";
                    32769, SLT_ObjProtocol,      "HTTP/1.1";
                    32769, SLT_ObjStatus,        "200";
                    32769, SLT_ObjReason,        "OK";

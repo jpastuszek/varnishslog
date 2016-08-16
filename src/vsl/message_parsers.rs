@@ -132,11 +132,15 @@ named!(pub slt_link<&[u8], (&str, VslIdent, &str)>, tuple!(
         symbol));   // Reason
 
 named!(pub slt_sess_close<&[u8], (&str, Duration)>, tuple!(
-        symbol,         // Why the connection closed
-        duration));     // How long the session was open
+        symbol,     // Why the connection closed
+        duration)); // How long the session was open
 
 named!(pub slt_call<&[u8], &str>, call!(
         symbol));   // VCL method name
+
+named!(pub slt_storage<&[u8], (&str, &str)>, tuple!(
+        symbol,     // Type ("malloc", "file", "persistent" etc.)
+        symbol));   // Name of storage backend
 
 named!(pub slt_ttl<&[u8], (&str, Option<Duration>, Option<Duration>, Option<Duration>, TimeStamp,
                            Option<(TimeStamp, TimeStamp, TimeStamp, Duration)>)>, tuple!(
