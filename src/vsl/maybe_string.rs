@@ -13,16 +13,16 @@ impl MaybeStr {
         unsafe { &*((bytes as *const [u8]) as *const MaybeStr)}
     }
 
-    fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         self
-    }
-
-    pub fn to_lossy_string(&self) -> String {
-        String::from_utf8_lossy(self.as_bytes()).into_owned()
     }
 
     pub fn to_maybe_string(&self) -> MaybeString {
         MaybeString(self.as_bytes().to_owned())
+    }
+
+    pub fn to_lossy_string(&self) -> String {
+        String::from_utf8_lossy(self.as_bytes()).into_owned()
     }
 }
 
@@ -54,6 +54,15 @@ impl Deref for MaybeStr {
 pub struct MaybeString(pub Vec<u8>);
 
 impl MaybeString {
+    #[allow(dead_code)]
+    pub fn as_bytes(&self) -> &[u8] {
+        self
+    }
+
+    pub fn as_maybe_str(&self) -> &MaybeStr {
+        self
+    }
+
     pub fn to_lossy_string(self) -> String {
         match String::from_utf8(self.0) {
             Ok(string) => string,
@@ -61,10 +70,6 @@ impl MaybeString {
                 String::from_utf8_lossy(err.into_bytes().as_slice()).into_owned()
             }
         }
-    }
-
-    pub fn as_maybe_str(&self) -> &MaybeStr {
-        self
     }
 }
 
