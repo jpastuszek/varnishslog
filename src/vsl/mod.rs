@@ -10,6 +10,9 @@ pub use self::tag_e::VSL_tag_e as VslRecordTag;
 mod message_parsers;
 pub use self::message_parsers::*;
 
+mod maybe_string;
+pub use self::maybe_string::{MaybeStr, MaybeString};
+
 /*
  * Shared memory log format
  *

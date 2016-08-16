@@ -1,9 +1,8 @@
 use std::str::{FromStr, from_utf8};
-use std::fmt::{self, Debug, Display};
 
 use nom::{rest, space, eof};
 
-use super::VslIdent;
+use super::{VslIdent, MaybeStr};
 
 /// Parsers for the message body of the VSL records
 ///
@@ -19,62 +18,6 @@ use super::VslIdent;
 ///   * maybe_str - foreign string: URL, headers, methods, etc. - we cannot trust them to be UTF-8 so they
 ///   will be provided as bytes to the caller - this is to avoid mem alloc of lossless convertion and let the
 ///   client do the checking, logging and converstion etc
-
-#[derive(PartialEq)]
-pub struct MaybeStr([u8]);
-
-impl MaybeStr {
-    pub fn from_bytes(bytes: &[u8]) -> &MaybeStr {
-        unsafe { &*((bytes as *const [u8]) as *const MaybeStr)}
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        unsafe { &*((self as *const MaybeStr) as *const [u8])}
-    }
-
-    pub fn to_lossy_string(&self) -> String {
-        String::from_utf8_lossy(self.as_bytes()).into_owned()
-    }
-
-    pub fn to_maybe_string(&self) -> MaybeString {
-        MaybeString(self.as_bytes().to_owned())
-    }
-}
-
-impl Debug for MaybeStr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        if let Ok(string) = from_utf8(self.as_bytes()) {
-            write!(f, "{:?}", string)
-        } else {
-            write!(f, "{:?}<non-UTF-8 data: {:?}>", String::from_utf8_lossy(&self.as_bytes()), &self.as_bytes())
-        }
-    }
-}
-
-impl Display for MaybeStr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", String::from_utf8_lossy(&self.as_bytes()))
-    }
-}
-
-//TODO: Debug, Display
-#[derive(PartialEq, Debug)]
-pub struct MaybeString(pub Vec<u8>);
-
-impl MaybeString {
-    pub fn to_lossy_string(self) -> String {
-        match String::from_utf8(self.0) {
-            Ok(string) => string,
-            Err(err) => {
-                String::from_utf8_lossy(err.into_bytes().as_slice()).into_owned()
-            }
-        }
-    }
-
-    pub fn as_maybe_str(&self) -> &MaybeStr {
-        MaybeStr::from_bytes(self.0.as_slice())
-    }
-}
 
 pub type TimeStamp = f64;
 pub type Duration = f64;
