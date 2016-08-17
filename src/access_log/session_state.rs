@@ -128,27 +128,45 @@ impl SessionState {
 
     // TODO: could use Cell to eliminate collect().into_iter() buffers
     fn build_client_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ClientTransaction {
-        let backend_transactions = client.backend_requests.iter()
-            .filter_map(|ident| self.backend.remove(ident).or_else(|| {
-                error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
-                None}))
-            .collect::<Vec<_>>().into_iter()
-            .map(|backend| self.build_backend_transaction(session, &client, backend))
-            .collect();
+        let (backend_transactions, esi_transactions, restart_transaction) =
+        match client.transaction {
+            ClientAccessTransaction::Full {
+                ref backend_requests,
+                ref esi_requests,
+                ..
+            } => {
+                let backend_transactions = backend_requests.iter()
+                    .filter_map(|ident| self.backend.remove(ident).or_else(|| {
+                        error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
+                        None}))
+                    .collect::<Vec<_>>().into_iter()
+                    .map(|backend| self.build_backend_transaction(session, &client, backend))
+                    .collect();
 
-        let esi_transactions = client.esi_requests.iter()
-            .filter_map(|ident| self.client.remove(ident).or_else(|| {
-                error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
-                None}))
-            .collect::<Vec<_>>().into_iter()
-            .map(|client| self.build_client_transaction(session, client))
-            .collect();
+                let esi_transactions = esi_requests.iter()
+                    .filter_map(|ident| self.client.remove(ident).or_else(|| {
+                        error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
+                        None}))
+                    .collect::<Vec<_>>().into_iter()
+                    .map(|client| self.build_client_transaction(session, client))
+                    .collect();
 
-        let restart_transaction = client.restart_request
-            .and_then(|ident| self.client.remove(&ident).or_else(|| {
-                error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
-                None}))
-            .map(|restart| Box::new(self.build_client_transaction(&session, restart)));
+                (backend_transactions, esi_transactions, None)
+            }
+            ClientAccessTransaction::Restarted {
+                ref restart_request,
+                ..
+            } => {
+                let restart_transaction = self.client.remove(restart_request).or_else(|| {
+                    error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, restart_request, client, session);
+                    None})
+                    .map(|restart| Box::new(self.build_client_transaction(&session, restart)));
+
+                (Vec::new(), Vec::new(), restart_transaction)
+            }
+            ClientAccessTransaction::Piped { .. } =>
+                (Vec::new(), Vec::new(), None)
+        };
 
         ClientTransaction {
             access_record: client,
@@ -272,15 +290,23 @@ mod tests {
             start: 1469180762.484544,
             end: 1469180766.484544,
             ref reason,
-            ref backend_requests,
-            ref esi_requests,
+            transaction: ClientAccessTransaction::Full {
+                ref backend_requests,
+                ref esi_requests,
+                ..
+            },
             ..
         } if
             reason == "rxreq" &&
             backend_requests == &[1000] &&
             esi_requests.is_empty()
         );
-        assert_eq!(client.http_transaction.request, HttpRequest {
+
+        assert_matches!(client.transaction, ClientAccessTransaction::Full {
+            ref request,
+            ..
+        } if
+        request == &HttpRequest {
             method: "GET".to_string(),
             url: "/foobar".to_string(),
             protocol: "HTTP/1.1".to_string(),
@@ -288,7 +314,12 @@ mod tests {
                 ("Host".to_string(), "localhost:8080".to_string()),
                 ("User-Agent".to_string(), "curl/7.40.0".to_string())]
         });
-        assert_eq!(client.http_transaction.response, Some(HttpResponse {
+
+        assert_matches!(client.transaction, ClientAccessTransaction::Full {
+            ref response,
+            ..
+        } if
+        response == &HttpResponse {
             protocol: "HTTP/1.1".to_string(),
             status: 503,
             reason: "Backend fetch failed".to_string(),
@@ -296,7 +327,7 @@ mod tests {
                 ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        }));
+        });
 
         let backend_transaction = session.client_transactions.get(0).unwrap().backend_transactions.get(0).unwrap();
         assert!(backend_transaction.retry_transaction.is_none());
@@ -342,6 +373,7 @@ mod tests {
         log();
         let mut state = SessionState::new();
 
+        // logs/varnish20160804-3752-1lr56fj56c2d5925f217f012.vsl
         apply_all!(state,
                65540, SLT_Begin,            "bereq 65539 fetch";
                65540, SLT_Timestamp,        "Start: 1470304807.390145 0.000000 0.000000";
@@ -479,6 +511,8 @@ mod tests {
                65538, SLT_RespStatus,       "200";
                65538, SLT_RespReason,       "OK";
                65538, SLT_RespHeader,       "Content-Type: text/html; charset=utf-8";
+               65538, SLT_VCL_return,       "deliver";
+               65538, SLT_Timestamp,        "Process: 1470304807.390023 0.000192 0.000192";
                65538, SLT_Link,             "req 65539 esi";
                65538, SLT_Link,             "req 65541 esi";
                65538, SLT_Timestamp,        "Resp: 1470304807.479222 0.089391 0.089199";
@@ -576,6 +610,7 @@ mod tests {
                    32770, SLT_ReqProtocol,      "HTTP/1.1";
                    32770, SLT_ReqHeader,        "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
                    32770, SLT_VCL_call,         "RECV";
+                   32770, SLT_VCL_return,       "restart";
                    32770, SLT_Timestamp,        "Restart: 1470304882.576600 0.000136 0.000136";
                    32770, SLT_Link,             "req 32771 restart";
                    32770, SLT_ReqAcct,          "82 2 84 304 6962 7266";
@@ -640,13 +675,13 @@ mod tests {
         let session = apply_final!(state, 32769, SLT_End, "");
 
         // The first request won't have response as it got restarted
-        assert!(session.client_transactions[0].access_record.http_transaction.response.is_none());
+        assert_matches!(session.client_transactions[0].access_record.transaction, ClientAccessTransaction::Restarted { .. });
 
         // We should have restart transaction
         let restart_transaction = assert_some!(session.client_transactions[0].restart_transaction.as_ref());
 
         // It should have a response
-        assert!(restart_transaction.access_record.http_transaction.response.is_some());
+        assert_matches!(restart_transaction.access_record.transaction, ClientAccessTransaction::Full { .. });
         assert!(restart_transaction.backend_transactions[0].access_record.http_transaction.response.is_some());
     }
 

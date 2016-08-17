@@ -1,8 +1,7 @@
 /// TODO:
-/// * miss/hit etc
-/// * Cache object info
-///  * TTL
-///  * SLT_Storage
+/// * pipe timestamp
+/// * ESI level
+/// * result?: pipe, hit, miss, pass, synth
 /// * Call trace
 /// * ACL trace
 /// * more tests
@@ -28,12 +27,41 @@
 /// Beresp:
 /// * What backend sent us (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
 ///
+/// Record types:
+/// ---
+/// * Client access transaction
+///   * full
+///   * restarted (logs-new/varnish20160816-4093-c0f5tz5609f5ab778e4a4eb.vsl)
+///     * has SLT_VCL_return with restart [trigger]
+///     * has SLT_Link with restart
+///     * has SLT_Timestamp with Restart
+///     * won't have response
+///     * won't have certain timing info
+///     * won't have accounting
+///   * piped (logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl)
+///     * won't have response
+///     * will have special timing info (Pipe, PipeSess)
+///     * will have special accounting (SLT_PipeAcct)
+///   * ESI
+///     * no processing time
+///     * otherwise quite normal but linked
+///
+/// * Backend access transaction
+///   * full
+///   * aborted
+///     * won't have response
+///     * won't have end timestamp
+///   * piped (logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl)
+///     * won't have response
+///     * will have special timing info
+///     * won't have end timestamp
+///
 /// Timestamps
 /// ===
 ///
 /// Req (logs/varnish20160805-3559-f6sifo45103025c06abad14.vsl):
 /// ---
-/// * parse (req_process) - Start to Req
+/// * process (req_process) - Start to Req
 /// * fetch (resp_fetch) - Req to Fetch
 /// * ttfb (resp_ttfb) - Start to Process
 /// * serve (req_took)- Start to Resp
@@ -127,25 +155,39 @@ pub struct ClientAccessRecord {
     pub ident: VslIdent,
     pub parent: VslIdent,
     pub reason: String,
-    pub esi_requests: Vec<VslIdent>,
-    pub backend_requests: Vec<VslIdent>,
-    pub restart_request: Option<VslIdent>,
-    pub http_transaction: HttpTransaction,
+    pub transaction: ClientAccessTransaction,
     /// Start of request processing
     pub start: TimeStamp,
-    /// Time it took to parse request; Note that ESI requests are already parsed (None)
-    pub parse: Option<Duration>,
-    /// Time waiting for backend response fetch to finish
-    pub fetch: Option<Duration>,
-    /// Time it took to get first byte of response
-    pub ttfb: Option<Duration>,
-    /// Total duration it took to serve the whole response
-    pub serve: Option<Duration>,
     /// End of request processing
     pub end: TimeStamp,
-    /// Accounting info; Note restarted requests won't have it (None)
-    pub accounting: Option<Accounting>,
     pub log: Vec<LogEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClientAccessTransaction {
+    Full {
+        request: HttpRequest,
+        response: HttpResponse,
+        esi_requests: Vec<VslIdent>,
+        backend_requests: Vec<VslIdent>,
+        /// Time it took to process request; None for ESI subrequests as they have this done already
+        process: Option<Duration>,
+        /// Time waiting for backend response fetch to finish; None for HIT
+        fetch: Option<Duration>,
+        /// Time it took to get first byte of response
+        ttfb: Duration,
+        /// Total duration it took to serve the whole response
+        serve: Duration,
+        accounting: Accounting,
+    },
+    Restarted {
+        request: HttpRequest,
+        process: Duration,
+        restart_request: VslIdent,
+    },
+    Piped {
+        request: HttpRequest,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -594,10 +636,18 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
 }
 
 #[derive(Debug)]
-pub enum RecordType {
+enum ClientAccessTransactionType {
+    Full,
+    Restarted,
+    Piped
+}
+
+#[derive(Debug)]
+enum RecordType {
     ClientAccess {
         parent: VslIdent,
         reason: String,
+        transaction: ClientAccessTransactionType,
     },
     BackendAccess {
         parent: VslIdent,
@@ -694,14 +744,15 @@ impl RecordBuilder {
                     "bereq" => RecordBuilder {
                         record_type: Some(RecordType::BackendAccess {
                             parent: vxid,
-                            reason: reason.to_owned()
+                            reason: reason.to_owned(),
                         }),
                         .. self
                     },
                     "req" => RecordBuilder {
                         record_type: Some(RecordType::ClientAccess {
                             parent: vxid,
-                            reason: reason.to_owned()
+                            reason: reason.to_owned(),
+                            transaction: ClientAccessTransactionType::Full,
                         }),
                         .. self
                     },
@@ -973,6 +1024,55 @@ impl RecordBuilder {
             }
 
             // Final
+            SLT_VCL_return => {
+                let action = try!(vsl.parse_data(slt_return));
+
+                match action {
+                    "restart" => {
+                        if let Some(RecordType::ClientAccess {
+                            parent,
+                            reason,
+                            transaction: ClientAccessTransactionType::Full,
+                        }) = self.record_type {
+                            RecordBuilder {
+                                record_type: Some(RecordType::ClientAccess {
+                                    parent: parent,
+                                    reason: reason,
+                                    transaction: ClientAccessTransactionType::Restarted,
+                                }),
+                                .. self
+                            }
+                        } else {
+                            //TODO: better error type
+                            return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                        }
+                    },
+                    "pipe" => {
+                        if let Some(RecordType::ClientAccess {
+                            parent,
+                            reason,
+                            transaction: ClientAccessTransactionType::Full,
+                        }) = self.record_type {
+                            RecordBuilder {
+                                record_type: Some(RecordType::ClientAccess {
+                                    parent: parent,
+                                    reason: reason,
+                                    transaction: ClientAccessTransactionType::Piped,
+                                }),
+                                .. self
+                            }
+                        } else {
+                            //TODO: backend access support
+                            //TODO: better error type
+                            return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                        }
+                    },
+                    _ => {
+                        debug!("Ignoring unknown {:?} return: {}", vsl.tag, action);
+                        self
+                    }
+                }
+            }
             SLT_VCL_call => {
                 let method = try!(vsl.parse_data(slt_call));
 
@@ -1023,48 +1123,60 @@ impl RecordBuilder {
                     },
                     RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
                         let request = try!(self.http_request.get_complete());
-                        let response = if self.restart_request.is_some() {
-                            // Restarted requests have no response
-                            None
-                        } else {
-                            let response = if let RecordType::ClientAccess { .. } = record_type {
-                                // SLT_End tag is completing the client response
-                                try!(self.http_response.complete())
-                            } else {
-                                self.http_response
-                            };
-                            Some(try!(response.get_complete()))
-                        };
-
-                        let http_transaction = HttpTransaction {
-                            request: request,
-                            response: response,
-                        };
 
                         match record_type {
-                            RecordType::ClientAccess { parent, reason } => {
+                            RecordType::ClientAccess { parent, reason, transaction } => {
+                                let transaction = match transaction {
+                                    ClientAccessTransactionType::Full => {
+                                        // SLT_End tag is completing the client response
+                                        let http_response = try!(self.http_response.complete());
+
+                                        ClientAccessTransaction::Full {
+                                            request: request,
+                                            response: try!(http_response.get_complete()),
+                                            esi_requests: self.client_requests,
+                                            backend_requests: self.backend_requests,
+                                            process: self.req_process,
+                                            fetch: self.resp_fetch,
+                                            ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
+                                            serve: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
+                                            accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
+                                        }
+                                    },
+                                    ClientAccessTransactionType::Restarted => {
+                                        ClientAccessTransaction::Restarted {
+                                            request: request,
+                                            process: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
+                                            restart_request: try!(self.restart_request.ok_or(RecordBuilderError::RecordIncomplete("restart_request"))),
+                                        }
+                                    },
+                                    ClientAccessTransactionType::Piped => {
+                                        ClientAccessTransaction::Piped {
+                                            request: request,
+                                        }
+                                    },
+                                };
+
                                 let record = ClientAccessRecord {
                                     ident: self.ident,
                                     parent: parent,
                                     reason: reason,
-                                    esi_requests: self.client_requests,
-                                    backend_requests: self.backend_requests,
-                                    restart_request: self.restart_request,
-                                    http_transaction: http_transaction,
-
+                                    transaction: transaction,
                                     start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                                    parse: self.req_process,
-                                    fetch: self.resp_fetch,
-                                    ttfb: self.resp_ttfb,
-                                    serve: self.req_took,
                                     end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
-                                    accounting: self.accounting,
                                     log: self.log,
                                 };
 
                                 return Ok(Complete(Record::ClientAccess(record)))
                             },
                             RecordType::BackendAccess { parent, reason } => {
+                                let response = try!(self.http_response.get_complete());
+
+                                let http_transaction = HttpTransaction {
+                                    request: request,
+                                    response: Some(response),
+                                };
+
                                 //TODO: use proper predicate
                                 let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
                                     let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
@@ -1158,6 +1270,7 @@ mod tests {
 
     #[test]
     fn apply_begin() {
+        use super::RecordType;
         let builder = RecordBuilder::new(123);
 
         let builder = builder.apply(&vsl(SLT_Begin, 123, "bereq 321 fetch"))
@@ -1416,6 +1529,50 @@ mod tests {
         ]);
     }
 
+    //TODO: _full test
+    //TODO: _full HIT test
+    //TODO: _full ESI test
+
+    #[test]
+    fn apply_client_access_restarted() {
+        let builder = RecordBuilder::new(123);
+
+        // logs-new/varnish20160816-4093-c0f5tz5609f5ab778e4a4eb.vsl
+        let builder = apply_all!(builder,
+                                 4, SLT_Begin,          "req 3 rxreq";
+                                 4, SLT_Timestamp,      "Start: 1471355414.450311 0.000000 0.000000";
+                                 4, SLT_Timestamp,      "Req: 1471355414.450311 0.000000 0.000000";
+                                 4, SLT_ReqStart,       "127.0.0.1 47912";
+                                 4, SLT_ReqMethod,      "GET";
+                                 4, SLT_ReqURL,         "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
+                                 4, SLT_ReqProtocol,    "HTTP/1.1";
+                                 4, SLT_ReqHeader,      "Host: 127.0.0.1:1245";
+                                 4, SLT_VCL_call,       "RECV ";
+                                 4, SLT_VCL_return,     "hash";
+                                 4, SLT_VCL_call,       "HASH";
+                                 4, SLT_VCL_return,     "lookup";
+                                 4, SLT_Hit,            "32771";
+                                 4, SLT_VCL_call,       "HIT";
+                                 4, SLT_VCL_return,     "restart";
+                                 4, SLT_Timestamp,      "Restart: 1471355414.450428 0.000117 0.000117";
+                                 4, SLT_Link,           "req 5 restart";
+                                );
+
+        let record = apply_last!(builder, 4, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Restarted {
+            request: HttpRequest {
+                ref url,
+                ..
+            },
+            process: 0.0,
+            restart_request: 5,
+        } if url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
+    }
+
+    //TODO: _piped test
+
     #[test]
     fn apply_client_access_record_timing() {
         let builder = RecordBuilder::new(123);
@@ -1449,11 +1606,15 @@ mod tests {
             .unwrap_client_access();
 
         assert_eq!(record.start, 1470403413.664824);
-        assert_eq!(record.parse, Some(1.0));
-        assert_eq!(record.fetch, Some(0.007491));
-        assert_eq!(record.ttfb, Some(1.007601));
-        assert_eq!(record.serve, Some(1.007634));
         assert_eq!(record.end, 1470403414.672458);
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Full {
+            process: Some(1.0),
+            fetch: Some(0.007491),
+            ttfb: 1.007601,
+            serve: 1.007634,
+            ..
+        });
     }
 
     #[test]
@@ -1689,13 +1850,17 @@ mod tests {
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
 
-        let accounting = record.accounting.unwrap();
-        assert_eq!(accounting.recv_header, 82);
-        assert_eq!(accounting.recv_body, 2);
-        assert_eq!(accounting.recv_total, 84);
-        assert_eq!(accounting.sent_header, 304);
-        assert_eq!(accounting.sent_body, 6962);
-        assert_eq!(accounting.sent_total, 7266);
+        assert_matches!(record.transaction, ClientAccessTransaction::Full {
+            accounting: Accounting {
+                recv_header: 82,
+                recv_body: 2,
+                recv_total: 84,
+                sent_header: 304,
+                sent_body: 6962,
+                sent_total: 7266,
+            },
+            ..
+        });
     }
 
     #[test]

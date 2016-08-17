@@ -138,6 +138,9 @@ named!(pub slt_sess_close<&[u8], (&str, Duration)>, tuple!(
 named!(pub slt_call<&[u8], &str>, call!(
         symbol));   // VCL method name
 
+named!(pub slt_return<&[u8], &str>, call!(
+        symbol));   // VCL method terminating statement
+
 named!(pub slt_storage<&[u8], (&str, &str)>, tuple!(
         symbol,     // Type ("malloc", "file", "persistent" etc.)
         symbol));   // Name of storage backend

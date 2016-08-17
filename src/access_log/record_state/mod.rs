@@ -8,7 +8,7 @@ use self::record_builder::BuilderResult::*;
 
 pub use self::record_builder::Record;
 pub use self::record_builder::{ClientAccessRecord, BackendAccessRecord, SessionRecord};
-pub use self::record_builder::{Accounting, HttpTransaction, HttpRequest, HttpResponse};
+pub use self::record_builder::{ClientAccessTransaction, Accounting, HttpTransaction, HttpRequest, HttpResponse};
 
 #[derive(Debug)]
 enum RecordBuilderSlot {
@@ -84,77 +84,107 @@ mod tests {
         log();
         let mut state = RecordState::new();
 
+        // logs-new/varnish20160816-4093-lmudum99608ad955ba43288.vsl
         apply_all!(state,
-               123, SLT_Begin,          "req 321 rxreq";
-               123, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
-               123, SLT_ReqMethod,      "GET";
-               123, SLT_ReqURL,         "/foobar";
-               123, SLT_ReqProtocol,    "HTTP/1.1";
-               123, SLT_ReqHeader,      "Host: localhost:8080";
-               123, SLT_ReqHeader,      "User-Agent: curl/7.40.0";
-               123, SLT_ReqHeader,      "Accept-Encoding: gzip";
-               123, SLT_ReqUnset,       "Accept-Encoding: gzip";
-               123, SLT_VCL_call,       "RECV";
-
-               123, SLT_Link,           "bereq 32774 fetch";
-               123, SLT_RespProtocol,   "HTTP/1.1";
-               123, SLT_RespStatus,     "503";
-               123, SLT_RespReason,     "Service Unavailable";
-               123, SLT_RespReason,     "Backend fetch failed";
-               123, SLT_RespHeader,     "Date: Fri, 22 Jul 2016 09:46:02 GMT";
-               123, SLT_RespHeader,     "Server: Varnish";
-               123, SLT_RespHeader,     "Cache-Control: no-store";
-               123, SLT_RespUnset,      "Cache-Control: no-store";
-               123, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
-               123, SLT_Timestamp,      "Resp: 1469180763.484544 0.000000 0.000000";
-               123, SLT_ReqAcct,        "82 0 82 304 6962 7266";
+                   4, SLT_Begin,          "req 3 rxreq";
+                   4, SLT_Timestamp,      "Start: 1471355385.239203 0.000000 0.000000";
+                   4, SLT_Timestamp,      "Req: 1471355385.239203 0.000000 0.000000";
+                   4, SLT_ReqStart,       "127.0.0.1 56842";
+                   4, SLT_ReqMethod,      "GET";
+                   4, SLT_ReqURL,         "/test_page/123.html";
+                   4, SLT_ReqProtocol,    "HTTP/1.1";
+                   4, SLT_ReqHeader,      "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+                   4, SLT_ReqHeader,      "Host: 127.0.0.1:1236";
+                   4, SLT_VCL_call,       "RECV";
+                   4, SLT_VCL_acl,        "NO_MATCH trusted_networks";
+                   4, SLT_VCL_acl,        "NO_MATCH external_proxies";
+                   4, SLT_VCL_return,     "hash";
+                   4, SLT_VCL_call,       "HASH";
+                   4, SLT_VCL_return,     "lookup";
+                   4, SLT_VCL_call,       "MISS";
+                   4, SLT_VCL_return,     "fetch";
+                   4, SLT_Link,           "bereq 5 fetch";
+                   4, SLT_Timestamp,      "Fetch: 1471355385.239520 0.000317 0.000317";
+                   4, SLT_RespProtocol,   "HTTP/1.1";
+                   4, SLT_RespStatus,     "503";
+                   4, SLT_RespReason,     "Backend fetch failed";
+                   4, SLT_RespHeader,     "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+                   4, SLT_RespHeader,     "Server: Varnish";
+                   4, SLT_VCL_call,       "DELIVER";
+                   4, SLT_VCL_return,     "deliver";
+                   4, SLT_Timestamp,      "Process: 1471355385.239622 0.000419 0.000103";
+                   4, SLT_RespHeader,     "Content-Length: 1366";
+                   4, SLT_Debug,          "RES_MODE 2";
+                   4, SLT_Timestamp,      "Resp: 1471355385.239652 0.000449 0.000029";
+                   4, SLT_ReqAcct,        "95 0 95 1050 1366 2416";
                );
 
-        let record = apply_final!(state, 123, SLT_End, "");
+        let record = apply_final!(state, 4, SLT_End, "");
 
-        assert_none!(state.get(123));
+        assert_none!(state.get(4));
 
         assert!(record.is_client_access());
         let client = record.unwrap_client_access();
         assert_matches!(client, ClientAccessRecord {
-            ident: 123,
-            parent: 321,
-            start: 1469180762.484544,
-            end: 1469180763.484544,
-            accounting: Some(Accounting {
-                recv_header: 82,
-                recv_body: 0,
-                recv_total: 82,
-                sent_header: 304,
-                sent_body: 6962,
-                sent_total: 7266,
-            }),
+            ident: 4,
+            parent: 3,
             ref reason,
-            ref backend_requests,
-            ref esi_requests,
+            transaction: ClientAccessTransaction::Full {
+                accounting: Accounting {
+                    recv_header: 95,
+                    recv_body: 0,
+                    recv_total: 95,
+                    sent_header: 1050,
+                    sent_body: 1366,
+                    sent_total: 2416,
+                },
+                ref backend_requests,
+                ref esi_requests,
+                ..
+            },
+            start: 1471355385.239203,
+            end: 1471355385.239652,
             ..
         } if
             reason == "rxreq" &&
-            backend_requests == &[32774] &&
+            backend_requests == &[5] &&
             esi_requests.is_empty()
         );
-        assert_eq!(client.http_transaction.request, HttpRequest {
-            method: "GET".to_string(),
-            url: "/foobar".to_string(),
-            protocol: "HTTP/1.1".to_string(),
-            headers: vec![
-                ("Host".to_string(), "localhost:8080".to_string()),
-                ("User-Agent".to_string(), "curl/7.40.0".to_string())]
-        });
-        assert_eq!(client.http_transaction.response, Some(HttpResponse {
-            protocol: "HTTP/1.1".to_string(),
-            status: 503,
-            reason: "Backend fetch failed".to_string(),
-            headers: vec![
-                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+
+        assert_matches!(client.transaction, ClientAccessTransaction::Full {
+            request: HttpRequest {
+                ref method,
+                ref url,
+                ref protocol,
+                ref headers,
+            },
+            ..
+        } if
+            method == "GET" &&
+            url == "/test_page/123.html" &&
+            protocol == "HTTP/1.1" &&
+            headers == &[
+                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                ("Host".to_string(), "127.0.0.1:1236".to_string())]
+        );
+
+        assert_matches!(client.transaction, ClientAccessTransaction::Full {
+            response: HttpResponse {
+                ref protocol,
+                status,
+                ref reason,
+                ref headers,
+            },
+            ..
+        } if
+            protocol == "HTTP/1.1" &&
+            status == 503 &&
+            reason == "Backend fetch failed" &&
+            headers == &[
+                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
-                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        }));
+                ("Content-Length".to_string(), "1366".to_string())]
+        );
     }
 
     #[test]
