@@ -226,8 +226,7 @@ pub struct BackendAccessRecord {
     pub transaction: BackendAccessTransaction,
     /// Start of backend request processing
     pub start: TimeStamp,
-    /// End of response processing
-    // TODO: can this be None?? when?
+    /// End of response processing; None for abandoned response
     pub end: Option<TimeStamp>,
     pub log: Vec<LogEntry>,
 }
@@ -245,8 +244,8 @@ pub enum BackendAccessTransaction {
         wait: Duration,
         /// Time it took to get first byte of backend response
         ttfb: Duration,
-        /// Total duration it took to fetch the whole response
-        fetch: Duration,
+        /// Total duration it took to fetch the whole response; None if fetch was abandoned
+        fetch: Option<Duration>,
     },
     Failed {
         request: HttpRequest,
@@ -1288,7 +1287,7 @@ impl RecordBuilder {
                                             send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
                                             wait: try!(self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))),
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
-                                            fetch: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
+                                            fetch: self.req_took,
                                         }
                                     }
                                     BackendAccessTransactionType::Failed => {
@@ -1779,6 +1778,93 @@ mod tests {
     //TODO: backend access record: Full, Failed, Abandoned, Piped
 
     #[test]
+    fn apply_backend_access_record_full_abandoned_late() {
+        let builder = RecordBuilder::new(123);
+
+        // logs/raw.vsl
+        let builder = apply_all!(builder,
+                                 5, SLT_Begin,          "bereq 4 fetch";
+                                 5, SLT_Timestamp,      "Start: 1471354579.281173 0.000000 0.000000";
+                                 5, SLT_BereqMethod,    "GET";
+                                 5, SLT_BereqURL,       "/test_page/123.html";
+                                 5, SLT_BereqProtocol,  "HTTP/1.1";
+                                 5, SLT_BereqHeader,    "Date: Tue, 16 Aug 2016 13:36:19 GMT";
+                                 5, SLT_BereqHeader,    "Host: 127.0.0.1:1202";
+                                 5, SLT_VCL_call,       "BACKEND_FETCH";
+                                 5, SLT_BereqUnset,     "Accept-Encoding: gzip";
+                                 5, SLT_BereqHeader,    "Accept-Encoding: gzip";
+                                 5, SLT_VCL_return,     "fetch";
+                                 5, SLT_BackendOpen,    "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
+                                 5, SLT_BackendStart,   "127.0.0.1 42000";
+                                 5, SLT_Timestamp,      "Bereq: 1471354579.281302 0.000128 0.000128";
+                                 5, SLT_Timestamp,      "Beresp: 1471354579.288697 0.007524 0.007396";
+                                 5, SLT_BerespProtocol, "HTTP/1.1";
+                                 5, SLT_BerespStatus,   "500";
+                                 5, SLT_BerespReason,   "Internal Server Error";
+                                 5, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
+                                 5, SLT_TTL,            "RFC -1 10 -1 1471354579 1471354579 1340020138 0 0";
+                                 5, SLT_VCL_call,       "BACKEND_RESPONSE";
+                                 5, SLT_BerespHeader,   "X-Varnish-Decision: Cacheable";
+                                 5, SLT_BerespHeader,   "x-url: /test_page/123.html";
+                                 5, SLT_BerespHeader,   "X-Varnish-Content-Length: 9";
+                                 5, SLT_BerespHeader,   "X-Varnish-ESI-Parsed: false";
+                                 5, SLT_BerespHeader,   "X-Varnish-Compressable: false";
+                                 5, SLT_VCL_Log,        "Backend Response Code: 500";
+                                 5, SLT_VCL_return,     "abandon";
+                                 5, SLT_BackendClose,   "19 boot.default";
+                                 5, SLT_BereqAcct,      "541 0 541 375 0 375";
+                                 );
+
+       let record = apply_last!(builder, 5, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, 1471354579.281173);
+       assert_eq!(record.end, None);
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           send: 0.000128,
+           ttfb: 0.007524,
+           wait: 0.007396,
+           fetch: None,
+           ..
+       });
+
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+            request: HttpRequest {
+                ref method,
+                ref url,
+                ref protocol,
+                ref headers,
+            },
+            ..
+        } if
+            method == "GET" &&
+            url == "/test_page/123.html" &&
+            protocol == "HTTP/1.1" &&
+            headers == &[
+                ("Date".to_string(), "Tue, 16 Aug 2016 13:36:19 GMT".to_string()),
+                ("Host".to_string(), "127.0.0.1:1202".to_string()),
+                ("Accept-Encoding".to_string(), "gzip".to_string())]
+        );
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           response: HttpResponse {
+               ref protocol,
+               status,
+               ref reason,
+               ref headers,
+           },
+           ..
+       } if
+           protocol == "HTTP/1.1" &&
+           status == 500 &&
+           reason == "Internal Server Error" &&
+           headers == &[
+               ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+       );
+    }
+
+    #[test]
     fn apply_backend_access_record_full_timing() {
         let builder = RecordBuilder::new(123);
 
@@ -1815,7 +1901,7 @@ mod tests {
            send: 0.004549,
            ttfb: 0.007262,
            wait: 0.002713,
-           fetch: 0.007367,
+           fetch: Some(0.007367),
            ..
        });
     }
@@ -1856,7 +1942,7 @@ mod tests {
            send: 0.004549,
            ttfb: 0.007262,
            wait: 0.002713,
-           fetch: 0.007367,
+           fetch: Some(0.007367),
            ..
        });
     }
