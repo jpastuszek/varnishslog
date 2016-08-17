@@ -1,5 +1,4 @@
 /// TODO:
-/// * pipe timestamp
 /// * ESI level
 /// * result?: pipe, hit, miss, pass, synth
 /// * Call trace
@@ -182,11 +181,16 @@ pub enum ClientAccessTransaction {
     },
     Restarted {
         request: HttpRequest,
-        process: Duration,
+        /// Time it took to process request; None for ESI subrequests as they have this done already
+        process: Option<Duration>,
         restart_request: VslIdent,
     },
     Piped {
         request: HttpRequest,
+        /// Time it took to process request; None for ESI subrequests as they have this done already
+        process: Option<Duration>,
+        /// Time it took to get first byte of response
+        ttfb: Duration,
     },
 }
 
@@ -787,6 +791,10 @@ impl RecordBuilder {
                         resp_fetch: Some(since_last_timestamp),
                         .. self
                     },
+                    "Pipe" => RecordBuilder {
+                        resp_ttfb: Some(since_work_start),
+                        .. self
+                    },
                     "Process" => RecordBuilder {
                         resp_ttfb: Some(since_work_start),
                         .. self
@@ -797,6 +805,11 @@ impl RecordBuilder {
                         .. self
                     },
                     "BerespBody" | "Retry" => RecordBuilder {
+                        req_took: Some(since_work_start),
+                        resp_end: Some(timestamp),
+                        .. self
+                    },
+                    "PipeSess" => RecordBuilder {
                         req_took: Some(since_work_start),
                         resp_end: Some(timestamp),
                         .. self
@@ -1146,13 +1159,15 @@ impl RecordBuilder {
                                     ClientAccessTransactionType::Restarted => {
                                         ClientAccessTransaction::Restarted {
                                             request: request,
-                                            process: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
+                                            process: self.req_process,
                                             restart_request: try!(self.restart_request.ok_or(RecordBuilderError::RecordIncomplete("restart_request"))),
                                         }
                                     },
                                     ClientAccessTransactionType::Piped => {
                                         ClientAccessTransaction::Piped {
                                             request: request,
+                                            process: self.req_process,
+                                            ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
                                         }
                                     },
                                 };
@@ -1561,17 +1576,66 @@ mod tests {
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
 
+        assert_eq!(record.start, 1471355414.450311);
+        assert_eq!(record.end, 1471355414.450428);
+
         assert_matches!(record.transaction, ClientAccessTransaction::Restarted {
             request: HttpRequest {
                 ref url,
                 ..
             },
-            process: 0.0,
+            process: Some(0.0),
             restart_request: 5,
         } if url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
     }
 
-    //TODO: _piped test
+    #[test]
+    fn apply_client_access_piped() {
+        let builder = RecordBuilder::new(123);
+
+        // logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl
+        let builder = apply_all!(builder,
+                                 4, SLT_Begin,          "req 3 rxreq";
+                                 4, SLT_Timestamp,      "Start: 1471355444.744141 0.000000 0.000000";
+                                 4, SLT_Timestamp,      "Req: 1471355444.744141 0.000000 0.000000";
+                                 4, SLT_ReqStart,       "127.0.0.1 59830";
+                                 4, SLT_ReqMethod,      "GET";
+                                 4, SLT_ReqURL,         "/websocket";
+                                 4, SLT_ReqProtocol,    "HTTP/1.1";
+                                 4, SLT_ReqHeader,      "Upgrade: websocket";
+                                 4, SLT_ReqHeader,      "Connection: Upgrade";
+                                 4, SLT_VCL_call,       "RECV";
+                                 4, SLT_VCL_return,     "pipe";
+                                 4, SLT_VCL_call,       "HASH";
+                                 4, SLT_VCL_return,     "lookup";
+                                 4, SLT_Link,           "bereq 5 pipe";
+                                 4, SLT_ReqHeader,      "X-Varnish-Result: pipe";
+                                 4, SLT_Timestamp,      "Pipe: 1471355444.744349 0.000209 0.000209";
+                                 4, SLT_Timestamp,      "PipeSess: 1471355444.751368 0.007228 0.007019";
+                                 4, SLT_PipeAcct,       "268 761 0 480";
+                                );
+
+        let record = apply_last!(builder, 4, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.start, 1471355444.744141);
+        assert_eq!(record.end, 1471355444.751368);
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Piped {
+            request: HttpRequest {
+                ref url,
+                ref headers,
+                ..
+            },
+            process: Some(0.0),
+            ttfb: 0.000209,
+        } if
+        url == "/websocket" &&
+        headers == &[
+            ("Upgrade".to_string(), "websocket".to_string()),
+            ("Connection".to_string(), "Upgrade".to_string())]
+        );
+    }
 
     #[test]
     fn apply_client_access_record_timing() {
