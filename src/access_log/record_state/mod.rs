@@ -8,7 +8,7 @@ use self::record_builder::BuilderResult::*;
 
 pub use self::record_builder::Record;
 pub use self::record_builder::{ClientAccessRecord, BackendAccessRecord, SessionRecord};
-pub use self::record_builder::{ClientAccessTransaction, Accounting, HttpTransaction, HttpRequest, HttpResponse};
+pub use self::record_builder::{ClientAccessTransaction, BackendAccessTransaction, Accounting, HttpRequest, HttpResponse};
 
 #[derive(Debug)]
 enum RecordBuilderSlot {
@@ -204,6 +204,7 @@ mod tests {
                123, SLT_BereqUnset,     "Accept-Encoding: gzip";
                123, SLT_VCL_return,     "fetch";
                123, SLT_Timestamp,      "Beresp: 1469180763.484544 0.000000 0.000000";
+               123, SLT_Timestamp,      "Error: 1469180763.484544 0.000000 0.000000";
                123, SLT_BerespProtocol, "HTTP/1.1";
                123, SLT_BerespStatus,   "503";
                123, SLT_BerespReason,   "Service Unavailable";
@@ -227,27 +228,45 @@ mod tests {
             ident: 123,
             parent: 321,
             start: 1469180762.484544,
-            end: None,
+            end: Some(1469180763.484544),
             ref reason,
             ..
         } if reason == "fetch");
-        assert_eq!(backend.http_transaction.request, HttpRequest {
-            method: "GET".to_string(),
-            url: "/foobar".to_string(),
-            protocol: "HTTP/1.1".to_string(),
-            headers: vec![
+
+        assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
+            request: HttpRequest {
+                ref method,
+                ref url,
+                ref protocol,
+                ref headers,
+            },
+            ..
+        } if
+            method == "GET" &&
+            url == "/foobar" &&
+            protocol == "HTTP/1.1" &&
+            headers == &[
                 ("Host".to_string(), "localhost:8080".to_string()),
                 ("User-Agent".to_string(), "curl/7.40.0".to_string())]
-        });
-        assert_eq!(backend.http_transaction.response, Some(HttpResponse {
-            protocol: "HTTP/1.1".to_string(),
-            status: 503,
-            reason: "Backend fetch failed".to_string(),
-            headers: vec![
+        );
+
+        assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
+            synth_response: HttpResponse {
+                ref protocol,
+                status,
+                ref reason,
+                ref headers,
+            },
+            ..
+        } if
+            protocol == "HTTP/1.1" &&
+            status == 503 &&
+            reason == "Backend fetch failed" &&
+            headers == &[
                 ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        }));
+        );
     }
 
     #[test]

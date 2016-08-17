@@ -50,6 +50,7 @@
 ///   * aborted
 ///     * won't have response
 ///     * won't have end timestamp
+///   * retried
 ///   * piped (logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl)
 ///     * won't have response
 ///     * will have special timing info
@@ -222,22 +223,47 @@ pub struct BackendAccessRecord {
     pub ident: VslIdent,
     pub parent: VslIdent,
     pub reason: String,
-    pub retry_request: Option<VslIdent>,
-    pub http_transaction: HttpTransaction,
-    pub cache_object: Option<CacheObject>,
+    pub transaction: BackendAccessTransaction,
     /// Start of backend request processing
     pub start: TimeStamp,
-    /// Time it took to send backend request, e.g. it may include backend access/connect time
-    pub send: Option<Duration>,
-    /// Time waiting for first byte of backend response after request was sent
-    pub wait: Option<Duration>,
-    /// Time it took to get first byte of backend response
-    pub ttfb: Option<Duration>,
-    /// Total duration it took to fetch or synthesise the whole response
-    pub fetch: Option<Duration>,
-    /// End of response processing; may be None if it was abandoned
+    /// End of response processing
     pub end: Option<TimeStamp>,
     pub log: Vec<LogEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackendAccessTransaction {
+    Full {
+        request: HttpRequest,
+        response: HttpResponse,
+        retry_request: Option<VslIdent>,
+        cache_object: Option<CacheObject>,
+        /// Time it took to send backend request, e.g. it may include backend access/connect time
+        send: Duration,
+        /// Time waiting for first byte of backend response after request was sent
+        wait: Duration,
+        /// Time it took to get first byte of backend response
+        ttfb: Duration,
+        /// Total duration it took to fetch the whole response
+        fetch: Duration,
+    },
+    Failed {
+        request: HttpRequest,
+        synth_response: HttpResponse,
+        retry_request: Option<VslIdent>,
+        /// Total duration it took to synthesise response
+        synth: Duration,
+    },
+    /// Abandoned before we have made a backend request
+    Abandoned {
+        request: HttpRequest,
+        //TODO: implement
+        //TODO: more data
+    },
+    Piped {
+        request: HttpRequest,
+        //TODO: more data
+    },
 }
 
 pub type Address = (String, Port);
@@ -250,12 +276,6 @@ pub struct SessionRecord {
     pub local: Option<Address>,
     pub remote: Address,
     pub client_requests: Vec<VslIdent>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct HttpTransaction {
-    pub request: HttpRequest,
-    pub response: Option<HttpResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -643,7 +663,15 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
 enum ClientAccessTransactionType {
     Full,
     Restarted,
-    Piped
+    Piped,
+}
+
+#[derive(Debug)]
+enum BackendAccessTransactionType {
+    Full,
+    Failed,
+    Abandoned,
+    Piped,
 }
 
 #[derive(Debug)]
@@ -656,6 +684,7 @@ enum RecordType {
     BackendAccess {
         parent: VslIdent,
         reason: String,
+        transaction: BackendAccessTransactionType,
     },
     Session
 }
@@ -749,6 +778,7 @@ impl RecordBuilder {
                         record_type: Some(RecordType::BackendAccess {
                             parent: vxid,
                             reason: reason.to_owned(),
+                            transaction: BackendAccessTransactionType::Full,
                         }),
                         .. self
                     },
@@ -1061,20 +1091,36 @@ impl RecordBuilder {
                         }
                     },
                     "pipe" => {
-                        if let Some(RecordType::ClientAccess {
-                            parent,
-                            reason,
-                            transaction: ClientAccessTransactionType::Full,
-                        }) = self.record_type {
-                            RecordBuilder {
-                                record_type: Some(RecordType::ClientAccess {
-                                    parent: parent,
-                                    reason: reason,
-                                    transaction: ClientAccessTransactionType::Piped,
-                                }),
-                                .. self
+                        match self.record_type {
+                            Some(RecordType::ClientAccess {
+                                parent,
+                                reason,
+                                transaction: ClientAccessTransactionType::Full,
+                            }) => {
+                                RecordBuilder {
+                                    record_type: Some(RecordType::ClientAccess {
+                                        parent: parent,
+                                        reason: reason,
+                                        transaction: ClientAccessTransactionType::Piped,
+                                    }),
+                                    .. self
+                                }
                             }
-                        } else {
+                            Some(RecordType::BackendAccess {
+                                parent,
+                                reason,
+                                transaction: BackendAccessTransactionType::Full,
+                            }) => {
+                                RecordBuilder {
+                                    record_type: Some(RecordType::BackendAccess {
+                                        parent: parent,
+                                        reason: reason,
+                                        transaction: BackendAccessTransactionType::Piped,
+                                    }),
+                                    .. self
+                                }
+                            }
+                            _ =>
                             //TODO: backend access support
                             //TODO: better error type
                             return Err(RecordBuilderError::RecordIncomplete("record_type"))
@@ -1094,10 +1140,34 @@ impl RecordBuilder {
                         http_request: try!(self.http_request.complete()),
                         .. self
                     },
-                    "BACKEND_RESPONSE" | "BACKEND_ERROR" => RecordBuilder {
+                    "BACKEND_RESPONSE" => RecordBuilder {
                         http_request: try!(self.http_request.complete()),
                         http_response: try!(self.http_response.complete()),
                         .. self
+                    },
+                    "BACKEND_ERROR" => {
+                        match self.record_type {
+                            Some(RecordType::BackendAccess {
+                                parent,
+                                reason,
+                                transaction: BackendAccessTransactionType::Full,
+                            }) => {
+                                RecordBuilder {
+                                    record_type: Some(RecordType::BackendAccess {
+                                        parent: parent,
+                                        reason: reason,
+                                        transaction: BackendAccessTransactionType::Failed,
+                                    }),
+                                    http_request: try!(self.http_request.complete()),
+                                    http_response: try!(self.http_response.complete()),
+                                    .. self
+                                }
+                            }
+                            _ =>
+                                //TODO: backend access support
+                                //TODO: better error type
+                                return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                        }
                     },
                     _ => {
                         debug!("Ignoring unknown {:?} method: {}", vsl.tag, method);
@@ -1184,48 +1254,69 @@ impl RecordBuilder {
 
                                 return Ok(Complete(Record::ClientAccess(record)))
                             },
-                            RecordType::BackendAccess { parent, reason } => {
-                                let response = try!(self.http_response.get_complete());
+                            RecordType::BackendAccess { parent, reason, transaction } => {
+                                let transaction = match transaction {
+                                    BackendAccessTransactionType::Full => {
+                                        //TODO: use proper predicate - will we always have it in
+                                        //full transaction?
+                                        let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
+                                            let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
+                                            let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
+                                            let fetch_body = try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")));
 
-                                let http_transaction = HttpTransaction {
-                                    request: request,
-                                    response: Some(response),
-                                };
+                                            Some(CacheObject {
+                                                storage_type: obj_storage.stype,
+                                                storage_name: obj_storage.name,
+                                                ttl: obj_ttl.ttl,
+                                                grace: obj_ttl.grace,
+                                                keep: obj_ttl.keep,
+                                                since: obj_ttl.since,
+                                                origin: obj_ttl.origin.unwrap_or(obj_ttl.since),
+                                                fetch_mode: fetch_body.mode,
+                                                fetch_streamed: fetch_body.streamed,
+                                                response: cache_object,
+                                            })
+                                        } else {
+                                            None
+                                        };
 
-                                //TODO: use proper predicate
-                                let cache_object = if let Ok(cache_object) = self.cache_object.get_complete() {
-                                    let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
-                                    let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
-                                    let fetch_body = try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")));
-
-                                    Some(CacheObject {
-                                        storage_type: obj_storage.stype,
-                                        storage_name: obj_storage.name,
-                                        ttl: obj_ttl.ttl,
-                                        grace: obj_ttl.grace,
-                                        keep: obj_ttl.keep,
-                                        since: obj_ttl.since,
-                                        origin: obj_ttl.origin.unwrap_or(obj_ttl.since),
-                                        fetch_mode: fetch_body.mode,
-                                        fetch_streamed: fetch_body.streamed,
-                                        response: cache_object,
-                                    })
-                                } else {
-                                    None
+                                        BackendAccessTransaction::Full {
+                                            request: request,
+                                            response: try!(self.http_response.get_complete()),
+                                            retry_request: self.retry_request,
+                                            cache_object: cache_object,
+                                            send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
+                                            wait: try!(self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))),
+                                            ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
+                                            fetch: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
+                                        }
+                                    }
+                                    BackendAccessTransactionType::Failed => {
+                                        BackendAccessTransaction::Failed {
+                                            request: request,
+                                            synth_response: try!(self.http_response.get_complete()),
+                                            retry_request: self.retry_request,
+                                            synth: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
+                                        }
+                                    }
+                                    BackendAccessTransactionType::Abandoned => {
+                                        BackendAccessTransaction::Abandoned {
+                                            request: request,
+                                        }
+                                    }
+                                    BackendAccessTransactionType::Piped => {
+                                        BackendAccessTransaction::Piped {
+                                            request: request,
+                                        }
+                                    }
                                 };
 
                                 let record = BackendAccessRecord {
                                     ident: self.ident,
                                     parent: parent,
                                     reason: reason,
-                                    retry_request: self.retry_request,
-                                    http_transaction: http_transaction,
-                                    cache_object: cache_object,
+                                    transaction: transaction,
                                     start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                                    send: self.req_process,
-                                    wait: self.resp_fetch,
-                                    ttfb: self.resp_ttfb,
-                                    fetch: self.req_took,
                                     end: self.resp_end,
                                     log: self.log,
                                 };
@@ -1292,7 +1383,7 @@ mod tests {
             .unwrap().unwrap_building();
 
         assert_matches!(builder.record_type,
-            Some(RecordType::BackendAccess { parent: 321, ref reason }) if reason == "fetch");
+            Some(RecordType::BackendAccess { parent: 321, ref reason, .. }) if reason == "fetch");
     }
 
     #[test]
@@ -1681,6 +1772,8 @@ mod tests {
         });
     }
 
+    //TODO: backend access record: Full, Failed, Abandoned, Piped
+
     #[test]
     fn apply_backend_access_record_timing_retry() {
         let builder = RecordBuilder::new(123);
@@ -1711,11 +1804,15 @@ mod tests {
            .unwrap_backend_access();
 
        assert_eq!(record.start, 1470403414.669375);
-       assert_eq!(record.send, Some(0.004549));
-       assert_eq!(record.ttfb, Some(0.007262));
-       assert_eq!(record.wait, Some(0.002713));
-       assert_eq!(record.fetch, Some(0.007367));
        assert_eq!(record.end, Some(1470403414.672290));
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           send: 0.004549,
+           ttfb: 0.007262,
+           wait: 0.002713,
+           fetch: 0.007367,
+           ..
+       });
    }
 
     #[test]
@@ -1749,11 +1846,15 @@ mod tests {
            .unwrap_backend_access();
 
        assert_eq!(record.start, 1470403414.669375);
-       assert_eq!(record.send, Some(0.004549));
-       assert_eq!(record.ttfb, Some(0.007262));
-       assert_eq!(record.wait, Some(0.002713));
-       assert_eq!(record.fetch, Some(0.007367));
        assert_eq!(record.end, Some(1470403414.672290));
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           send: 0.004549,
+           ttfb: 0.007262,
+           wait: 0.002713,
+           fetch: 0.007367,
+           ..
+       });
    }
 
     #[test]
@@ -1784,11 +1885,12 @@ mod tests {
            .unwrap_backend_access();
 
        assert_eq!(record.start, 1470304835.059425);
-       assert_eq!(record.send, None);
-       assert_eq!(record.ttfb, None);
-       assert_eq!(record.wait, None);
-       assert_eq!(record.fetch, Some(0.000054));
        assert_eq!(record.end, Some(1470304835.059479));
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+           synth: 0.000054,
+           ..
+       });
    }
 
     #[test]
@@ -1858,7 +1960,7 @@ mod tests {
                                  32769, SLT_VCL_return,       "fetch";
                                  32769, SLT_FetchError,       "no backend connection";
                                  32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-                                 32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                                 32769, SLT_Timestamp,        "Error: 1470403414.669471 0.004549 0.000096";
                                  32769, SLT_BerespProtocol,   "HTTP/1.1";
                                  32769, SLT_BerespStatus,     "503";
                                  32769, SLT_BerespReason,     "Service Unavailable";
@@ -1964,17 +2066,29 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       let cache_object = record.cache_object.unwrap();
-       assert_eq!(cache_object.fetch_mode, "length".to_string());
-       assert_eq!(cache_object.fetch_streamed, true);
-
-       let response = cache_object.response;
-       assert_eq!(response.protocol, "HTTP/1.1".to_string());
-       assert_eq!(response.status, 200);
-       assert_eq!(response.reason, "OK".to_string());
-       assert_eq!(response.headers, &[
-                  ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
-                  ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]);
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           cache_object: Some(CacheObject {
+               ref fetch_mode,
+               fetch_streamed,
+               response: HttpResponse {
+                   ref protocol,
+                   status,
+                   ref reason,
+                   ref headers
+               },
+               ..
+           }),
+           ..
+       } if
+           fetch_streamed == true &&
+           fetch_mode == "length" &&
+           protocol == "HTTP/1.1" &&
+           status == 200 &&
+           reason == "OK" &&
+           headers == &[
+               ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
+               ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]
+       );
    }
 
     #[test]
@@ -2014,12 +2128,17 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       let cache_object = record.cache_object.unwrap();
-       assert_eq!(cache_object.ttl, Some(120.0));
-       assert_eq!(cache_object.grace, Some(10.0));
-       assert_eq!(cache_object.keep, None);
-       assert_eq!(cache_object.since, 1471339883.0);
-       assert_eq!(cache_object.origin, 1471339880.0);
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           cache_object: Some(CacheObject {
+               ttl: Some(120.0),
+               grace: Some(10.0),
+               keep: None,
+               since: 1471339883.0,
+               origin: 1471339880.0,
+               ..
+           }),
+           ..
+       });
    }
 
     #[test]
@@ -2060,13 +2179,18 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       let cache_object = record.cache_object.unwrap();
-       assert_eq!(cache_object.ttl, Some(12345.0));
-       assert_eq!(cache_object.grace, Some(259200.0));
-       assert_eq!(cache_object.keep, Some(0.0));
-       assert_eq!(cache_object.since, 1470304807.0);
-       // Keep time from RFC so we can calculate origin TTL etc
-       assert_eq!(cache_object.origin, 1471339880.0);
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           cache_object: Some(CacheObject {
+               ttl: Some(12345.0),
+               grace: Some(259200.0),
+               keep: Some(0.0),
+               since: 1470304807.0,
+               // Keep time from RFC so we can calculate origin TTL etc
+               origin: 1471339880.0,
+               ..
+           }),
+           ..
+       });
    }
 
     #[test]
@@ -2107,8 +2231,16 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       let cache_object = record.cache_object.unwrap();
-       assert_eq!(cache_object.storage_type, "malloc");
-       assert_eq!(cache_object.storage_name, "s0");
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           cache_object: Some(CacheObject {
+               ref storage_type,
+               ref storage_name,
+               ..
+           }),
+           ..
+       } if
+           storage_type == "malloc" &&
+           storage_name == "s0"
+       );
    }
 }

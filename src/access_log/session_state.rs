@@ -114,11 +114,23 @@ impl SessionState {
     }
 
     fn build_backend_transaction(&mut self, session: &SessionRecord, client: &ClientAccessRecord, backend: BackendAccessRecord) -> BackendTransaction {
-        let retry_transaction = backend.retry_request
-            .and_then(|ident| self.backend.remove(&ident).or_else(|| {
-                error!("Session {} references ClientAccessRecord {} which has BackendAccessRecord {} that was restarted into BackendAccessRecord {} wich was not found: {:?} in client: {:?} in session: {:?}", session.ident, client.ident, backend.ident, ident, backend, client, session);
-                None}))
-            .map(|retry| Box::new(self.build_backend_transaction(session, client, retry)));
+        let retry_transaction = match backend.transaction {
+            BackendAccessTransaction::Full {
+                ref retry_request,
+                ..
+            } |
+            BackendAccessTransaction::Failed {
+                ref retry_request,
+                ..
+            } => {
+                retry_request.and_then(|ident| self.backend.remove(&ident).or_else(|| {
+                    error!("Session {} references ClientAccessRecord {} which has BackendAccessRecord {} that was restarted into BackendAccessRecord {} wich was not found: {:?} in client: {:?} in session: {:?}", session.ident, client.ident, backend.ident, ident, backend, client, session);
+                    None}))
+                    .map(|retry| Box::new(self.build_backend_transaction(session, client, retry)))
+            }
+            BackendAccessTransaction::Abandoned { .. } => None,
+            BackendAccessTransaction::Piped { .. } => None,
+        };
 
         BackendTransaction {
             access_record: backend,
@@ -262,7 +274,7 @@ mod tests {
                1000, SLT_BereqUnset,    "Accept-Encoding: gzip";
                1000, SLT_VCL_return,    "fetch";
                1000, SLT_Timestamp,     "Bereq: 1469180763.484544 1.000000 1.000000";
-               1000, SLT_Timestamp,     "Beresp: 1469180764.484544 2.000000 1.000000";
+               1000, SLT_Timestamp,     "Error: 1469180764.484544 2.000000 1.000000";
                1000, SLT_BerespProtocol, "HTTP/1.1";
                1000, SLT_BerespStatus,  "503";
                1000, SLT_BerespReason,  "Service Unavailable";
@@ -336,11 +348,16 @@ mod tests {
             ident: 1000,
             parent: 100,
             start: 1469180762.484544,
-            end: None,
+            end: Some(1469180764.484544),
             ref reason,
             ..
         } if reason == "fetch");
-        assert_eq!(backend.http_transaction.request, HttpRequest {
+
+        assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
+            ref request,
+            ..
+        } if
+        request == &HttpRequest {
             method: "GET".to_string(),
             url: "/foobar".to_string(),
             protocol: "HTTP/1.1".to_string(),
@@ -348,7 +365,11 @@ mod tests {
                 ("Host".to_string(), "localhost:8080".to_string()),
                 ("User-Agent".to_string(), "curl/7.40.0".to_string())]
         });
-        assert_eq!(backend.http_transaction.response, Some(HttpResponse {
+        assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
+            ref synth_response,
+            ..
+        } if
+        synth_response == &HttpResponse {
             protocol: "HTTP/1.1".to_string(),
             status: 503,
             reason: "Backend fetch failed".to_string(),
@@ -356,7 +377,7 @@ mod tests {
                 ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        }));
+        });
 
         assert_eq!(session.record, SessionRecord {
             ident: 10,
@@ -682,7 +703,7 @@ mod tests {
 
         // It should have a response
         assert_matches!(restart_transaction.access_record.transaction, ClientAccessTransaction::Full { .. });
-        assert!(restart_transaction.backend_transactions[0].access_record.http_transaction.response.is_some());
+        assert_matches!(restart_transaction.backend_transactions[0].access_record.transaction, BackendAccessTransaction::Full { .. });
     }
 
     #[test]
@@ -773,7 +794,14 @@ mod tests {
         let session = apply_final!(state, 6, SLT_End, "");
 
         // Backend transaction request record will be the one from before retry (triggering)
-        assert_eq!(session.client_transactions[0].backend_transactions[0].access_record.http_transaction.request.url, "/retry");
+        assert_matches!(session.client_transactions[0].backend_transactions[0].access_record.transaction, BackendAccessTransaction::Full {
+            request: HttpRequest {
+                ref url,
+                ..
+            },
+            ..
+        } if url == "/retry"
+        );
 
         // Backend transaction will have retrys
         let retry_transaction = assert_some!(session.client_transactions[0].backend_transactions[0].retry_transaction.as_ref());
@@ -781,6 +809,13 @@ mod tests {
         // It will have "retry" reason
         assert_eq!(retry_transaction.access_record.reason, "retry".to_string());
         assert!(retry_transaction.retry_transaction.is_none());
-        assert_eq!(retry_transaction.access_record.http_transaction.request.url, "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg");
+        assert_matches!(retry_transaction.access_record.transaction, BackendAccessTransaction::Full {
+            request: HttpRequest {
+                ref url,
+                ..
+            },
+            ..
+        } if url == "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg"
+        );
     }
 }
