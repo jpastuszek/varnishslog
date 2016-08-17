@@ -230,6 +230,9 @@ mod tests {
     pub use super::*;
     pub use super::super::test_helpers::*;
 
+    //TODO: testing too much here; should only test session state related structures and how they
+    //are put together
+
     #[test]
     fn apply_session_state() {
         log();

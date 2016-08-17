@@ -227,6 +227,7 @@ pub struct BackendAccessRecord {
     /// Start of backend request processing
     pub start: TimeStamp,
     /// End of response processing
+    // TODO: can this be None?? when?
     pub end: Option<TimeStamp>,
     pub log: Vec<LogEntry>,
 }
@@ -1159,7 +1160,6 @@ impl RecordBuilder {
                                         transaction: BackendAccessTransactionType::Failed,
                                     }),
                                     http_request: try!(self.http_request.complete()),
-                                    http_response: try!(self.http_response.complete()),
                                     .. self
                                 }
                             }
@@ -1292,9 +1292,13 @@ impl RecordBuilder {
                                         }
                                     }
                                     BackendAccessTransactionType::Failed => {
+                                        // We complete it here as it is syhth response - not a
+                                        // backend response
+                                        let http_response = try!(self.http_response.complete());
+
                                         BackendAccessTransaction::Failed {
                                             request: request,
-                                            synth_response: try!(self.http_response.get_complete()),
+                                            synth_response: try!(http_response.get_complete()),
                                             retry_request: self.retry_request,
                                             synth: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
                                         }
@@ -1640,6 +1644,50 @@ mod tests {
     //TODO: _full ESI test
 
     #[test]
+    fn apply_client_access_record_full_timing() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 7, SLT_Begin,        "req 6 rxreq";
+                                 7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+                                 7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+                                 7, SLT_ReqStart,     "127.0.0.1 39798";
+                                 7, SLT_ReqMethod,    "GET";
+                                 7, SLT_ReqURL,       "/retry";
+                                 7, SLT_ReqProtocol,  "HTTP/1.1";
+                                 7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 7, SLT_VCL_call,     "RECV";
+                                 7, SLT_Link,         "bereq 8 fetch";
+                                 7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+                                 7, SLT_RespProtocol, "HTTP/1.1";
+                                 7, SLT_RespStatus,   "200";
+                                 7, SLT_RespReason,   "OK";
+                                 7, SLT_RespHeader,   "Content-Type: image/jpeg";
+                                 7, SLT_VCL_return,   "deliver";
+                                 7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+                                 7, SLT_RespHeader,   "Accept-Ranges: bytes";
+                                 7, SLT_Debug,        "RES_MODE 2";
+                                 7, SLT_RespHeader,   "Connection: keep-alive";
+                                 7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+                                 7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
+                                 );
+
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.start, 1470403413.664824);
+        assert_eq!(record.end, 1470403414.672458);
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Full {
+            process: Some(1.0),
+            fetch: Some(0.007491),
+            ttfb: 1.007601,
+            serve: 1.007634,
+            ..
+        });
+    }
+
+    #[test]
     fn apply_client_access_restarted() {
         let builder = RecordBuilder::new(123);
 
@@ -1728,95 +1776,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn apply_client_access_record_timing() {
-        let builder = RecordBuilder::new(123);
-
-        let builder = apply_all!(builder,
-                                 7, SLT_Begin,        "req 6 rxreq";
-                                 7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
-                                 7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
-                                 7, SLT_ReqStart,     "127.0.0.1 39798";
-                                 7, SLT_ReqMethod,    "GET";
-                                 7, SLT_ReqURL,       "/retry";
-                                 7, SLT_ReqProtocol,  "HTTP/1.1";
-                                 7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-                                 7, SLT_VCL_call,     "RECV";
-                                 7, SLT_Link,         "bereq 8 fetch";
-                                 7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
-                                 7, SLT_RespProtocol, "HTTP/1.1";
-                                 7, SLT_RespStatus,   "200";
-                                 7, SLT_RespReason,   "OK";
-                                 7, SLT_RespHeader,   "Content-Type: image/jpeg";
-                                 7, SLT_VCL_return,   "deliver";
-                                 7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
-                                 7, SLT_RespHeader,   "Accept-Ranges: bytes";
-                                 7, SLT_Debug,        "RES_MODE 2";
-                                 7, SLT_RespHeader,   "Connection: keep-alive";
-                                 7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
-                                 7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
-                                 );
-
-        let record = apply_last!(builder, 7, SLT_End, "")
-            .unwrap_client_access();
-
-        assert_eq!(record.start, 1470403413.664824);
-        assert_eq!(record.end, 1470403414.672458);
-
-        assert_matches!(record.transaction, ClientAccessTransaction::Full {
-            process: Some(1.0),
-            fetch: Some(0.007491),
-            ttfb: 1.007601,
-            serve: 1.007634,
-            ..
-        });
-    }
-
     //TODO: backend access record: Full, Failed, Abandoned, Piped
 
     #[test]
-    fn apply_backend_access_record_timing_retry() {
-        let builder = RecordBuilder::new(123);
-
-        let builder = apply_all!(builder,
-                                 32769, SLT_Begin,            "bereq 8 retry";
-                                 32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-                                 32769, SLT_BereqMethod,      "GET";
-                                 32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-                                 32769, SLT_BereqProtocol,    "HTTP/1.1";
-                                 32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-                                 32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-                                 32769, SLT_VCL_return,       "fetch";
-                                 32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-                                 32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-                                 32769, SLT_BerespProtocol,   "HTTP/1.1";
-                                 32769, SLT_BerespStatus,     "200";
-                                 32769, SLT_BerespReason,     "OK";
-                                 32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-                                 32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
-                                 32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-                                 32769, SLT_BackendReuse,     "19 boot.iss";
-                                 32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
-                                 32769, SLT_Link,             "bereq 32769 retry";
-                                 );
-
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
-
-       assert_eq!(record.start, 1470403414.669375);
-       assert_eq!(record.end, Some(1470403414.672290));
-
-       assert_matches!(record.transaction, BackendAccessTransaction::Full {
-           send: 0.004549,
-           ttfb: 0.007262,
-           wait: 0.002713,
-           fetch: 0.007367,
-           ..
-       });
-   }
-
-    #[test]
-    fn apply_backend_access_record_timing() {
+    fn apply_backend_access_record_full_timing() {
         let builder = RecordBuilder::new(123);
 
         let builder = apply_all!(builder,
@@ -1855,10 +1818,140 @@ mod tests {
            fetch: 0.007367,
            ..
        });
-   }
+    }
 
     #[test]
-    fn apply_backend_access_record_timing_error() {
+    fn apply_backend_access_record_full_timing_retry() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 32769, SLT_Begin,            "bereq 8 retry";
+                                 32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                                 32769, SLT_BereqMethod,      "GET";
+                                 32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                                 32769, SLT_BereqProtocol,    "HTTP/1.1";
+                                 32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                                 32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                                 32769, SLT_BerespProtocol,   "HTTP/1.1";
+                                 32769, SLT_BerespStatus,     "200";
+                                 32769, SLT_BerespReason,     "OK";
+                                 32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                                 32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+                                 32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                                 32769, SLT_BackendReuse,     "19 boot.iss";
+                                 32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
+                                 32769, SLT_Link,             "bereq 32769 retry";
+                                 );
+
+       let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, 1470403414.669375);
+       assert_eq!(record.end, Some(1470403414.672290));
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           send: 0.004549,
+           ttfb: 0.007262,
+           wait: 0.002713,
+           fetch: 0.007367,
+           ..
+       });
+    }
+
+    #[test]
+    fn apply_backend_access_record_failed() {
+        let builder = RecordBuilder::new(123);
+
+        // logs-new/varnish20160816-4093-lmudum99608ad955ba43288.vsl
+        let builder = apply_all!(builder,
+                                 5, SLT_Begin,          "bereq 4 fetch";
+                                 5, SLT_Timestamp,      "Start: 1471355385.239334 0.000000 0.000000";
+                                 5, SLT_BereqMethod,    "GET";
+                                 5, SLT_BereqURL,       "/test_page/123.html";
+                                 5, SLT_BereqProtocol,  "HTTP/1.1";
+                                 5, SLT_BereqHeader,    "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+                                 5, SLT_BereqHeader,    "Host: 127.0.0.1:1236";
+                                 5, SLT_VCL_call,       "BACKEND_FETCH";
+                                 5, SLT_VCL_return,     "fetch";
+                                 5, SLT_FetchError,     "no backend connection";
+                                 5, SLT_Timestamp,      "Beresp: 1471355385.239422 0.000087 0.000087";
+                                 5, SLT_Timestamp,      "Error: 1471355385.239427 0.000093 0.000005";
+                                 5, SLT_BerespProtocol, "HTTP/1.1";
+                                 5, SLT_BerespStatus,   "503";
+                                 5, SLT_BerespReason,   "Service Unavailable";
+                                 5, SLT_BerespReason,   "Backend fetch failed";
+                                 5, SLT_BerespHeader,   "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+                                 5, SLT_BerespHeader,   "Server: Varnish";
+                                 5, SLT_VCL_call,       "BACKEND_ERROR";
+                                 5, SLT_VCL_Log,        "Backend Error Code: 503";
+                                 5, SLT_BerespHeader,   "Retry-After: 20";
+                                 5, SLT_VCL_return,     "deliver";
+                                 5, SLT_Storage,        "malloc Transient";
+                                 5, SLT_ObjProtocol,    "HTTP/1.1";
+                                 5, SLT_ObjStatus,      "503";
+                                 5, SLT_ObjReason,      "Backend fetch failed";
+                                 5, SLT_ObjHeader,      "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+                                 5, SLT_ObjHeader,      "Server: Varnish";
+                                 5, SLT_ObjHeader,      "X-Varnish-Decision: Internal-UnavaliableError";
+                                 5, SLT_ObjHeader,      "Content-Type: text/html; charset=utf-8";
+                                 5, SLT_ObjHeader,      "Cache-Control: no-store";
+                                 5, SLT_ObjHeader,      "Retry-After: 20";
+                                 5, SLT_Length,         "1366";
+                                 5, SLT_BereqAcct,      "0 0 0 0 0 0";
+                                 );
+
+       let record = apply_last!(builder, 5, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, 1471355385.239334);
+       assert_eq!(record.end, Some(1471355385.239427));
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+           synth: 0.000093,
+           ..
+       });
+
+        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+            request: HttpRequest {
+                ref method,
+                ref url,
+                ref protocol,
+                ref headers,
+            },
+            ..
+        } if
+            method == "GET" &&
+            url == "/test_page/123.html" &&
+            protocol == "HTTP/1.1" &&
+            headers == &[
+                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                ("Host".to_string(), "127.0.0.1:1236".to_string())]
+        );
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+           synth_response: HttpResponse {
+               ref protocol,
+               status,
+               ref reason,
+               ref headers,
+           },
+           ..
+       } if
+           protocol == "HTTP/1.1" &&
+           status == 503 &&
+           reason == "Backend fetch failed" &&
+           headers == &[
+               ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+               ("Server".to_string(), "Varnish".to_string()),
+               ("Retry-After".to_string(), "20".to_string())]
+       );
+    }
+
+    #[test]
+    fn apply_backend_access_record_failed_timing() {
         let builder = RecordBuilder::new(123);
 
         let builder = apply_all!(builder,
@@ -1891,7 +1984,7 @@ mod tests {
            synth: 0.000054,
            ..
        });
-   }
+    }
 
     #[test]
     fn apply_client_access_record_log() {
