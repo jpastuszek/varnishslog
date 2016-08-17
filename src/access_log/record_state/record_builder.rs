@@ -257,8 +257,6 @@ pub enum BackendAccessTransaction {
     /// Abandoned before we have made a backend request
     Abandoned {
         request: HttpRequest,
-        //TODO: implement
-        //TODO: more data
     },
     Piped {
         request: HttpRequest,
@@ -1132,6 +1130,32 @@ impl RecordBuilder {
                         } else {
                             //TODO: better error type
                             return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                        }
+                    },
+                    "abandon" => {
+                        // eary abandon will have request still Building
+                        if let http_request @ Building(_) = self.http_request {
+                            if let Some(RecordType::BackendAccess {
+                                parent,
+                                reason,
+                                transaction: BackendAccessTransactionType::Full,
+                            }) = self.record_type {
+                                RecordBuilder {
+                                    http_request: try!(http_request.complete()),
+                                    record_type: Some(RecordType::BackendAccess {
+                                        parent: parent,
+                                        reason: reason,
+                                        transaction: BackendAccessTransactionType::Abandoned,
+                                    }),
+                                    .. self
+                                }
+                            } else {
+                                //TODO: better error type
+                                return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                            }
+                        } else {
+                            // we treat late abandon as normal full backend transaction
+                            self
                         }
                     },
                     "pipe" => {
@@ -2127,6 +2151,47 @@ mod tests {
        );
     }
 
+    #[test]
+    fn apply_backend_access_record_abandoned() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 5, SLT_Begin,          "bereq 2 fetch";
+                                 5, SLT_Timestamp,      "Start: 1471449766.106695 0.000000 0.000000";
+                                 5, SLT_BereqMethod,    "GET";
+                                 5, SLT_BereqURL,       "/";
+                                 5, SLT_BereqProtocol,  "HTTP/1.1";
+                                 5, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
+                                 5, SLT_BereqHeader,    "Host: localhost:1080";
+                                 5, SLT_VCL_call,       "BACKEND_FETCH";
+                                 5, SLT_BereqUnset,     "Accept-Encoding: gzip";
+                                 5, SLT_VCL_return,     "abandon";
+                                 5, SLT_BereqAcct,      "0 0 0 0 0 0";
+                                 );
+
+       let record = apply_last!(builder, 5, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, 1471449766.106695);
+       assert_eq!(record.end, None);
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+           request: HttpRequest {
+               ref method,
+               ref url,
+               ref protocol,
+               ref headers,
+           },
+           ..
+       } if
+           method == "GET" &&
+           url == "/" &&
+           protocol == "HTTP/1.1" &&
+           headers == &[
+               ("User-Agent".to_string(), "curl/7.40.0".to_string()),
+               ("Host".to_string(), "localhost:1080".to_string())]
+       );
+    }
 
     #[test]
     fn apply_client_access_record_log() {
