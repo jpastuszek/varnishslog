@@ -4,7 +4,7 @@
 /// * Call trace
 /// * ACL trace
 /// * more tests
-/// * pipe sessions
+/// * backend info
 /// * SLT_ExpBan         196625 banned lookup
 ///
 /// Client headers:
@@ -226,7 +226,7 @@ pub struct BackendAccessRecord {
     pub transaction: BackendAccessTransaction,
     /// Start of backend request processing
     pub start: TimeStamp,
-    /// End of response processing; None for abandoned response
+    /// End of response processing; None for abandoned or piped response
     pub end: Option<TimeStamp>,
     pub log: Vec<LogEntry>,
 }
@@ -262,7 +262,6 @@ pub enum BackendAccessTransaction {
     },
     Piped {
         request: HttpRequest,
-        //TODO: more data
     },
 }
 
@@ -288,9 +287,9 @@ pub struct HttpRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponse {
-    pub protocol: String,
     pub status: Status,
     pub reason: String,
+    pub protocol: String,
     pub headers: Vec<(String, String)>,
 }
 
@@ -715,6 +714,7 @@ pub struct RecordBuilder {
     ident: VslIdent,
     record_type: Option<RecordType>,
     req_start: Option<TimeStamp>,
+    pipe_start: Option<TimeStamp>,
     http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
     http_response: BuilderResult<HttpResponseBuilder, HttpResponse>,
     cache_object: BuilderResult<HttpResponseBuilder, HttpResponse>,
@@ -744,6 +744,7 @@ impl RecordBuilder {
             ident: ident,
             record_type: None,
             req_start: None,
+            pipe_start: None,
             http_request: Building(HttpRequestBuilder::new()),
             http_response: Building(HttpResponseBuilder::new()),
             cache_object: Building(HttpResponseBuilder::new()),
@@ -809,6 +810,7 @@ impl RecordBuilder {
                         .. self
                     },
                     "Bereq" => RecordBuilder {
+                        pipe_start: Some(timestamp),
                         req_process: Some(since_work_start),
                         .. self
                     },
@@ -1067,6 +1069,48 @@ impl RecordBuilder {
             }
 
             // Final
+            SLT_VCL_call => {
+                let method = try!(vsl.parse_data(slt_call));
+
+                match method {
+                    "RECV" => RecordBuilder {
+                        http_request: try!(self.http_request.complete()),
+                        .. self
+                    },
+                    "BACKEND_RESPONSE" => RecordBuilder {
+                        http_request: try!(self.http_request.complete()),
+                        http_response: try!(self.http_response.complete()),
+                        .. self
+                    },
+                    "BACKEND_ERROR" => {
+                        match self.record_type {
+                            Some(RecordType::BackendAccess {
+                                parent,
+                                reason,
+                                transaction: BackendAccessTransactionType::Full,
+                            }) => {
+                                RecordBuilder {
+                                    record_type: Some(RecordType::BackendAccess {
+                                        parent: parent,
+                                        reason: reason,
+                                        transaction: BackendAccessTransactionType::Failed,
+                                    }),
+                                    http_request: try!(self.http_request.complete()),
+                                    .. self
+                                }
+                            }
+                            _ =>
+                                //TODO: backend access support
+                                //TODO: better error type
+                                return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                        }
+                    },
+                    _ => {
+                        debug!("Ignoring unknown {:?} method: {}", vsl.tag, method);
+                        self
+                    }
+                }
+            }
             SLT_VCL_return => {
                 let action = try!(vsl.parse_data(slt_return));
 
@@ -1112,6 +1156,7 @@ impl RecordBuilder {
                                 transaction: BackendAccessTransactionType::Full,
                             }) => {
                                 RecordBuilder {
+                                    http_request: try!(self.http_request.complete()),
                                     record_type: Some(RecordType::BackendAccess {
                                         parent: parent,
                                         reason: reason,
@@ -1128,48 +1173,6 @@ impl RecordBuilder {
                     },
                     _ => {
                         debug!("Ignoring unknown {:?} return: {}", vsl.tag, action);
-                        self
-                    }
-                }
-            }
-            SLT_VCL_call => {
-                let method = try!(vsl.parse_data(slt_call));
-
-                match method {
-                    "RECV" => RecordBuilder {
-                        http_request: try!(self.http_request.complete()),
-                        .. self
-                    },
-                    "BACKEND_RESPONSE" => RecordBuilder {
-                        http_request: try!(self.http_request.complete()),
-                        http_response: try!(self.http_response.complete()),
-                        .. self
-                    },
-                    "BACKEND_ERROR" => {
-                        match self.record_type {
-                            Some(RecordType::BackendAccess {
-                                parent,
-                                reason,
-                                transaction: BackendAccessTransactionType::Full,
-                            }) => {
-                                RecordBuilder {
-                                    record_type: Some(RecordType::BackendAccess {
-                                        parent: parent,
-                                        reason: reason,
-                                        transaction: BackendAccessTransactionType::Failed,
-                                    }),
-                                    http_request: try!(self.http_request.complete()),
-                                    .. self
-                                }
-                            }
-                            _ =>
-                                //TODO: backend access support
-                                //TODO: better error type
-                                return Err(RecordBuilderError::RecordIncomplete("record_type"))
-                        }
-                    },
-                    _ => {
-                        debug!("Ignoring unknown {:?} method: {}", vsl.tag, method);
                         self
                     }
                 }
@@ -1314,12 +1317,19 @@ impl RecordBuilder {
                                     }
                                 };
 
+                                let start = if let BackendAccessTransaction::Piped { .. } = transaction {
+                                    // Note that piped backend requests don't have start timestamp
+                                    try!(self.pipe_start.ok_or(RecordBuilderError::RecordIncomplete("pipe_start")))
+                                } else {
+                                    try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start")))
+                                };
+
                                 let record = BackendAccessRecord {
                                     ident: self.ident,
                                     parent: parent,
                                     reason: reason,
                                     transaction: transaction,
-                                    start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                                    start: start,
                                     end: self.resp_end,
                                     log: self.log,
                                 };
@@ -2071,6 +2081,52 @@ mod tests {
            ..
        });
     }
+
+    #[test]
+    fn apply_backend_access_record_piped() {
+        let builder = RecordBuilder::new(123);
+
+        // logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl
+        let builder = apply_all!(builder,
+                                 5, SLT_Begin,          "bereq 4 pipe";
+                                 5, SLT_BereqMethod,    "GET";
+                                 5, SLT_BereqURL,       "/websocket";
+                                 5, SLT_BereqProtocol,  "HTTP/1.1";
+                                 5, SLT_BereqHeader,    "Connection: Upgrade";
+                                 5, SLT_VCL_call,       "PIPE";
+                                 5, SLT_BereqHeader,    "Upgrade: websocket";
+                                 5, SLT_VCL_return,     "pipe";
+                                 5, SLT_BackendOpen,    "20 boot.default 127.0.0.1 42000 127.0.0.1 54038";
+                                 5, SLT_BackendStart,   "127.0.0.1 42000";
+                                 5, SLT_Timestamp,      "Bereq: 1471355444.744344 0.000000 0.000000";
+                                 5, SLT_BackendClose,   "20 boot.default";
+                                 5, SLT_BereqAcct,      "0 0 0 0 0 0";
+                                 );
+
+       let record = apply_last!(builder, 5, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, 1471355444.744344);
+       assert_eq!(record.end, None);
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Piped {
+           request: HttpRequest {
+               ref method,
+               ref url,
+               ref protocol,
+               ref headers,
+           },
+           ..
+       } if
+           method == "GET" &&
+           url == "/websocket" &&
+           protocol == "HTTP/1.1" &&
+           headers == &[
+               ("Connection".to_string(), "Upgrade".to_string()),
+               ("Upgrade".to_string(), "websocket".to_string())]
+       );
+    }
+
 
     #[test]
     fn apply_client_access_record_log() {
