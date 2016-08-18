@@ -141,56 +141,53 @@ impl SessionState {
 
     // TODO: could use Cell to eliminate collect().into_iter() buffers
     fn build_client_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ClientTransaction {
-        let (backend_transactions, esi_transactions, restart_transaction) =
-        match client.transaction {
+        let backend_transactions = match client.transaction {
             ClientAccessTransaction::Full {
                 ref backend_requests,
-                ref esi_requests,
+                ..
+            } |
+            ClientAccessTransaction::Piped {
+                ref backend_requests,
                 ..
             } => {
-                let backend_transactions = backend_requests.iter()
+                backend_requests.iter()
                     .filter_map(|ident| self.backend.remove(ident).or_else(|| {
                         error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                         None}))
                     .collect::<Vec<_>>().into_iter()
                     .map(|backend| self.build_backend_transaction(session, &client, backend))
-                    .collect();
+                    .collect()
+            }
+            _ => Vec::new()
+        };
 
-                let esi_transactions = esi_requests.iter()
+        let esi_transactions = match client.transaction {
+            ClientAccessTransaction::Full {
+                ref esi_requests,
+                ..
+            } => {
+                esi_requests.iter()
                     .filter_map(|ident| self.client.remove(ident).or_else(|| {
                         error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
                         None}))
                     .collect::<Vec<_>>().into_iter()
                     .map(|client| self.build_client_transaction(session, client))
-                    .collect();
-
-                (backend_transactions, esi_transactions, None)
+                    .collect()
             }
+            _ => Vec::new()
+        };
+
+        let restart_transaction = match client.transaction {
             ClientAccessTransaction::Restarted {
                 ref restart_request,
                 ..
             } => {
-                let restart_transaction = self.client.remove(restart_request).or_else(|| {
+                self.client.remove(restart_request).or_else(|| {
                     error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, restart_request, client, session);
                     None})
-                    .map(|restart| Box::new(self.build_client_transaction(&session, restart)));
-
-                (Vec::new(), Vec::new(), restart_transaction)
+                    .map(|restart| Box::new(self.build_client_transaction(&session, restart)))
             }
-            ClientAccessTransaction::Piped {
-                ref backend_requests,
-                ..
-            } => {
-                let backend_transactions = backend_requests.iter()
-                    .filter_map(|ident| self.backend.remove(ident).or_else(|| {
-                        error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
-                        None}))
-                    .collect::<Vec<_>>().into_iter()
-                    .map(|backend| self.build_backend_transaction(session, &client, backend))
-                    .collect();
-
-                (backend_transactions, Vec::new(), None)
-            }
+            _ => None
         };
 
         ClientTransaction {
