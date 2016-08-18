@@ -177,8 +177,20 @@ impl SessionState {
 
                 (Vec::new(), Vec::new(), restart_transaction)
             }
-            ClientAccessTransaction::Piped { .. } =>
-                (Vec::new(), Vec::new(), None)
+            ClientAccessTransaction::Piped {
+                ref backend_requests,
+                ..
+            } => {
+                let backend_transactions = backend_requests.iter()
+                    .filter_map(|ident| self.backend.remove(ident).or_else(|| {
+                        error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
+                        None}))
+                    .collect::<Vec<_>>().into_iter()
+                    .map(|backend| self.build_backend_transaction(session, &client, backend))
+                    .collect();
+
+                (backend_transactions, Vec::new(), None)
+            }
         };
 
         ClientTransaction {
@@ -821,5 +833,58 @@ mod tests {
             ..
         } if url == "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg"
         );
+    }
+
+    #[test]
+    fn apply_session_state_piped() {
+        log();
+        let mut state = SessionState::new();
+
+        // logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl
+        apply_all!(state,
+                   3, SLT_Begin,          "sess 0 HTTP/1";
+                   3, SLT_SessOpen,       "127.0.0.1 59830 127.0.0.1:1220 127.0.0.1 1220 1471355444.743889 18";
+                   3, SLT_Link,           "req 4 rxreq";
+
+                   5, SLT_Begin,          "bereq 4 pipe";
+                   5, SLT_BereqMethod,    "GET";
+                   5, SLT_BereqURL,       "/websocket";
+                   5, SLT_BereqProtocol,  "HTTP/1.1";
+                   5, SLT_VCL_call,       "PIPE ";
+                   5, SLT_BereqHeader,    "Connection: Upgrade";
+                   5, SLT_VCL_return,     "pipe";
+                   5, SLT_BackendOpen,    "20 boot.default 127.0.0.1 42000 127.0.0.1 54038";
+                   5, SLT_BackendStart,   "127.0.0.1 42000";
+                   5, SLT_Timestamp,      "Bereq: 1471355444.744344 0.000000 0.000000";
+                   5, SLT_BackendClose,   "20 boot.default";
+                   5, SLT_BereqAcct,      "0 0 0 0 0 0";
+                   5, SLT_End,            "";
+
+                   4, SLT_Begin,          "req 3 rxreq";
+                   4, SLT_Timestamp,      "Start: 1471355444.744141 0.000000 0.000000";
+                   4, SLT_Timestamp,      "Req: 1471355444.744141 0.000000 0.000000";
+                   4, SLT_ReqStart,       "127.0.0.1 59830";
+                   4, SLT_ReqMethod,      "GET";
+                   4, SLT_ReqURL,         "/websocket";
+                   4, SLT_ReqProtocol,    "HTTP/1.1";
+                   4, SLT_ReqHeader,      "Upgrade: websocket";
+                   4, SLT_VCL_call,       "RECV";
+                   4, SLT_VCL_return,     "pipe";
+                   4, SLT_VCL_call,       "HASH";
+                   4, SLT_VCL_return,     "lookup";
+                   4, SLT_Link,           "bereq 5 pipe";
+                   4, SLT_ReqHeader,      "X-Varnish-Result: pipe";
+                   4, SLT_Timestamp,      "Pipe: 1471355444.744349 0.000209 0.000209";
+                   4, SLT_Timestamp,      "PipeSess: 1471355444.751368 0.007228 0.007019";
+                   4, SLT_PipeAcct,       "268 761 0 480";
+                   4, SLT_End,            "";
+
+                   3, SLT_SessClose,      "TX_PIPE 0.008";
+              );
+
+        let session = apply_final!(state, 3, SLT_End, "");
+
+        assert_matches!(session.client_transactions[0].access_record.transaction, ClientAccessTransaction::Piped { .. });
+        assert_matches!(session.client_transactions[0].backend_transactions[0].access_record.transaction, BackendAccessTransaction::Piped { .. });
     }
 }

@@ -26,6 +26,7 @@ impl RecordState {
     pub fn new() -> RecordState {
         //TODO: some sort of expirity mechanism like LRU
         //Note: tombstones will accumulate over time
+        //TODO: do not store 0 SLT_CLI Rd ping etc.
         RecordState { builders: HashMap::new() }
     }
 

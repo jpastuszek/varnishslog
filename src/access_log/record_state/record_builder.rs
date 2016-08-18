@@ -188,6 +188,7 @@ pub enum ClientAccessTransaction {
     },
     Piped {
         request: HttpRequest,
+        backend_requests: Vec<VslIdent>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time it took to get first byte of response
@@ -1331,6 +1332,7 @@ impl RecordBuilder {
                                     ClientAccessTransactionType::Piped => {
                                         ClientAccessTransaction::Piped {
                                             request: request,
+                                            backend_requests: self.backend_requests,
                                             process: self.req_process,
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
                                         }
@@ -1886,13 +1888,15 @@ mod tests {
                 ref headers,
                 ..
             },
+            ref backend_requests,
             process: Some(0.0),
             ttfb: 0.000209,
         } if
-        url == "/websocket" &&
-        headers == &[
-            ("Upgrade".to_string(), "websocket".to_string()),
-            ("Connection".to_string(), "Upgrade".to_string())]
+            url == "/websocket" &&
+            headers == &[
+                ("Upgrade".to_string(), "websocket".to_string()),
+                ("Connection".to_string(), "Upgrade".to_string())] &&
+            backend_requests == &[5]
         );
     }
 
