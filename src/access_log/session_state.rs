@@ -115,11 +115,11 @@ impl SessionState {
 
     fn build_backend_transaction(&mut self, session: &SessionRecord, client: &ClientAccessRecord, backend: BackendAccessRecord) -> BackendTransaction {
         let retry_transaction = match backend.transaction {
-            BackendAccessTransaction::Full {
+            BackendAccessTransaction::Failed {
                 ref retry_request,
                 ..
             } |
-            BackendAccessTransaction::Failed {
+            BackendAccessTransaction::Abandoned {
                 ref retry_request,
                 ..
             } => {
@@ -128,7 +128,8 @@ impl SessionState {
                     None}))
                     .map(|retry| Box::new(self.build_backend_transaction(session, client, retry)))
             }
-            BackendAccessTransaction::Abandoned { .. } => None,
+            BackendAccessTransaction::Aborted { .. } => None,
+            BackendAccessTransaction::Full { .. } => None,
             BackendAccessTransaction::Piped { .. } => None,
         };
 
@@ -797,7 +798,7 @@ mod tests {
         let session = apply_final!(state, 6, SLT_End, "");
 
         // Backend transaction request record will be the one from before retry (triggering)
-        assert_matches!(session.client_transactions[0].backend_transactions[0].access_record.transaction, BackendAccessTransaction::Full {
+        assert_matches!(session.client_transactions[0].backend_transactions[0].access_record.transaction, BackendAccessTransaction::Abandoned {
             request: HttpRequest {
                 ref url,
                 ..
