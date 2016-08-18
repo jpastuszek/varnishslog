@@ -352,6 +352,9 @@ quick_error! {
         UnimplementedTransactionType(record_type: String) {
             display("Unimplemented record type '{}'", record_type)
         }
+        UnexpectedTransition(transition: &'static str, state: Box<Debug>) {
+            display("Unexpected transition '{}' while building record: {:?}", transition, state)
+        }
         InvalidMessageFormat(err: VslRecordParseError) {
             display("Failed to parse VSL record data: {}", err)
             from()
@@ -673,6 +676,7 @@ enum BackendAccessTransactionType {
 
 #[derive(Debug)]
 enum RecordType {
+    Undefined,
     ClientAccess {
         parent: VslIdent,
         reason: String,
@@ -684,6 +688,13 @@ enum RecordType {
         transaction: BackendAccessTransactionType,
     },
     Session
+}
+
+impl RecordType {
+    // hide this type behind Debug trait for error details
+    fn into_debug(self) -> Box<Debug> {
+        Box::new(self)
+    }
 }
 
 #[derive(Debug)]
@@ -710,7 +721,7 @@ pub struct FetchBody {
 #[derive(Debug)]
 pub struct RecordBuilder {
     ident: VslIdent,
-    record_type: Option<RecordType>,
+    record_type: RecordType,
     req_start: Option<TimeStamp>,
     pipe_start: Option<TimeStamp>,
     http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
@@ -740,7 +751,7 @@ impl RecordBuilder {
     pub fn new(ident: VslIdent) -> RecordBuilder {
         RecordBuilder {
             ident: ident,
-            record_type: None,
+            record_type: RecordType::Undefined,
             req_start: None,
             pipe_start: None,
             http_request: Building(HttpRequestBuilder::new()),
@@ -771,29 +782,32 @@ impl RecordBuilder {
         let builder = match vsl.tag {
             SLT_Begin => {
                 let (record_type, vxid, reason) = try!(vsl.parse_data(slt_begin));
-
-                match record_type {
-                    "bereq" => RecordBuilder {
-                        record_type: Some(RecordType::BackendAccess {
-                            parent: vxid,
-                            reason: reason.to_owned(),
-                            transaction: BackendAccessTransactionType::Full,
-                        }),
-                        .. self
-                    },
-                    "req" => RecordBuilder {
-                        record_type: Some(RecordType::ClientAccess {
-                            parent: vxid,
-                            reason: reason.to_owned(),
-                            transaction: ClientAccessTransactionType::Full,
-                        }),
-                        .. self
-                    },
-                    "sess" => RecordBuilder {
-                        record_type: Some(RecordType::Session),
-                        .. self
-                    },
-                    _ => return Err(RecordBuilderError::UnimplementedTransactionType(record_type.to_string()))
+                if let RecordType::Undefined = self.record_type {
+                    match record_type {
+                        "bereq" => RecordBuilder {
+                            record_type: RecordType::BackendAccess {
+                                parent: vxid,
+                                reason: reason.to_owned(),
+                                transaction: BackendAccessTransactionType::Full,
+                            },
+                            .. self
+                        },
+                        "req" => RecordBuilder {
+                            record_type: RecordType::ClientAccess {
+                                parent: vxid,
+                                reason: reason.to_owned(),
+                                transaction: ClientAccessTransactionType::Full,
+                            },
+                            .. self
+                        },
+                        "sess" => RecordBuilder {
+                            record_type: RecordType::Session,
+                            .. self
+                        },
+                        _ => return Err(RecordBuilderError::UnimplementedTransactionType(record_type.to_string()))
+                    }
+                } else {
+                    return Err(RecordBuilderError::UnexpectedTransition("SLT_Begin", self.record_type.into_debug()))
                 }
             }
             SLT_Timestamp => {
@@ -1096,25 +1110,22 @@ impl RecordBuilder {
                     },
                     "BACKEND_ERROR" => {
                         match self.record_type {
-                            Some(RecordType::BackendAccess {
+                            RecordType::BackendAccess {
                                 parent,
                                 reason,
                                 transaction: BackendAccessTransactionType::Full,
-                            }) => {
+                            } => {
                                 RecordBuilder {
-                                    record_type: Some(RecordType::BackendAccess {
+                                    record_type: RecordType::BackendAccess {
                                         parent: parent,
                                         reason: reason,
                                         transaction: BackendAccessTransactionType::Failed,
-                                    }),
+                                    },
                                     http_request: try!(self.http_request.complete()),
                                     .. self
                                 }
                             }
-                            _ =>
-                                //TODO: backend access support
-                                //TODO: better error type
-                                return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                            _ => return Err(RecordBuilderError::UnexpectedTransition("call BACKEND_ERROR", self.record_type.into_debug()))
                         }
                     },
                     _ => {
@@ -1129,44 +1140,42 @@ impl RecordBuilder {
 
                 match action {
                     "restart" => {
-                        if let Some(RecordType::ClientAccess {
+                        if let RecordType::ClientAccess {
                             parent,
                             reason,
                             transaction: ClientAccessTransactionType::Full,
-                        }) = self.record_type {
+                        } = self.record_type {
                             RecordBuilder {
-                                record_type: Some(RecordType::ClientAccess {
+                                record_type: RecordType::ClientAccess {
                                     parent: parent,
                                     reason: reason,
                                     transaction: ClientAccessTransactionType::Restarted,
-                                }),
+                                },
                                 .. self
                             }
                         } else {
-                            //TODO: better error type
-                            return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                            return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return restart", self.record_type.into_debug()))
                         }
                     },
                     "abandon" => {
                         // eary abandon will have request still Building
                         if let http_request @ Building(_) = self.http_request {
-                            if let Some(RecordType::BackendAccess {
+                            if let RecordType::BackendAccess {
                                 parent,
                                 reason,
                                 transaction: BackendAccessTransactionType::Full,
-                            }) = self.record_type {
+                            } = self.record_type {
                                 RecordBuilder {
                                     http_request: try!(http_request.complete()),
-                                    record_type: Some(RecordType::BackendAccess {
+                                    record_type: RecordType::BackendAccess {
                                         parent: parent,
                                         reason: reason,
                                         transaction: BackendAccessTransactionType::Abandoned,
-                                    }),
+                                    },
                                     .. self
                                 }
                             } else {
-                                //TODO: better error type
-                                return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                                return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return abandon", self.record_type.into_debug()))
                             }
                         } else {
                             // we treat late abandon as normal full backend transaction
@@ -1175,39 +1184,36 @@ impl RecordBuilder {
                     },
                     "pipe" => {
                         match self.record_type {
-                            Some(RecordType::ClientAccess {
+                            RecordType::ClientAccess {
                                 parent,
                                 reason,
                                 transaction: ClientAccessTransactionType::Full,
-                            }) => {
+                            } => {
                                 RecordBuilder {
-                                    record_type: Some(RecordType::ClientAccess {
+                                    record_type: RecordType::ClientAccess {
                                         parent: parent,
                                         reason: reason,
                                         transaction: ClientAccessTransactionType::Piped,
-                                    }),
+                                    },
                                     .. self
                                 }
                             }
-                            Some(RecordType::BackendAccess {
+                            RecordType::BackendAccess {
                                 parent,
                                 reason,
                                 transaction: BackendAccessTransactionType::Full,
-                            }) => {
+                            } => {
                                 RecordBuilder {
                                     http_request: try!(self.http_request.complete()),
-                                    record_type: Some(RecordType::BackendAccess {
+                                    record_type: RecordType::BackendAccess {
                                         parent: parent,
                                         reason: reason,
                                         transaction: BackendAccessTransactionType::Piped,
-                                    }),
+                                    },
                                     .. self
                                 }
                             }
-                            _ =>
-                            //TODO: backend access support
-                            //TODO: better error type
-                            return Err(RecordBuilderError::RecordIncomplete("record_type"))
+                            _ => return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return pipe", self.record_type.into_debug()))
                         }
                     },
                     _ => {
@@ -1232,9 +1238,8 @@ impl RecordBuilder {
             }
 
             SLT_End => {
-                let record_type = try!(self.record_type.ok_or(RecordBuilderError::RecordIncomplete("record_type")));
-
-                match record_type {
+                match self.record_type {
+                    RecordType::Undefined => return Err(RecordBuilderError::RecordIncomplete("record type is not known")),
                     RecordType::Session => {
                         let record = SessionRecord {
                             ident: self.ident,
@@ -1250,7 +1255,7 @@ impl RecordBuilder {
                     RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
                         let request = try!(self.http_request.get_complete());
 
-                        match record_type {
+                        match self.record_type {
                             RecordType::ClientAccess { parent, reason, transaction } => {
                                 let transaction = match transaction {
                                     ClientAccessTransactionType::Full => {
@@ -1437,7 +1442,7 @@ mod tests {
             .unwrap().unwrap_building();
 
         assert_matches!(builder.record_type,
-            Some(RecordType::BackendAccess { parent: 321, ref reason, .. }) if reason == "fetch");
+            RecordType::BackendAccess { parent: 321, ref reason, .. } if reason == "fetch");
     }
 
     #[test]
@@ -1463,6 +1468,18 @@ mod tests {
         let result = builder.apply(&vsl(SLT_Begin, 123, "foo 231 fetch"));
         assert_matches!(result.unwrap_err(),
             RecordBuilderError::UnimplementedTransactionType(ref record_type) if record_type == "foo");
+    }
+
+    #[test]
+    fn apply_begin_unexpected_transition() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = builder.apply(&vsl(SLT_Begin, 123, "bereq 231 fetch")).unwrap().unwrap_building();
+        let err = builder.apply(&vsl(SLT_Begin, 123, "req 231 fetch")).unwrap_err();
+
+        //println!("{}", &err);
+        assert_matches!(err,
+            RecordBuilderError::UnexpectedTransition("SLT_Begin", _));
     }
 
     #[test]
