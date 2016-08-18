@@ -381,24 +381,24 @@ impl<B, C> BuilderResult<B, C> {
     #[allow(dead_code)]
     fn as_ref(&self) -> BuilderResult<&B, &C> {
         match self {
-            &BuilderResult::Building(ref buidling) => BuilderResult::Building(buidling),
-            &BuilderResult::Complete(ref complete) => BuilderResult::Complete(complete),
+            &Building(ref buidling) => Building(buidling),
+            &Complete(ref complete) => Complete(complete),
         }
     }
 
     #[allow(dead_code)]
     fn unwrap(self) -> C where B: Debug {
         match self {
-            BuilderResult::Building(buidling) => panic!("Trying to unwrap BuilderResult::Building: {:?}", buidling),
-            BuilderResult::Complete(complete) => complete,
+            Building(buidling) => panic!("Trying to unwrap BuilderResult::Building: {:?}", buidling),
+            Complete(complete) => complete,
         }
     }
 
     #[allow(dead_code)]
     fn unwrap_building(self) -> B where C: Debug {
         match self {
-            BuilderResult::Building(buidling) => buidling,
-            BuilderResult::Complete(complete) => panic!("Trying to unwrap BuilderResult::Complete: {:?}", complete),
+            Building(buidling) => buidling,
+            Complete(complete) => panic!("Trying to unwrap BuilderResult::Complete: {:?}", complete),
         }
     }
 
@@ -797,7 +797,9 @@ impl RecordBuilder {
                 }
             }
             SLT_Timestamp => {
-                let (label, timestamp, since_work_start, since_last_timestamp) = try!(vsl.parse_data(slt_timestamp));
+                let (label, timestamp, since_work_start, since_last_timestamp) =
+                    try!(vsl.parse_data(slt_timestamp));
+
                 match label {
                     "Start" => RecordBuilder {
                         req_start: Some(timestamp),
@@ -865,8 +867,6 @@ impl RecordBuilder {
             SLT_Link => {
                 let (reason, child_vxid, child_type) = try!(vsl.parse_data(slt_link));
 
-                let child_vxid = child_vxid;
-
                 match (reason, child_type) {
                     ("req", "restart") => {
                         RecordBuilder {
@@ -905,8 +905,10 @@ impl RecordBuilder {
                 }
             }
             SLT_VCL_Log => {
+                let log_entry = try!(vsl.parse_data(slt_log));
+
                 let mut log = self.log;
-                log.push(LogEntry::VCL(try!(vsl.parse_data(slt_log)).to_lossy_string()));
+                log.push(LogEntry::VCL(log_entry.to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -914,8 +916,10 @@ impl RecordBuilder {
                 }
             }
             SLT_Debug => {
+                let log_entry = try!(vsl.parse_data(slt_log));
+
                 let mut log = self.log;
-                log.push(LogEntry::Debug(try!(vsl.parse_data(slt_log)).to_lossy_string()));
+                log.push(LogEntry::Debug(log_entry.to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -923,8 +927,10 @@ impl RecordBuilder {
                 }
             }
             SLT_Error => {
+                let log_entry = try!(vsl.parse_data(slt_log));
+
                 let mut log = self.log;
-                log.push(LogEntry::Error(try!(vsl.parse_data(slt_log)).to_lossy_string()));
+                log.push(LogEntry::Error(log_entry.to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -932,8 +938,10 @@ impl RecordBuilder {
                 }
             }
             SLT_FetchError => {
+                let log_entry = try!(vsl.parse_data(slt_log));
+
                 let mut log = self.log;
-                log.push(LogEntry::FetchError(try!(vsl.parse_data(slt_log)).to_lossy_string()));
+                log.push(LogEntry::FetchError(log_entry.to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -941,16 +949,22 @@ impl RecordBuilder {
                 }
             }
             SLT_BogoHeader => {
+                let log_entry = try!(vsl.parse_data(slt_log));
+
                 let mut log = self.log;
-                log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", try!(vsl.parse_data(slt_log)).to_lossy_string())));
+                log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", log_entry.to_lossy_string())));
+
                 RecordBuilder {
                     log: log,
                     .. self
                 }
             }
             SLT_LostHeader => {
+                let log_entry = try!(vsl.parse_data(slt_log));
+
                 let mut log = self.log;
-                log.push(LogEntry::Warning(format!("Failed HTTP header operation due to resource exhaustion or configured limits; header was: {}", try!(vsl.parse_data(slt_log)).to_lossy_string())));
+                log.push(LogEntry::Warning(format!("Failed HTTP header operation due to resource exhaustion or configured limits; header was: {}", log_entry.to_lossy_string())));
+
                 RecordBuilder {
                     log: log,
                     .. self
@@ -1109,6 +1123,7 @@ impl RecordBuilder {
                     }
                 }
             }
+
             SLT_VCL_return => {
                 let action = try!(vsl.parse_data(slt_return));
 
@@ -1201,6 +1216,7 @@ impl RecordBuilder {
                     }
                 }
             }
+
             SLT_Fetch_Body => {
                 let (_fetch_mode, fetch_mode_name, streamed) =
                     try!(vsl.parse_data(slt_fetch_body));
@@ -1214,11 +1230,12 @@ impl RecordBuilder {
                     .. self
                 }
             }
+
             SLT_End => {
                 let record_type = try!(self.record_type.ok_or(RecordBuilderError::RecordIncomplete("record_type")));
+
                 match record_type {
                     RecordType::Session => {
-                        // Try to build SessionRecord
                         let record = SessionRecord {
                             ident: self.ident,
                             open: try!(self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))),
