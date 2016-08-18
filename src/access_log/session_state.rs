@@ -96,9 +96,24 @@ impl SessionState {
     }
 
     fn try_resolve_sessions(&mut self) -> Option<SessionRecord> {
-        fn try_resolve_backend(backend: &mut BackendAccessRecord,
+        fn try_resolve_backend_link(link: &mut BackendAccessRecordLink,
+                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) {
+            if let Some(backend_record) = if let &mut BackendAccessRecordLink::Unresolved(ref ident) = link {
+                backend_records.remove(ident)
+            } else {
+                None
+            } {
+                *link = BackendAccessRecordLink::Resolved(Box::new(backend_record))
+            }
+
+            if let &mut BackendAccessRecordLink::Resolved(ref mut backend_record) = link {
+                try_resolve_backend_record(backend_record, backend_records);
+            }
+        }
+
+        fn try_resolve_backend_record(backend_record: &mut BackendAccessRecord,
                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) {
-            match backend.transaction {
+            match backend_record.transaction {
                 BackendAccessTransaction::Failed {
                     ref mut retry_request,
                     ..
@@ -108,17 +123,7 @@ impl SessionState {
                     ..
                 } => {
                     if let &mut Some(ref mut link) = retry_request {
-                        if let Some(backend) = if let &mut BackendAccessRecordLink::Unresolved(ref ident) = link {
-                            backend_records.remove(ident)
-                        } else {
-                            None
-                        } {
-                            *link = BackendAccessRecordLink::Resolved(Box::new(backend))
-                        }
-
-                        if let &mut BackendAccessRecordLink::Resolved(ref mut backend) = link {
-                            try_resolve_backend(backend, backend_records);
-                        }
+                        try_resolve_backend_link(link, backend_records);
                     }
                 }
                 BackendAccessTransaction::Aborted { .. } => (),
@@ -127,10 +132,26 @@ impl SessionState {
             }
         }
 
-        fn try_resolve_client(client: &mut ClientAccessRecord,
+        fn try_resolve_client_link(link: &mut ClientAccessRecordLink,
                               client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) {
-            match client.transaction {
+            if let Some(client_record) = if let &mut ClientAccessRecordLink::Unresolved(ref ident) = link {
+                client_records.remove(ident)
+            } else {
+                None
+            } {
+                *link = ClientAccessRecordLink::Resolved(Box::new(client_record))
+            }
+
+            if let &mut ClientAccessRecordLink::Resolved(ref mut client_record) = link {
+                try_resolve_client_record(client_record, client_records, backend_records);
+            }
+        }
+
+        fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
+                              client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
+                              backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) {
+            match client_record.transaction {
                 ClientAccessTransaction::Full {
                     ref mut backend_requests,
                     ..
@@ -140,95 +161,49 @@ impl SessionState {
                     ..
                 } => {
                     for link in backend_requests.iter_mut() {
-                        if let Some(backend) = if let &mut BackendAccessRecordLink::Unresolved(ref ident) = link {
-                            backend_records.remove(ident)
-                        } else {
-                            None
-                        } {
-                            *link = BackendAccessRecordLink::Resolved(Box::new(backend))
-                        }
-                    }
-
-                    for link in backend_requests.iter_mut() {
-                        if let &mut BackendAccessRecordLink::Resolved(ref mut backend) = link {
-                            try_resolve_backend(backend, backend_records);
-                        }
+                        try_resolve_backend_link(link, backend_records);
                     }
                 }
                 ClientAccessTransaction::Restarted { .. } => (),
             }
 
-            match client.transaction {
+            match client_record.transaction {
                 ClientAccessTransaction::Full {
                     ref mut esi_requests,
                     ..
                 } => {
                     for link in esi_requests.iter_mut() {
-                        if let Some(client) = if let &mut ClientAccessRecordLink::Unresolved(ref ident) = link {
-                            client_records.remove(ident)
-                        } else {
-                            None
-                        } {
-                            *link = ClientAccessRecordLink::Resolved(Box::new(client))
-                        }
-                    }
-
-                    for link in esi_requests.iter_mut() {
-                        if let &mut ClientAccessRecordLink::Resolved(ref mut client) = link {
-                            try_resolve_client(client, client_records, backend_records);
-                        }
+                        try_resolve_client_link(link, client_records, backend_records);
                     }
                 }
                 ClientAccessTransaction::Restarted { .. } => (),
                 ClientAccessTransaction::Piped { .. } => (),
             }
 
-            match client.transaction {
+            match client_record.transaction {
                 ClientAccessTransaction::Restarted {
                     restart_request: ref mut link,
                     ..
                 } => {
-                    if let Some(client) = if let &mut ClientAccessRecordLink::Unresolved(ref ident) = link {
-                        client_records.remove(ident)
-                    } else {
-                        None
-                    } {
-                        *link = ClientAccessRecordLink::Resolved(Box::new(client))
-                    }
-
-                    if let &mut ClientAccessRecordLink::Resolved(ref mut client) = link {
-                        try_resolve_client(client, client_records, backend_records);
-                    }
+                    try_resolve_client_link(link, client_records, backend_records);
                 }
                 ClientAccessTransaction::Full { .. } => (),
                 ClientAccessTransaction::Piped { .. } => (),
             }
         }
 
-        fn try_resolve_session(session: &mut SessionRecord,
+        fn try_resolve_session_record(session_record: &mut SessionRecord,
                                client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
                                backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) {
-            for link in session.client_requests.iter_mut() {
-                if let Some(client) = if let &mut ClientAccessRecordLink::Unresolved(ref ident) = link {
-                    client_records.remove(ident)
-                } else {
-                    None
-                } {
-                    *link = ClientAccessRecordLink::Resolved(Box::new(client))
-                }
-            }
-
-            for link in session.client_requests.iter_mut() {
-                if let &mut ClientAccessRecordLink::Resolved(ref mut client) = link {
-                    try_resolve_client(client, client_records, backend_records);
-                }
+            for link in session_record.client_requests.iter_mut() {
+                try_resolve_client_link(link, client_records, backend_records);
             }
         }
 
         println!("before: {:#?}", self.sessions);
 
         for session in self.sessions.iter_mut() {
-            try_resolve_session(session, &mut self.client, &mut self.backend);
+            try_resolve_session_record(session, &mut self.client, &mut self.backend);
         }
 
         println!("after: {:#?}", self.sessions);
