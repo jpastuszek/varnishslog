@@ -149,6 +149,18 @@ pub struct Accounting {
     pub sent_total: ByteCount,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClientAccessRecordLink {
+    Unresolved(VslIdent),
+    Resolved(Box<ClientAccessRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BackendAccessRecordLink {
+    Unresolved(VslIdent),
+    Resolved(Box<BackendAccessRecord>),
+}
+
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
@@ -168,8 +180,8 @@ pub enum ClientAccessTransaction {
     Full {
         request: HttpRequest,
         response: HttpResponse,
-        esi_requests: Vec<VslIdent>,
-        backend_requests: Vec<VslIdent>,
+        esi_requests: Vec<ClientAccessRecordLink>,
+        backend_requests: Vec<BackendAccessRecordLink>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time waiting for backend response fetch to finish; None for HIT
@@ -184,11 +196,11 @@ pub enum ClientAccessTransaction {
         request: HttpRequest,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
-        restart_request: VslIdent,
+        restart_request: ClientAccessRecordLink,
     },
     Piped {
         request: HttpRequest,
-        backend_requests: Vec<VslIdent>,
+        backend_requests: Vec<BackendAccessRecordLink>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time it took to get first byte of response
@@ -251,7 +263,7 @@ pub enum BackendAccessTransaction {
     Failed {
         request: HttpRequest,
         synth_response: HttpResponse,
-        retry_request: Option<VslIdent>,
+        retry_request: Option<BackendAccessRecordLink>,
         /// Total duration it took to synthesise response
         synth: Duration,
     },
@@ -263,7 +275,7 @@ pub enum BackendAccessTransaction {
     Abandoned {
         request: HttpRequest,
         response: HttpResponse,
-        retry_request: Option<VslIdent>,
+        retry_request: Option<BackendAccessRecordLink>,
         send: Duration,
         /// Time waiting for first byte of backend response after request was sent
         wait: Duration,
@@ -286,7 +298,7 @@ pub struct SessionRecord {
     pub duration: Duration,
     pub local: Option<Address>,
     pub remote: Address,
-    pub client_requests: Vec<VslIdent>,
+    pub client_requests: Vec<ClientAccessRecordLink>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -755,10 +767,10 @@ pub struct RecordBuilder {
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
     sess_local: Option<Address>,
-    client_requests: Vec<VslIdent>,
-    backend_requests: Vec<VslIdent>,
-    restart_request: Option<VslIdent>,
-    retry_request: Option<VslIdent>,
+    client_requests: Vec<ClientAccessRecordLink>,
+    backend_requests: Vec<BackendAccessRecordLink>,
+    restart_request: Option<ClientAccessRecordLink>,
+    retry_request: Option<BackendAccessRecordLink>,
     log: Vec<LogEntry>,
 }
 
@@ -900,13 +912,13 @@ impl RecordBuilder {
                 match (reason, child_type) {
                     ("req", "restart") => {
                         RecordBuilder {
-                            restart_request: Some(child_vxid),
+                            restart_request: Some(ClientAccessRecordLink::Unresolved(child_vxid)),
                             .. self
                         }
                     },
                     ("req", _) => {
                         let mut client_requests = self.client_requests;
-                        client_requests.push(child_vxid);
+                        client_requests.push(ClientAccessRecordLink::Unresolved(child_vxid));
 
                         RecordBuilder {
                             client_requests: client_requests,
@@ -915,13 +927,13 @@ impl RecordBuilder {
                     },
                     ("bereq", "retry") => {
                         RecordBuilder {
-                            retry_request: Some(child_vxid),
+                            retry_request: Some(BackendAccessRecordLink::Unresolved(child_vxid)),
                             .. self
                         }
                     },
                     ("bereq", _) => {
                         let mut backend_requests = self.backend_requests;
-                        backend_requests.push(child_vxid);
+                        backend_requests.push(BackendAccessRecordLink::Unresolved(child_vxid));
 
                         RecordBuilder {
                             backend_requests: backend_requests,
@@ -1846,7 +1858,7 @@ mod tests {
                 ..
             },
             process: Some(0.0),
-            restart_request: 5,
+            restart_request: ClientAccessRecordLink::Unresolved(5),
         } if url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
     }
 
@@ -1896,7 +1908,7 @@ mod tests {
             headers == &[
                 ("Upgrade".to_string(), "websocket".to_string()),
                 ("Connection".to_string(), "Upgrade".to_string())] &&
-            backend_requests == &[5]
+            backend_requests == &[BackendAccessRecordLink::Unresolved(5)]
         );
     }
 

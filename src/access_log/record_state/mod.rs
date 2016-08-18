@@ -7,8 +7,11 @@ use self::record_builder::{RecordBuilder, RecordBuilderError};
 use self::record_builder::BuilderResult::*;
 
 pub use self::record_builder::Record;
-pub use self::record_builder::{ClientAccessRecord, BackendAccessRecord, SessionRecord};
-pub use self::record_builder::{ClientAccessTransaction, BackendAccessTransaction, Accounting, HttpRequest, HttpResponse};
+pub use self::record_builder::{
+    ClientAccessRecord, BackendAccessRecord, SessionRecord,
+    ClientAccessRecordLink, ClientAccessTransaction,
+    BackendAccessRecordLink, BackendAccessTransaction,
+    Accounting, HttpRequest, HttpResponse};
 
 #[derive(Debug)]
 enum RecordBuilderSlot {
@@ -148,7 +151,7 @@ mod tests {
             ..
         } if
             reason == "rxreq" &&
-            backend_requests == &[5] &&
+            backend_requests == &[BackendAccessRecordLink::Unresolved(5)] &&
             esi_requests.is_empty()
         );
 
@@ -294,7 +297,7 @@ mod tests {
             duration: 0.001,
             local: Some(("127.0.0.1".to_string(), 1080)),
             remote: ("192.168.1.10".to_string(), 40078),
-            client_requests: vec![32773],
+            client_requests: vec![ClientAccessRecordLink::Unresolved(32773)],
         });
     }
 

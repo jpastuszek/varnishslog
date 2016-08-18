@@ -76,31 +76,12 @@ use std::collections::HashMap;
 use vsl::{VslRecord, VslIdent};
 pub use super::record_state::*;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Session {
-    pub record: SessionRecord,
-    pub client_transactions: Vec<ClientTransaction>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ClientTransaction {
-    pub access_record: ClientAccessRecord,
-    pub backend_transactions: Vec<BackendTransaction>,
-    pub esi_transactions: Vec<ClientTransaction>,
-    pub restart_transaction: Option<Box<ClientTransaction>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct BackendTransaction {
-    pub access_record: BackendAccessRecord,
-    pub retry_transaction: Option<Box<BackendTransaction>>,
-}
-
 #[derive(Debug)]
 pub struct SessionState {
     record_state: RecordState,
     client: HashMap<VslIdent, ClientAccessRecord>,
     backend: HashMap<VslIdent, BackendAccessRecord>,
+    sessions: Vec<SessionRecord>,
 }
 
 impl SessionState {
@@ -110,119 +91,184 @@ impl SessionState {
             record_state: RecordState::new(),
             client: HashMap::new(),
             backend: HashMap::new(),
+            sessions: Vec::new(),
         }
     }
 
-    fn build_backend_transaction(&mut self, session: &SessionRecord, client: &ClientAccessRecord, backend: BackendAccessRecord) -> BackendTransaction {
-        let retry_transaction = match backend.transaction {
-            BackendAccessTransaction::Failed {
-                ref retry_request,
-                ..
-            } |
-            BackendAccessTransaction::Abandoned {
-                ref retry_request,
-                ..
-            } => {
-                retry_request.and_then(|ident| self.backend.remove(&ident).or_else(|| {
-                    error!("Session {} references ClientAccessRecord {} which has BackendAccessRecord {} that was restarted into BackendAccessRecord {} wich was not found: {:?} in client: {:?} in session: {:?}", session.ident, client.ident, backend.ident, ident, backend, client, session);
-                    None}))
-                    .map(|retry| Box::new(self.build_backend_transaction(session, client, retry)))
-            }
-            BackendAccessTransaction::Aborted { .. } => None,
-            BackendAccessTransaction::Full { .. } => None,
-            BackendAccessTransaction::Piped { .. } => None,
-        };
+    fn try_resolve_sessions(&mut self) -> Option<SessionRecord> {
+        fn try_resolve_backend(backend: &mut BackendAccessRecord,
+                              backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) {
+            match backend.transaction {
+                BackendAccessTransaction::Failed {
+                    ref mut retry_request,
+                    ..
+                } |
+                BackendAccessTransaction::Abandoned {
+                    ref mut retry_request,
+                    ..
+                } => {
+                    if let &mut Some(ref mut link) = retry_request {
+                        if let Some(backend) = if let &mut BackendAccessRecordLink::Unresolved(ref ident) = link {
+                            backend_records.remove(ident)
+                        } else {
+                            None
+                        } {
+                            *link = BackendAccessRecordLink::Resolved(Box::new(backend))
+                        }
 
-        BackendTransaction {
-            access_record: backend,
-            retry_transaction: retry_transaction,
+                        if let &mut BackendAccessRecordLink::Resolved(ref mut backend) = link {
+                            try_resolve_backend(backend, backend_records);
+                        }
+                    }
+                }
+                BackendAccessTransaction::Aborted { .. } => (),
+                BackendAccessTransaction::Full { .. } => (),
+                BackendAccessTransaction::Piped { .. } => (),
+            }
         }
+
+        fn try_resolve_client(client: &mut ClientAccessRecord,
+                              client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
+                              backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) {
+            match client.transaction {
+                ClientAccessTransaction::Full {
+                    ref mut backend_requests,
+                    ..
+                } |
+                ClientAccessTransaction::Piped {
+                    ref mut backend_requests,
+                    ..
+                } => {
+                    for link in backend_requests.iter_mut() {
+                        if let Some(backend) = if let &mut BackendAccessRecordLink::Unresolved(ref ident) = link {
+                            backend_records.remove(ident)
+                        } else {
+                            None
+                        } {
+                            *link = BackendAccessRecordLink::Resolved(Box::new(backend))
+                        }
+                    }
+
+                    for link in backend_requests.iter_mut() {
+                        if let &mut BackendAccessRecordLink::Resolved(ref mut backend) = link {
+                            try_resolve_backend(backend, backend_records);
+                        }
+                    }
+                }
+                ClientAccessTransaction::Restarted { .. } => (),
+            }
+
+            match client.transaction {
+                ClientAccessTransaction::Full {
+                    ref mut esi_requests,
+                    ..
+                } => {
+                    for link in esi_requests.iter_mut() {
+                        if let Some(client) = if let &mut ClientAccessRecordLink::Unresolved(ref ident) = link {
+                            client_records.remove(ident)
+                        } else {
+                            None
+                        } {
+                            *link = ClientAccessRecordLink::Resolved(Box::new(client))
+                        }
+                    }
+
+                    for link in esi_requests.iter_mut() {
+                        if let &mut ClientAccessRecordLink::Resolved(ref mut client) = link {
+                            try_resolve_client(client, client_records, backend_records);
+                        }
+                    }
+                }
+                ClientAccessTransaction::Restarted { .. } => (),
+                ClientAccessTransaction::Piped { .. } => (),
+            }
+
+            match client.transaction {
+                ClientAccessTransaction::Restarted {
+                    restart_request: ref mut link,
+                    ..
+                } => {
+                    if let Some(client) = if let &mut ClientAccessRecordLink::Unresolved(ref ident) = link {
+                        client_records.remove(ident)
+                    } else {
+                        None
+                    } {
+                        *link = ClientAccessRecordLink::Resolved(Box::new(client))
+                    }
+
+                    if let &mut ClientAccessRecordLink::Resolved(ref mut client) = link {
+                        try_resolve_client(client, client_records, backend_records);
+                    }
+                }
+                ClientAccessTransaction::Full { .. } => (),
+                ClientAccessTransaction::Piped { .. } => (),
+            }
+        }
+
+        fn try_resolve_session(session: &mut SessionRecord,
+                               client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
+                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) {
+            for link in session.client_requests.iter_mut() {
+                if let Some(client) = if let &mut ClientAccessRecordLink::Unresolved(ref ident) = link {
+                    client_records.remove(ident)
+                } else {
+                    None
+                } {
+                    *link = ClientAccessRecordLink::Resolved(Box::new(client))
+                }
+            }
+
+            for link in session.client_requests.iter_mut() {
+                if let &mut ClientAccessRecordLink::Resolved(ref mut client) = link {
+                    try_resolve_client(client, client_records, backend_records);
+                }
+            }
+        }
+
+        println!("before: {:#?}", self.sessions);
+
+        for session in self.sessions.iter_mut() {
+            try_resolve_session(session, &mut self.client, &mut self.backend);
+        }
+
+        println!("after: {:#?}", self.sessions);
+
+        /*
+        let (resolved, unresolved) = self.sessions.into_iter()
+            .partition(|session| is_session_resolved(session));
+
+        self.sessions.extend(unresolved.into_iter());
+
+        // each new record may resolve only one session!
+        assert!(resolved.is_empty() || resolved.len() == 1);
+
+        return resolved.first()
+        */
+        None
     }
 
-    // TODO: could use Cell to eliminate collect().into_iter() buffers
-    fn build_client_transaction(&mut self, session: &SessionRecord, client: ClientAccessRecord) -> ClientTransaction {
-        let backend_transactions = match client.transaction {
-            ClientAccessTransaction::Full {
-                ref backend_requests,
-                ..
-            } |
-            ClientAccessTransaction::Piped {
-                ref backend_requests,
-                ..
-            } => {
-                backend_requests.iter()
-                    .filter_map(|ident| self.backend.remove(ident).or_else(|| {
-                        error!("Session {} references ClientAccessRecord {} which references BackendAccessRecord {} that was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
-                        None}))
-                    .collect::<Vec<_>>().into_iter()
-                    .map(|backend| self.build_backend_transaction(session, &client, backend))
-                    .collect()
-            }
-            _ => Vec::new()
-        };
-
-        let esi_transactions = match client.transaction {
-            ClientAccessTransaction::Full {
-                ref esi_requests,
-                ..
-            } => {
-                esi_requests.iter()
-                    .filter_map(|ident| self.client.remove(ident).or_else(|| {
-                        error!("Session {} references ClientAccessRecord {} which references ESI ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, ident, client, session);
-                        None}))
-                    .collect::<Vec<_>>().into_iter()
-                    .map(|client| self.build_client_transaction(session, client))
-                    .collect()
-            }
-            _ => Vec::new()
-        };
-
-        let restart_transaction = match client.transaction {
-            ClientAccessTransaction::Restarted {
-                ref restart_request,
-                ..
-            } => {
-                self.client.remove(restart_request).or_else(|| {
-                    error!("Session {} references ClientAccessRecord {} which was restarted into ClientAccessRecord {} wich was not found: {:?} in session: {:?}", session.ident, client.ident, restart_request, client, session);
-                    None})
-                    .map(|restart| Box::new(self.build_client_transaction(&session, restart)))
-            }
-            _ => None
-        };
-
-        ClientTransaction {
-            access_record: client,
-            backend_transactions: backend_transactions,
-            esi_transactions: esi_transactions,
-            restart_transaction: restart_transaction,
-        }
-    }
-
-    pub fn apply(&mut self, vsl: &VslRecord) -> Option<Session> {
+    pub fn apply(&mut self, vsl: &VslRecord) -> Option<SessionRecord> {
+        let updated =
         match self.record_state.apply(vsl) {
             Some(Record::ClientAccess(record)) => {
                 self.client.insert(record.ident, record);
-                None
+                true
             }
             Some(Record::BackendAccess(record)) => {
                 self.backend.insert(record.ident, record);
-                None
+                true
             }
             Some(Record::Session(session)) => {
-                let client_transactions = session.client_requests.iter()
-                    .filter_map(|ident| self.client.remove(ident).or_else(|| {
-                        error!("Session {} references ClientAccessRecord {} which was not found: {:?}", session.ident, ident, session);
-                        None}))
-                    .collect::<Vec<_>>().into_iter()
-                    .map(|client| self.build_client_transaction(&session, client))
-                    .collect();
-
-                Some(Session {
-                    record: session,
-                    client_transactions: client_transactions,
-                })
+                self.sessions.push(session);
+                true
             },
-            None => None,
+            None => false
+        };
+
+        if updated == true {
+            self.try_resolve_sessions()
+        } else {
+            None
         }
     }
 
@@ -307,6 +353,10 @@ mod tests {
                );
 
         let session = apply_final!(state, 10, SLT_End, "");
+    }
+}
+
+        /*
 
         let client = session.client_transactions.get(0).unwrap().access_record.clone();
         assert_matches!(client, ClientAccessRecord {
@@ -885,3 +935,4 @@ mod tests {
         assert_matches!(session.client_transactions[0].backend_transactions[0].access_record.transaction, BackendAccessTransaction::Piped { .. });
     }
 }
+*/
