@@ -34,9 +34,9 @@ mod access_log;
 arg_enum! {
     #[derive(Debug)]
     enum OutputFormat {
-        LogEntries,
-        RecordsDebug,
-        SessionsDebug
+        Log,
+        RecordDebug,
+        SessionDebug
     }
 }
 
@@ -132,13 +132,13 @@ fn main() {
         };
 
         match output_format {
-            OutputFormat::LogEntries => println!("{:#}", record),
-            OutputFormat::RecordsDebug => {
+            OutputFormat::Log => println!("{:#}", record),
+            OutputFormat::RecordDebug => {
                 if let Some(record) = record_state.apply(&record) {
                     println!("{:#?}", record)
                 }
             }
-            OutputFormat::SessionsDebug => {
+            OutputFormat::SessionDebug => {
                 if let Some(session) = session_state.apply(&record) {
                     println!("{:#?}", session)
                 }
@@ -152,6 +152,10 @@ fn main() {
 
     for backend in session_state.unmatched_backend_access_records() {
         warn!("BackendAccessRecord without matching session left: {:?}", backend)
+    }
+
+    for session in session_state.unresolved_sessions() {
+        warn!("SessionRecord with unresolved links to other objects left: {:?}", session)
     }
 
     info!("Done");
