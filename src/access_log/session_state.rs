@@ -461,6 +461,15 @@ mod tests {
                65540, SLT_BerespReason,     "OK";
                65540, SLT_BerespHeader,     "Content-Type: text/html; charset=utf-8";
                65540, SLT_VCL_call,         "BACKEND_RESPONSE";
+               65540, SLT_TTL,              "RFC 12345 10 -1 1470304807 1470304807 1340020138 0 12345";
+               65540, SLT_VCL_return,       "deliver";
+               65540, SLT_Storage,          "malloc s0";
+               65540, SLT_ObjProtocol,      "HTTP/1.1";
+               65540, SLT_ObjStatus,        "200";
+               65540, SLT_ObjReason,        "OK";
+               65540, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+               65540, SLT_Fetch_Body,       "3 length -";
+               65540, SLT_BackendReuse,     "19 boot.default";
                65540, SLT_Timestamp,        "BerespBody: 1470304807.435149 0.045005 0.039771";
                65540, SLT_Length,           "5";
                65540, SLT_BereqAcct,        "637 0 637 398 5 403";
@@ -623,13 +632,15 @@ mod tests {
         }
     }
 
-    /*
     #[test]
     fn apply_session_state_grace() {
         log();
         let mut state = SessionState::new();
 
         apply_all!(state,
+               65539, SLT_Begin,            "sess 0 HTTP/1";
+               65539, SLT_SessOpen,         "127.0.0.1 59694 127.0.0.1:1230 127.0.0.1 1230 1470304835.059145 22";
+
                65540, SLT_Begin,            "req 65539 rxreq";
                65540, SLT_Timestamp,        "Start: 1470304835.059319 0.000000 0.000000";
                65540, SLT_Timestamp,        "Req: 1470304835.059319 0.000000 0.000000";
@@ -654,6 +665,11 @@ mod tests {
                65540, SLT_ReqAcct,          "82 2 84 304 6962 7266";
                65540, SLT_End,              "";
 
+               //Note: session may end before bgfetch is finished!
+               65539, SLT_Link,             "req 65540 rxreq";
+               65539, SLT_SessClose,        "RX_TIMEOUT 10.001";
+               65539, SLT_End,              "";
+
                65541, SLT_Begin,            "bereq 65540 bgfetch";
                65541, SLT_Timestamp,        "Start: 1470304835.059425 0.000000 0.000000";
                65541, SLT_BereqMethod,      "GET";
@@ -672,20 +688,21 @@ mod tests {
                65541, SLT_VCL_call,         "BACKEND_ERROR";
                65541, SLT_Length,           "1366";
                65541, SLT_BereqAcct,        "0 0 0 0 0 0";
-               65541, SLT_End,              "";
-
-               65539, SLT_Begin,            "sess 0 HTTP/1";
-               65539, SLT_SessOpen,         "127.0.0.1 59694 127.0.0.1:1230 127.0.0.1 1230 1470304835.059145 22";
-               65539, SLT_Link,             "req 65540 rxreq";
-               65539, SLT_SessClose,        "RX_TIMEOUT 10.001";
                );
 
-            let session = apply_final!(state, 65539, SLT_End, "");
+       // Note that we are ending the bgfetch request as session is already closed
+       let session_record = apply_final!(state, 65541, SLT_End, "");
 
-            // It is handled as ususal; only difference is backend request reason
-            assert_eq!(session.client_transactions[0].backend_transactions[0].access_record.reason, "bgfetch".to_string());
-   }
+       // It is handled as ususal; only difference is backend request reason
+       if let ClientAccessTransaction::Full { backend_request: Some(ref backend_request), .. } =
+           session_record.client_requests[0].get_resolved().unwrap().transaction {
+           assert_eq!(backend_request.get_resolved().unwrap().reason, "bgfetch".to_string());
+       } else {
+           unreachable!()
+       }
+    }
 
+    /*
     #[test]
     fn apply_session_state_restart() {
         log();
