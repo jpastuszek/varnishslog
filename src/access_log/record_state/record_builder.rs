@@ -150,15 +150,9 @@ pub struct Accounting {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ClientAccessRecordLink {
+pub enum Link<T> {
     Unresolved(VslIdent),
-    Resolved(Box<ClientAccessRecord>),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum BackendAccessRecordLink {
-    Unresolved(VslIdent),
-    Resolved(Box<BackendAccessRecord>),
+    Resolved(Box<T>),
 }
 
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
@@ -180,8 +174,8 @@ pub enum ClientAccessTransaction {
     Full {
         request: HttpRequest,
         response: HttpResponse,
-        esi_requests: Vec<ClientAccessRecordLink>,
-        backend_requests: Vec<BackendAccessRecordLink>,
+        esi_requests: Vec<Link<ClientAccessRecord>>,
+        backend_requests: Vec<Link<BackendAccessRecord>>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time waiting for backend response fetch to finish; None for HIT
@@ -196,11 +190,11 @@ pub enum ClientAccessTransaction {
         request: HttpRequest,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
-        restart_request: ClientAccessRecordLink,
+        restart_request: Link<ClientAccessRecord>,
     },
     Piped {
         request: HttpRequest,
-        backend_requests: Vec<BackendAccessRecordLink>,
+        backend_requests: Vec<Link<BackendAccessRecord>>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time it took to get first byte of response
@@ -263,7 +257,7 @@ pub enum BackendAccessTransaction {
     Failed {
         request: HttpRequest,
         synth_response: HttpResponse,
-        retry_request: Option<BackendAccessRecordLink>,
+        retry_request: Option<Link<BackendAccessRecord>>,
         /// Total duration it took to synthesise response
         synth: Duration,
     },
@@ -275,7 +269,7 @@ pub enum BackendAccessTransaction {
     Abandoned {
         request: HttpRequest,
         response: HttpResponse,
-        retry_request: Option<BackendAccessRecordLink>,
+        retry_request: Option<Link<BackendAccessRecord>>,
         send: Duration,
         /// Time waiting for first byte of backend response after request was sent
         wait: Duration,
@@ -298,7 +292,7 @@ pub struct SessionRecord {
     pub duration: Duration,
     pub local: Option<Address>,
     pub remote: Address,
-    pub client_requests: Vec<ClientAccessRecordLink>,
+    pub client_requests: Vec<Link<ClientAccessRecord>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -324,6 +318,54 @@ pub enum Record {
     Session(SessionRecord),
 }
 
+// Access helpers
+
+impl<T> Link<T> {
+    #[allow(dead_code)]
+    pub fn is_unresolved(&self) -> bool {
+        match self {
+            &Link::Unresolved(_) => true,
+            _ => false
+        }
+    }
+    #[allow(dead_code)]
+    pub fn unwrap_unresolved(self) -> VslIdent {
+        match self {
+            Link::Unresolved(ident) => ident,
+            _ => panic!("unwrap_unresolved called on Link that was not Unresolved")
+        }
+    }
+    #[allow(dead_code)]
+    pub fn get_unresolved(&self) -> Option<VslIdent> {
+        match self {
+            &Link::Unresolved(ident) => Some(ident),
+            _ => None
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn is_resolved(&self) -> bool {
+        match self {
+            &Link::Resolved(_) => true,
+            _ => false
+        }
+    }
+    #[allow(dead_code)]
+    pub fn unwrap_resolved(self) -> Box<T> {
+        match self {
+            Link::Resolved(t) => t,
+            _ => panic!("unwrap_resolved called on Link that was not Resolved")
+        }
+    }
+    #[allow(dead_code)]
+    pub fn get_resolved(&self) -> Option<&T> {
+        match self {
+            &Link::Resolved(ref t) => Some(t.as_ref()),
+            _ => None
+        }
+    }
+}
+
 impl Record {
     #[allow(dead_code)]
     pub fn is_client_access(&self) -> bool {
@@ -333,6 +375,14 @@ impl Record {
         }
     }
     #[allow(dead_code)]
+    pub fn unwrap_client_access(self) -> ClientAccessRecord {
+        match self {
+            Record::ClientAccess(access_record) => access_record,
+            _ => panic!("unwrap_client_access called on Record that was not ClientAccess")
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn is_backend_access(&self) -> bool {
         match self {
             &Record::BackendAccess(_) => true,
@@ -340,25 +390,18 @@ impl Record {
         }
     }
     #[allow(dead_code)]
-    pub fn is_session(&self) -> bool {
-        match self {
-            &Record::Session(_) => true,
-            _ => false,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn unwrap_client_access(self) -> ClientAccessRecord {
-        match self {
-            Record::ClientAccess(access_record) => access_record,
-            _ => panic!("unwrap_client_access called on Record that was not ClientAccess")
-        }
-    }
-    #[allow(dead_code)]
     pub fn unwrap_backend_access(self) -> BackendAccessRecord {
         match self {
             Record::BackendAccess(access_record) => access_record,
             _ => panic!("unwrap_backend_access called on Record that was not BackendAccess")
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn is_session(&self) -> bool {
+        match self {
+            &Record::Session(_) => true,
+            _ => false,
         }
     }
     #[allow(dead_code)]
@@ -767,10 +810,10 @@ pub struct RecordBuilder {
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
     sess_local: Option<Address>,
-    client_requests: Vec<ClientAccessRecordLink>,
-    backend_requests: Vec<BackendAccessRecordLink>,
-    restart_request: Option<ClientAccessRecordLink>,
-    retry_request: Option<BackendAccessRecordLink>,
+    client_requests: Vec<Link<ClientAccessRecord>>,
+    backend_requests: Vec<Link<BackendAccessRecord>>,
+    restart_request: Option<Link<ClientAccessRecord>>,
+    retry_request: Option<Link<BackendAccessRecord>>,
     log: Vec<LogEntry>,
 }
 
@@ -912,13 +955,13 @@ impl RecordBuilder {
                 match (reason, child_type) {
                     ("req", "restart") => {
                         RecordBuilder {
-                            restart_request: Some(ClientAccessRecordLink::Unresolved(child_vxid)),
+                            restart_request: Some(Link::Unresolved(child_vxid)),
                             .. self
                         }
                     },
                     ("req", _) => {
                         let mut client_requests = self.client_requests;
-                        client_requests.push(ClientAccessRecordLink::Unresolved(child_vxid));
+                        client_requests.push(Link::Unresolved(child_vxid));
 
                         RecordBuilder {
                             client_requests: client_requests,
@@ -927,13 +970,13 @@ impl RecordBuilder {
                     },
                     ("bereq", "retry") => {
                         RecordBuilder {
-                            retry_request: Some(BackendAccessRecordLink::Unresolved(child_vxid)),
+                            retry_request: Some(Link::Unresolved(child_vxid)),
                             .. self
                         }
                     },
                     ("bereq", _) => {
                         let mut backend_requests = self.backend_requests;
-                        backend_requests.push(BackendAccessRecordLink::Unresolved(child_vxid));
+                        backend_requests.push(Link::Unresolved(child_vxid));
 
                         RecordBuilder {
                             backend_requests: backend_requests,
@@ -1858,7 +1901,7 @@ mod tests {
                 ..
             },
             process: Some(0.0),
-            restart_request: ClientAccessRecordLink::Unresolved(5),
+            restart_request: Link::Unresolved(5),
         } if url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
     }
 
@@ -1908,7 +1951,7 @@ mod tests {
             headers == &[
                 ("Upgrade".to_string(), "websocket".to_string()),
                 ("Connection".to_string(), "Upgrade".to_string())] &&
-            backend_requests == &[BackendAccessRecordLink::Unresolved(5)]
+            backend_requests == &[Link::Unresolved(5)]
         );
     }
 

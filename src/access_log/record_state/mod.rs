@@ -9,8 +9,7 @@ use self::record_builder::BuilderResult::*;
 pub use self::record_builder::Record;
 pub use self::record_builder::{
     ClientAccessRecord, BackendAccessRecord, SessionRecord,
-    ClientAccessRecordLink, ClientAccessTransaction,
-    BackendAccessRecordLink, BackendAccessTransaction,
+    Link, ClientAccessTransaction, BackendAccessTransaction,
     Accounting, HttpRequest, HttpResponse};
 
 #[derive(Debug)]
@@ -151,7 +150,7 @@ mod tests {
             ..
         } if
             reason == "rxreq" &&
-            backend_requests == &[BackendAccessRecordLink::Unresolved(5)] &&
+            backend_requests == &[Link::Unresolved(5)] &&
             esi_requests.is_empty()
         );
 
@@ -297,7 +296,7 @@ mod tests {
             duration: 0.001,
             local: Some(("127.0.0.1".to_string(), 1080)),
             remote: ("192.168.1.10".to_string(), 40078),
-            client_requests: vec![ClientAccessRecordLink::Unresolved(32773)],
+            client_requests: vec![Link::Unresolved(32773)],
         });
     }
 

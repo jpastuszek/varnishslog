@@ -96,35 +96,35 @@ impl SessionState {
     }
 
     fn try_resolve_sessions(&mut self) -> Option<SessionRecord> {
-        fn try_resolve_client_link(link: &mut ClientAccessRecordLink,
+        fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
                               client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
-            if let Some(client_record) = if let &mut ClientAccessRecordLink::Unresolved(ref ident) = link {
+            if let Some(client_record) = if let &mut Link::Unresolved(ref ident) = link {
                 client_records.remove(ident)
             } else {
                 None
             } {
-                *link = ClientAccessRecordLink::Resolved(Box::new(client_record))
+                *link = Link::Resolved(Box::new(client_record))
             }
 
-            if let &mut ClientAccessRecordLink::Resolved(ref mut client_record) = link {
+            if let &mut Link::Resolved(ref mut client_record) = link {
                 try_resolve_client_record(client_record, client_records, backend_records)
             } else {
                 false
             }
         }
 
-        fn try_resolve_backend_link(link: &mut BackendAccessRecordLink,
+        fn try_resolve_backend_link(link: &mut Link<BackendAccessRecord>,
                                backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
-            if let Some(backend_record) = if let &mut BackendAccessRecordLink::Unresolved(ref ident) = link {
+            if let Some(backend_record) = if let &mut Link::Unresolved(ref ident) = link {
                 backend_records.remove(ident)
             } else {
                 None
             } {
-                *link = BackendAccessRecordLink::Resolved(Box::new(backend_record))
+                *link = Link::Resolved(Box::new(backend_record))
             }
 
-            if let &mut BackendAccessRecordLink::Resolved(ref mut backend_record) = link {
+            if let &mut Link::Resolved(ref mut backend_record) = link {
                 try_resolve_backend_record(backend_record, backend_records)
             } else {
                 false
@@ -335,28 +335,66 @@ mod tests {
 
         let session_record = apply_final!(state, 10, SLT_End, "");
 
-        if let ClientAccessRecordLink::Resolved(ref client_record) = session_record.client_requests[0] {
-            let client_record = client_record.as_ref();
+        let client_record = session_record.client_requests[0].get_resolved().unwrap();
 
-            assert_matches!(client_record, &ClientAccessRecord {
-                ident: 100,
-                parent: 10,
-                start: 1469180762.484544,
-                end: 1469180766.484544,
-                ref reason,
-                transaction: ClientAccessTransaction::Full {
-                    ref backend_requests,
-                    ref esi_requests,
-                    ..
-                },
+        assert_matches!(client_record, &ClientAccessRecord {
+            ident: 100,
+            parent: 10,
+            start: 1469180762.484544,
+            end: 1469180766.484544,
+            ref reason,
+            transaction: ClientAccessTransaction::Full {
+                ref backend_requests,
+                ref esi_requests,
                 ..
-            } if
-                reason == "rxreq" &&
-                backend_requests.len() == 1 &&
-                esi_requests.is_empty()
-            );
+            },
+            ..
+        } if
+            reason == "rxreq" &&
+            backend_requests.len() == 1 &&
+            esi_requests.is_empty()
+        );
 
-            assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
+            ref request,
+            ..
+        } if
+            request == &HttpRequest {
+                method: "GET".to_string(),
+                url: "/foobar".to_string(),
+                protocol: "HTTP/1.1".to_string(),
+                headers: vec![
+                    ("Host".to_string(), "localhost:8080".to_string()),
+                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]
+        });
+
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
+            ref response,
+            ..
+        } if
+            response == &HttpResponse {
+                protocol: "HTTP/1.1".to_string(),
+                status: 503,
+                reason: "Backend fetch failed".to_string(),
+                headers: vec![
+                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                    ("Server".to_string(), "Varnish".to_string()),
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+        });
+
+        if let ClientAccessTransaction::Full { ref backend_requests, .. } = client_record.transaction {
+            let backend_record = backend_requests[0].get_resolved().unwrap();
+
+            assert_matches!(backend_record, &BackendAccessRecord {
+                ident: 1000,
+                parent: 100,
+                start: 1469180762.484544,
+                end: Some(1469180764.484544),
+                ref reason,
+                ..
+            } if reason == "fetch");
+
+            assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
                 ref request,
                 ..
             } if
@@ -368,12 +406,11 @@ mod tests {
                         ("Host".to_string(), "localhost:8080".to_string()),
                         ("User-Agent".to_string(), "curl/7.40.0".to_string())]
             });
-
-            assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
-                ref response,
+            assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
+                ref synth_response,
                 ..
             } if
-                response == &HttpResponse {
+                synth_response == &HttpResponse {
                     protocol: "HTTP/1.1".to_string(),
                     status: 503,
                     reason: "Backend fetch failed".to_string(),
@@ -382,53 +419,8 @@ mod tests {
                         ("Server".to_string(), "Varnish".to_string()),
                         ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
             });
-
-            if let ClientAccessTransaction::Full { ref backend_requests, .. } = client_record.transaction {
-                if let BackendAccessRecordLink::Resolved(ref backend_record) = backend_requests[0] {
-                    let backend_record = backend_record.as_ref();
-
-                    assert_matches!(backend_record, &BackendAccessRecord {
-                        ident: 1000,
-                        parent: 100,
-                        start: 1469180762.484544,
-                        end: Some(1469180764.484544),
-                        ref reason,
-                        ..
-                    } if reason == "fetch");
-
-                    assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
-                        ref request,
-                        ..
-                    } if
-                        request == &HttpRequest {
-                            method: "GET".to_string(),
-                            url: "/foobar".to_string(),
-                            protocol: "HTTP/1.1".to_string(),
-                            headers: vec![
-                                ("Host".to_string(), "localhost:8080".to_string()),
-                                ("User-Agent".to_string(), "curl/7.40.0".to_string())]
-                    });
-                    assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
-                        ref synth_response,
-                        ..
-                    } if
-                        synth_response == &HttpResponse {
-                            protocol: "HTTP/1.1".to_string(),
-                            status: 503,
-                            reason: "Backend fetch failed".to_string(),
-                            headers: vec![
-                                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                                ("Server".to_string(), "Varnish".to_string()),
-                                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-                    });
-                } else {
-                    panic!("2")
-                }
-            } else {
-                panic!("1")
-            }
         } else {
-            panic!("client_requests link was unresolved")
+            unreachable!()
         }
 
         assert_matches!(session_record, SessionRecord {
@@ -445,7 +437,6 @@ mod tests {
         );
     }
 
-    /*
     #[test]
     fn apply_session_state_esi() {
         log();
@@ -603,14 +594,35 @@ mod tests {
                65537, SLT_SessClose,        "REM_CLOSE 3.228";
               );
 
-        let session = apply_final!(state, 65537, SLT_End, "");
+        let session_record = apply_final!(state, 65537, SLT_End, "");
 
         // We will have esi_transactions in client request
-        assert_eq!(session.client_transactions[0].esi_transactions[0].access_record.reason, "esi".to_string());
-        assert_eq!(session.client_transactions[0].esi_transactions[0].backend_transactions[0].access_record.reason, "fetch".to_string());
-        assert!(session.client_transactions[0].esi_transactions[0].esi_transactions.is_empty());
+        if let ClientAccessTransaction::Full { ref esi_requests, .. } =
+            session_record.client_requests[0].get_resolved().unwrap().transaction {
+            assert_eq!(esi_requests[0].get_resolved().unwrap().reason, "esi".to_string());
+
+            if let ClientAccessTransaction::Full {
+                ref esi_requests,
+                ref backend_requests,
+                ..
+            } = esi_requests[0].get_resolved().unwrap().transaction {
+                assert!(esi_requests.is_empty());
+                assert_matches!(backend_requests[0].get_resolved().unwrap(),
+                    &BackendAccessRecord {
+                        ref reason,
+                        ..
+                    } if reason == "fetch"
+                );
+
+            } else {
+                unreachable!()
+            }
+        } else {
+            unreachable!()
+        }
     }
 
+    /*
     #[test]
     fn apply_session_state_grace() {
         log();
