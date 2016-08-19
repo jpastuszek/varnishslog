@@ -141,7 +141,7 @@ mod tests {
                     sent_body: 1366,
                     sent_total: 2416,
                 },
-                ref backend_requests,
+                backend_request: Some(ref backend_request),
                 ref esi_requests,
                 ..
             },
@@ -150,7 +150,7 @@ mod tests {
             ..
         } if
             reason == "rxreq" &&
-            backend_requests == &[Link::Unresolved(5)] &&
+            backend_request == &Link::Unresolved(5) &&
             esi_requests.is_empty()
         );
 

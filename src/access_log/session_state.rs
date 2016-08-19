@@ -157,18 +157,20 @@ impl SessionState {
         fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
                               client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
-            let backend_requests_resolved = match client_record.transaction {
+            let backend_request_resolved = match client_record.transaction {
                 ClientAccessTransaction::Full {
-                    ref mut backend_requests,
+                    ref mut backend_request,
                     ..
                 } |
                 ClientAccessTransaction::Piped {
-                    ref mut backend_requests,
+                    ref mut backend_request,
                     ..
                 } => {
-                    backend_requests.iter_mut().all(|link|
+                    if let &mut Some(ref mut link) = backend_request {
                         try_resolve_backend_link(link, backend_records)
-                    )
+                    } else {
+                        true
+                    }
                 }
                 ClientAccessTransaction::Restarted { .. } => true,
             };
@@ -197,7 +199,7 @@ impl SessionState {
                 ClientAccessTransaction::Piped { .. } => true,
             };
 
-            backend_requests_resolved && esi_requests_resolved && restart_request_resolved
+            backend_request_resolved && esi_requests_resolved && restart_request_resolved
         }
 
         fn try_resolve_session_record(session_record: &mut SessionRecord,
@@ -344,14 +346,13 @@ mod tests {
             end: 1469180766.484544,
             ref reason,
             transaction: ClientAccessTransaction::Full {
-                ref backend_requests,
+                backend_request: Some(_),
                 ref esi_requests,
                 ..
             },
             ..
         } if
             reason == "rxreq" &&
-            backend_requests.len() == 1 &&
             esi_requests.is_empty()
         );
 
@@ -382,8 +383,8 @@ mod tests {
                     ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
         });
 
-        if let ClientAccessTransaction::Full { ref backend_requests, .. } = client_record.transaction {
-            let backend_record = backend_requests[0].get_resolved().unwrap();
+        if let ClientAccessTransaction::Full { backend_request: Some(ref backend_request), .. } = client_record.transaction {
+            let backend_record = backend_request.get_resolved().unwrap();
 
             assert_matches!(backend_record, &BackendAccessRecord {
                 ident: 1000,
@@ -603,11 +604,11 @@ mod tests {
 
             if let ClientAccessTransaction::Full {
                 ref esi_requests,
-                ref backend_requests,
+                backend_request: Some(ref backend_request),
                 ..
             } = esi_requests[0].get_resolved().unwrap().transaction {
                 assert!(esi_requests.is_empty());
-                assert_matches!(backend_requests[0].get_resolved().unwrap(),
+                assert_matches!(backend_request.get_resolved().unwrap(),
                     &BackendAccessRecord {
                         ref reason,
                         ..

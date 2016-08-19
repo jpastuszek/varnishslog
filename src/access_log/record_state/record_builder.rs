@@ -175,7 +175,7 @@ pub enum ClientAccessTransaction {
         request: HttpRequest,
         response: HttpResponse,
         esi_requests: Vec<Link<ClientAccessRecord>>,
-        backend_requests: Vec<Link<BackendAccessRecord>>,
+        backend_request: Option<Link<BackendAccessRecord>>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time waiting for backend response fetch to finish; None for HIT
@@ -194,7 +194,7 @@ pub enum ClientAccessTransaction {
     },
     Piped {
         request: HttpRequest,
-        backend_requests: Vec<Link<BackendAccessRecord>>,
+        backend_request: Option<Link<BackendAccessRecord>>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time it took to get first byte of response
@@ -811,7 +811,7 @@ pub struct RecordBuilder {
     sess_remote: Option<Address>,
     sess_local: Option<Address>,
     client_requests: Vec<Link<ClientAccessRecord>>,
-    backend_requests: Vec<Link<BackendAccessRecord>>,
+    backend_request: Option<Link<BackendAccessRecord>>,
     restart_request: Option<Link<ClientAccessRecord>>,
     retry_request: Option<Link<BackendAccessRecord>>,
     log: Vec<LogEntry>,
@@ -841,7 +841,7 @@ impl RecordBuilder {
             sess_remote: None,
             sess_local: None,
             client_requests: Vec::new(),
-            backend_requests: Vec::new(),
+            backend_request: None,
             restart_request: None,
             retry_request: None,
             log: Vec::new(),
@@ -954,6 +954,9 @@ impl RecordBuilder {
 
                 match (reason, child_type) {
                     ("req", "restart") => {
+                        if let Some(link) = self.restart_request {
+                            warn!("Already have restart client request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
+                        }
                         RecordBuilder {
                             restart_request: Some(Link::Unresolved(child_vxid)),
                             .. self
@@ -969,17 +972,20 @@ impl RecordBuilder {
                         }
                     },
                     ("bereq", "retry") => {
+                        if let Some(link) = self.retry_request {
+                            warn!("Already have retry backend request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
+                        }
                         RecordBuilder {
                             retry_request: Some(Link::Unresolved(child_vxid)),
                             .. self
                         }
                     },
                     ("bereq", _) => {
-                        let mut backend_requests = self.backend_requests;
-                        backend_requests.push(Link::Unresolved(child_vxid));
-
+                        if let Some(link) = self.backend_request {
+                            warn!("Already have backend request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
+                        }
                         RecordBuilder {
-                            backend_requests: backend_requests,
+                            backend_request: Some(Link::Unresolved(child_vxid)),
                             .. self
                         }
                     },
@@ -1369,7 +1375,7 @@ impl RecordBuilder {
                                             request: request,
                                             response: try!(http_response.get_complete()),
                                             esi_requests: self.client_requests,
-                                            backend_requests: self.backend_requests,
+                                            backend_request: self.backend_request,
                                             process: self.req_process,
                                             fetch: self.resp_fetch,
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
@@ -1387,7 +1393,7 @@ impl RecordBuilder {
                                     ClientAccessTransactionType::Piped => {
                                         ClientAccessTransaction::Piped {
                                             request: request,
-                                            backend_requests: self.backend_requests,
+                                            backend_request: self.backend_request,
                                             process: self.req_process,
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
                                         }
@@ -1943,7 +1949,7 @@ mod tests {
                 ref headers,
                 ..
             },
-            ref backend_requests,
+            backend_request: Some(ref backend_request),
             process: Some(0.0),
             ttfb: 0.000209,
         } if
@@ -1951,7 +1957,7 @@ mod tests {
             headers == &[
                 ("Upgrade".to_string(), "websocket".to_string()),
                 ("Connection".to_string(), "Upgrade".to_string())] &&
-            backend_requests == &[Link::Unresolved(5)]
+            backend_request == &Link::Unresolved(5)
         );
     }
 
