@@ -135,6 +135,12 @@ named!(pub slt_sess_close<&[u8], (&str, Duration)>, tuple!(
         symbol,     // Why the connection closed
         duration)); // How long the session was open
 
+named!(pub slt_hit<&[u8], VslIdent>, call!(
+        vsl_ident)); // Object looked up in cache; Shows the VXID of the object
+
+named!(pub slt_hit_pass<&[u8], VslIdent>, call!(
+        vsl_ident)); // Hit-for-pass object looked up in cache; Shows the VXID of the hit-for-pass object
+
 named!(pub slt_call<&[u8], &str>, call!(
         symbol));   // VCL method name
 

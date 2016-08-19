@@ -51,7 +51,7 @@
 /// 32769 SLT_Link           req 32770 rxreq
 /// 32769 SLT_SessClose      REM_CLOSE 0.347
 ///
-/// Retry (varnish20160805-3559-f6sifo45103025c06abad14.vsl)
+/// Retry (logs/varnish20160805-3559-f6sifo45103025c06abad14.vsl)
 /// ---
 /// Can be used to restart backend fetch in backend thread
 ///
@@ -286,6 +286,10 @@ mod tests {
                100, SLT_ReqHeader,      "Accept-Encoding: gzip";
                100, SLT_ReqUnset,       "Accept-Encoding: gzip";
                100, SLT_VCL_call,       "RECV";
+               100, SLT_VCL_return,     "pass";
+               100, SLT_VCL_call,       "HASH";
+               100, SLT_VCL_return,     "lookup";
+               100, SLT_VCL_call,       "PASS";
                100, SLT_Link,           "bereq 1000 fetch";
                100, SLT_Timestamp,      "Fetch: 1469180763.484544 1.000000 0.000000";
                100, SLT_RespProtocol,   "HTTP/1.1";
@@ -481,6 +485,10 @@ mod tests {
                65541, SLT_ReqProtocol,      "HTTP/1.1";
                65541, SLT_ReqHeader,        "X-Backend-Set-Header-X-Accel-ESI: true";
                65541, SLT_VCL_call,         "RECV";
+               65541, SLT_VCL_return,       "hash";
+               65541, SLT_VCL_call,         "HASH";
+               65541, SLT_VCL_return,       "lookup";
+               65541, SLT_VCL_call,         "MISS";
                65541, SLT_Link,             "bereq 65542 fetch";
                65541, SLT_Timestamp,        "Fetch: 1470304807.479151 0.043886 0.043886";
                65541, SLT_RespProtocol,     "HTTP/1.1";
@@ -502,6 +510,10 @@ mod tests {
                65539, SLT_ReqProtocol,      "HTTP/1.1";
                65539, SLT_ReqHeader,        "X-Backend-Set-Header-X-Accel-ESI: true";
                65539, SLT_VCL_call,         "RECV";
+               65539, SLT_VCL_return,       "hash";
+               65539, SLT_VCL_call,         "HASH";
+               65539, SLT_VCL_return,       "lookup";
+               65539, SLT_VCL_call,         "MISS";
                65539, SLT_Link,             "bereq 65543 fetch";
                65539, SLT_Timestamp,        "Fetch: 1470304807.479151 0.043886 0.043886";
                65539, SLT_RespProtocol,     "HTTP/1.1";
@@ -583,6 +595,11 @@ mod tests {
                65538, SLT_ReqProtocol,      "HTTP/1.1";
                65538, SLT_ReqHeader,        "X-Backend-Set-Header-X-Accel-ESI: true";
                65538, SLT_VCL_call,         "RECV";
+               65538, SLT_VCL_return,       "hash";
+               65538, SLT_VCL_call,         "HASH";
+               65538, SLT_VCL_return,       "lookup";
+               65538, SLT_Hit,              "5";
+               65538, SLT_VCL_call,         "HIT";
                65538, SLT_RespProtocol,     "HTTP/1.1";
                65538, SLT_RespStatus,       "200";
                65538, SLT_RespReason,       "OK";
@@ -647,7 +664,11 @@ mod tests {
                65540, SLT_ReqProtocol,      "HTTP/1.1";
                65540, SLT_ReqHeader,        "X-Varnish-Force-Zero-TTL: true";
                65540, SLT_VCL_call,         "RECV";
+               65540, SLT_VCL_return,       "hash";
+               65540, SLT_VCL_call,         "HASH";
+               65540, SLT_VCL_return,       "lookup";
                65540, SLT_Hit,              "98307";
+               65540, SLT_VCL_call,         "HIT";
                65540, SLT_ReqHeader,        "X-Varnish-Result: hit/sick_grace";
                65540, SLT_VCL_return,       "deliver";
                65540, SLT_Link,             "bereq 65541 bgfetch";
@@ -714,6 +735,11 @@ mod tests {
                    32770, SLT_ReqProtocol,      "HTTP/1.1";
                    32770, SLT_ReqHeader,        "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
                    32770, SLT_VCL_call,         "RECV";
+                   32770, SLT_VCL_return,       "hash";
+                   32770, SLT_VCL_call,         "HASH";
+                   32770, SLT_VCL_return,       "lookup";
+                   32770, SLT_Hit,              "5";
+                   32770, SLT_VCL_call,         "HIT";
                    32770, SLT_VCL_return,       "restart";
                    32770, SLT_Timestamp,        "Restart: 1470304882.576600 0.000136 0.000136";
                    32770, SLT_Link,             "req 32771 restart";
@@ -728,6 +754,10 @@ mod tests {
                    32771, SLT_ReqProtocol,      "HTTP/1.1";
                    32771, SLT_ReqHeader,        "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
                    32771, SLT_VCL_call,         "RECV";
+                   32771, SLT_VCL_return,       "hash";
+                   32771, SLT_VCL_call,         "HASH";
+                   32771, SLT_VCL_return,       "lookup";
+                   32771, SLT_VCL_call,         "MISS";
                    32771, SLT_Link,             "bereq 32772 fetch";
                    32771, SLT_Timestamp,        "Fetch: 1470304882.579218 0.002754 0.002618";
                    32771, SLT_RespProtocol,     "HTTP/1.1";
@@ -853,6 +883,10 @@ mod tests {
                    7, SLT_ReqProtocol,  "HTTP/1.1";
                    7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                    7, SLT_VCL_call,     "RECV";
+                   7, SLT_VCL_return,   "hash";
+                   7, SLT_VCL_call,     "HASH";
+                   7, SLT_VCL_return,   "lookup";
+                   7, SLT_VCL_call,     "MISS";
                    7, SLT_Link,         "bereq 8 fetch";
                    7, SLT_Timestamp,    "Fetch: 1470403414.672315 0.007491 0.007491";
                    7, SLT_RespProtocol, "HTTP/1.1";

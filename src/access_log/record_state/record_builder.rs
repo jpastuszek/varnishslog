@@ -1,6 +1,5 @@
 /// TODO:
-/// * ESI level
-/// * result?: pipe, hit, miss, pass, synth
+/// * ident vs VXID
 /// * Call trace
 /// * ACL trace
 /// * more tests
@@ -150,6 +149,22 @@ pub struct Accounting {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Handling {
+    /// Cache hit and served from cache
+    Hit(VslIdent),
+    /// Cache miss and served from backend response
+    Miss,
+    /// Served from backend as request was not cacheable
+    Pass,
+    /// Served from backend as previous response was not cacheable
+    HitPass(VslIdent),
+    /// Response generated internally by Varnish
+    Synth,
+    /// This request and any further communication is passed to the backend
+    Pipe,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Link<T> {
     Unresolved(VslIdent),
     Resolved(Box<T>),
@@ -166,6 +181,7 @@ pub struct ClientAccessRecord {
     pub start: TimeStamp,
     /// End of request processing
     pub end: TimeStamp,
+    pub handling: Handling,
     pub log: Vec<LogEntry>,
 }
 
@@ -814,6 +830,7 @@ pub struct RecordBuilder {
     backend_record: Option<Link<BackendAccessRecord>>,
     restart_record: Option<Link<ClientAccessRecord>>,
     retry_record: Option<Link<BackendAccessRecord>>,
+    handling: Option<Handling>,
     log: Vec<LogEntry>,
 }
 
@@ -844,6 +861,7 @@ impl RecordBuilder {
             backend_record: None,
             restart_record: None,
             retry_record: None,
+            handling: None,
             log: Vec::new(),
         }
     }
@@ -1171,13 +1189,46 @@ impl RecordBuilder {
                 }
             }
 
-            // Final
+            SLT_Hit => {
+                let object_ident = try!(vsl.parse_data(slt_hit));
+
+                RecordBuilder {
+                    handling: Some(Handling::Hit(object_ident)),
+                    .. self
+                }
+            }
+
+            SLT_HitPass => {
+                let object_ident = try!(vsl.parse_data(slt_hit_pass));
+
+                RecordBuilder {
+                    handling: Some(Handling::HitPass(object_ident)),
+                    .. self
+                }
+            }
+
             SLT_VCL_call => {
                 let method = try!(vsl.parse_data(slt_call));
 
                 match method {
                     "RECV" => RecordBuilder {
                         http_request: try!(self.http_request.complete()),
+                        .. self
+                    },
+                    "MISS" => RecordBuilder {
+                        handling: Some(Handling::Miss),
+                        .. self
+                    },
+                    "PASS" => if self.handling.is_none() {
+                        RecordBuilder {
+                            handling: Some(Handling::Pass),
+                            .. self
+                        }
+                    } else {
+                        self
+                    },
+                    "SYNTH" => RecordBuilder {
+                        handling: Some(Handling::Synth),
                         .. self
                     },
                     "BACKEND_RESPONSE" => RecordBuilder {
@@ -1304,6 +1355,7 @@ impl RecordBuilder {
                                         reason: reason,
                                         transaction: ClientAccessTransactionType::Piped,
                                     },
+                                    handling: Some(Handling::Pipe),
                                     .. self
                                 }
                             }
@@ -1407,6 +1459,7 @@ impl RecordBuilder {
                                     transaction: transaction,
                                     start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                                     end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+                                    handling: try!(self.handling.ok_or(RecordBuilderError::RecordIncomplete("handling"))),
                                     log: self.log,
                                 };
 
@@ -1840,6 +1893,10 @@ mod tests {
                                  7, SLT_ReqProtocol,  "HTTP/1.1";
                                  7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  7, SLT_VCL_call,     "RECV";
+                                 7, SLT_VCL_return,   "hash";
+                                 7, SLT_VCL_call,     "HASH";
+                                 7, SLT_VCL_return,   "lookup";
+                                 7, SLT_VCL_call,     "MISS";
                                  7, SLT_Link,         "bereq 8 fetch";
                                  7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
                                  7, SLT_RespProtocol, "HTTP/1.1";
@@ -1860,6 +1917,8 @@ mod tests {
 
         assert_eq!(record.start, 1470403413.664824);
         assert_eq!(record.end, 1470403414.672458);
+
+        assert_eq!(record.handling, Handling::Miss);
 
         assert_matches!(record.transaction, ClientAccessTransaction::Full {
             process: Some(1.0),
@@ -1943,6 +2002,8 @@ mod tests {
         assert_eq!(record.start, 1471355444.744141);
         assert_eq!(record.end, 1471355444.751368);
 
+        assert_eq!(record.handling, Handling::Pipe);
+
         assert_matches!(record.transaction, ClientAccessTransaction::Piped {
             request: HttpRequest {
                 ref url,
@@ -1959,6 +2020,110 @@ mod tests {
                 ("Connection".to_string(), "Upgrade".to_string())] &&
             backend_record == &Link::Unresolved(5)
         );
+    }
+
+    #[test]
+    fn apply_client_access_record_byte_counts() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 7, SLT_Begin,        "req 6 rxreq";
+                                 7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+                                 7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+                                 7, SLT_ReqStart,     "127.0.0.1 39798";
+                                 7, SLT_ReqMethod,    "GET";
+                                 7, SLT_ReqURL,       "/retry";
+                                 7, SLT_ReqProtocol,  "HTTP/1.1";
+                                 7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 7, SLT_VCL_call,     "RECV";
+                                 7, SLT_VCL_return,   "pass";
+                                 7, SLT_VCL_call,     "HASH";
+                                 7, SLT_VCL_return,   "lookup";
+                                 7, SLT_VCL_call,     "PASS";
+                                 7, SLT_Link,         "bereq 8 fetch";
+                                 7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+                                 7, SLT_RespProtocol, "HTTP/1.1";
+                                 7, SLT_RespStatus,   "200";
+                                 7, SLT_RespReason,   "OK";
+                                 7, SLT_RespHeader,   "Content-Type: image/jpeg";
+                                 7, SLT_VCL_return,   "deliver";
+                                 7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+                                 7, SLT_RespHeader,   "Accept-Ranges: bytes";
+                                 7, SLT_Debug,        "RES_MODE 2";
+                                 7, SLT_RespHeader,   "Connection: keep-alive";
+                                 7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+                                 7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
+                                 );
+
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.handling, Handling::Pass);
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Full {
+            accounting: Accounting {
+                recv_header: 82,
+                recv_body: 2,
+                recv_total: 84,
+                sent_header: 304,
+                sent_body: 6962,
+                sent_total: 7266,
+            },
+            ..
+        });
+    }
+
+    #[test]
+    fn apply_client_access_record_hit_for_pass() {
+        let builder = RecordBuilder::new(123);
+
+        let builder = apply_all!(builder,
+                                 7, SLT_Begin,        "req 6 rxreq";
+                                 7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+                                 7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+                                 7, SLT_ReqStart,     "127.0.0.1 39798";
+                                 7, SLT_ReqMethod,    "GET";
+                                 7, SLT_ReqURL,       "/retry";
+                                 7, SLT_ReqProtocol,  "HTTP/1.1";
+                                 7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                                 7, SLT_VCL_call,     "RECV";
+                                 7, SLT_VCL_return,   "hash";
+                                 7, SLT_VCL_call,     "HASH";
+                                 7, SLT_VCL_return,   "lookup";
+                                 7, SLT_Debug,        "XXXX HIT-FOR-PASS";
+                                 7, SLT_HitPass,      "5";
+                                 7, SLT_VCL_call,     "PASS";
+                                 7, SLT_Link,         "bereq 8 fetch";
+                                 7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+                                 7, SLT_RespProtocol, "HTTP/1.1";
+                                 7, SLT_RespStatus,   "200";
+                                 7, SLT_RespReason,   "OK";
+                                 7, SLT_RespHeader,   "Content-Type: image/jpeg";
+                                 7, SLT_VCL_return,   "deliver";
+                                 7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+                                 7, SLT_RespHeader,   "Accept-Ranges: bytes";
+                                 7, SLT_Debug,        "RES_MODE 2";
+                                 7, SLT_RespHeader,   "Connection: keep-alive";
+                                 7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+                                 7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
+                                 );
+
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.handling, Handling::HitPass(5));
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Full {
+            accounting: Accounting {
+                recv_header: 82,
+                recv_body: 2,
+                recv_total: 84,
+                sent_header: 304,
+                sent_body: 6962,
+                sent_total: 7266,
+            },
+            ..
+        });
     }
 
     //TODO: backend access record: Full, Failed, Aborted, Abandoned, Piped
@@ -2369,6 +2534,12 @@ mod tests {
                                  7, SLT_VCL_call,     "RECV";
                                  7, SLT_Debug,        "geoip2.lookup: No entry for this IP address (127.0.0.1)";
                                  7, SLT_VCL_Log,      "X-Varnish-Privileged-Client: false";
+                                 7, SLT_VCL_return,   "hash";
+                                 7, SLT_VCL_call,     "HASH";
+                                 7, SLT_VCL_return,   "lookup";
+                                 7, SLT_Debug,        "XXXX HIT-FOR-PASS";
+                                 7, SLT_HitPass,      "5";
+                                 7, SLT_VCL_call,     "PASS";
                                  7, SLT_Link,         "bereq 8 fetch";
                                  7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
                                  7, SLT_RespProtocol, "HTTP/1.1";
@@ -2394,6 +2565,7 @@ mod tests {
          assert_eq!(record.log, &[
                     LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
                     LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
+                    LogEntry::Debug("XXXX HIT-FOR-PASS".to_string()),
                     LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
                     LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
                     LogEntry::Debug("RES_MODE 2".to_string()),
@@ -2443,52 +2615,6 @@ mod tests {
                   LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
        ]);
     }
-
-    #[test]
-    fn apply_client_access_record_byte_counts() {
-        let builder = RecordBuilder::new(123);
-
-        let builder = apply_all!(builder,
-                                 7, SLT_Begin,        "req 6 rxreq";
-                                 7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
-                                 7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
-                                 7, SLT_ReqStart,     "127.0.0.1 39798";
-                                 7, SLT_ReqMethod,    "GET";
-                                 7, SLT_ReqURL,       "/retry";
-                                 7, SLT_ReqProtocol,  "HTTP/1.1";
-                                 7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-                                 7, SLT_VCL_call,     "RECV";
-                                 7, SLT_Link,         "bereq 8 fetch";
-                                 7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
-                                 7, SLT_RespProtocol, "HTTP/1.1";
-                                 7, SLT_RespStatus,   "200";
-                                 7, SLT_RespReason,   "OK";
-                                 7, SLT_RespHeader,   "Content-Type: image/jpeg";
-                                 7, SLT_VCL_return,   "deliver";
-                                 7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
-                                 7, SLT_RespHeader,   "Accept-Ranges: bytes";
-                                 7, SLT_Debug,        "RES_MODE 2";
-                                 7, SLT_RespHeader,   "Connection: keep-alive";
-                                 7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
-                                 7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
-                                 );
-
-        let record = apply_last!(builder, 7, SLT_End, "")
-            .unwrap_client_access();
-
-        assert_matches!(record.transaction, ClientAccessTransaction::Full {
-            accounting: Accounting {
-                recv_header: 82,
-                recv_body: 2,
-                recv_total: 84,
-                sent_header: 304,
-                sent_body: 6962,
-                sent_total: 7266,
-            },
-            ..
-        });
-    }
-
     #[test]
     fn apply_backend_access_record_cache_object() {
         let builder = RecordBuilder::new(123);
