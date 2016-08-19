@@ -1,5 +1,4 @@
 /// TODO:
-/// * ident vs VXID
 /// * Call trace
 /// * ACL trace
 /// * more tests
@@ -869,12 +868,12 @@ impl RecordBuilder {
     pub fn apply<'r>(self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
         let builder = match vsl.tag {
             SLT_Begin => {
-                let (record_type, vxid, reason) = try!(vsl.parse_data(slt_begin));
+                let (record_type, parent_ident, reason) = try!(vsl.parse_data(slt_begin));
                 if let RecordType::Undefined = self.record_type {
                     match record_type {
                         "bereq" => RecordBuilder {
                             record_type: RecordType::BackendAccess {
-                                parent: vxid,
+                                parent: parent_ident,
                                 reason: reason.to_owned(),
                                 transaction: BackendAccessTransactionType::Full,
                             },
@@ -882,7 +881,7 @@ impl RecordBuilder {
                         },
                         "req" => RecordBuilder {
                             record_type: RecordType::ClientAccess {
-                                parent: vxid,
+                                parent: parent_ident,
                                 reason: reason.to_owned(),
                                 transaction: ClientAccessTransactionType::Full,
                             },
@@ -968,21 +967,21 @@ impl RecordBuilder {
                 }
             }
             SLT_Link => {
-                let (reason, child_vxid, child_type) = try!(vsl.parse_data(slt_link));
+                let (reason, child_ident, child_type) = try!(vsl.parse_data(slt_link));
 
                 match (reason, child_type) {
                     ("req", "restart") => {
                         if let Some(link) = self.restart_record {
-                            warn!("Already have restart client request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
+                            warn!("Already have restart client request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_ident);
                         }
                         RecordBuilder {
-                            restart_record: Some(Link::Unresolved(child_vxid)),
+                            restart_record: Some(Link::Unresolved(child_ident)),
                             .. self
                         }
                     },
                     ("req", _) => {
                         let mut client_records = self.client_records;
-                        client_records.push(Link::Unresolved(child_vxid));
+                        client_records.push(Link::Unresolved(child_ident));
 
                         RecordBuilder {
                             client_records: client_records,
@@ -991,19 +990,19 @@ impl RecordBuilder {
                     },
                     ("bereq", "retry") => {
                         if let Some(link) = self.retry_record {
-                            warn!("Already have retry backend request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
+                            warn!("Already have retry backend request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_ident);
                         }
                         RecordBuilder {
-                            retry_record: Some(Link::Unresolved(child_vxid)),
+                            retry_record: Some(Link::Unresolved(child_ident)),
                             .. self
                         }
                     },
                     ("bereq", _) => {
                         if let Some(link) = self.backend_record {
-                            warn!("Already have backend request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
+                            warn!("Already have backend request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_ident);
                         }
                         RecordBuilder {
-                            backend_record: Some(Link::Unresolved(child_vxid)),
+                            backend_record: Some(Link::Unresolved(child_ident)),
                             .. self
                         }
                     },
