@@ -1,4 +1,5 @@
 /// TODO:
+/// * rename _request(s) to _access_record(s)
 /// * ESI level
 /// * result?: pipe, hit, miss, pass, synth
 /// * Call trace
@@ -194,7 +195,7 @@ pub enum ClientAccessTransaction {
     },
     Piped {
         request: HttpRequest,
-        backend_request: Option<Link<BackendAccessRecord>>,
+        backend_request: Link<BackendAccessRecord>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time it took to get first byte of response
@@ -1393,7 +1394,7 @@ impl RecordBuilder {
                                     ClientAccessTransactionType::Piped => {
                                         ClientAccessTransaction::Piped {
                                             request: request,
-                                            backend_request: self.backend_request,
+                                            backend_request: try!(self.backend_request.ok_or(RecordBuilderError::RecordIncomplete("backend_request"))),
                                             process: self.req_process,
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
                                         }
@@ -1949,7 +1950,7 @@ mod tests {
                 ref headers,
                 ..
             },
-            backend_request: Some(ref backend_request),
+            ref backend_request,
             process: Some(0.0),
             ttfb: 0.000209,
         } if

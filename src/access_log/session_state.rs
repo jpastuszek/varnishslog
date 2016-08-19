@@ -159,19 +159,16 @@ impl SessionState {
                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
             let backend_request_resolved = match client_record.transaction {
                 ClientAccessTransaction::Full {
-                    ref mut backend_request,
+                    backend_request: Some(ref mut link),
                     ..
                 } |
                 ClientAccessTransaction::Piped {
-                    ref mut backend_request,
+                    backend_request: ref mut link,
                     ..
                 } => {
-                    if let &mut Some(ref mut link) = backend_request {
-                        try_resolve_backend_link(link, backend_records)
-                    } else {
-                        true
-                    }
+                    try_resolve_backend_link(link, backend_records)
                 }
+                ClientAccessTransaction::Full { backend_request: None, ..  } => true,
                 ClientAccessTransaction::Restarted { .. } => true,
             };
 
@@ -702,7 +699,6 @@ mod tests {
        }
     }
 
-    /*
     #[test]
     fn apply_session_state_restart() {
         log();
@@ -780,17 +776,16 @@ mod tests {
                    32769, SLT_Link,             "req 32770 rxreq";
                    32769, SLT_SessClose,        "REM_CLOSE 0.347";
                    );
-        let session = apply_final!(state, 32769, SLT_End, "");
+        let session_record = apply_final!(state, 32769, SLT_End, "");
 
-        // The first request won't have response as it got restarted
-        assert_matches!(session.client_transactions[0].access_record.transaction, ClientAccessTransaction::Restarted { .. });
-
-        // We should have restart transaction
-        let restart_transaction = assert_some!(session.client_transactions[0].restart_transaction.as_ref());
-
-        // It should have a response
-        assert_matches!(restart_transaction.access_record.transaction, ClientAccessTransaction::Full { .. });
-        assert_matches!(restart_transaction.backend_transactions[0].access_record.transaction, BackendAccessTransaction::Full { .. });
+        // We should have restarted transaction
+        if let ClientAccessTransaction::Restarted { ref restart_request, .. } =
+            session_record.client_requests[0].get_resolved().unwrap().transaction {
+            // It should have a full transaction
+            assert_matches!(restart_request.get_resolved().unwrap().transaction, ClientAccessTransaction::Full { .. });
+        } else {
+            unreachable!()
+        }
     }
 
     #[test]
@@ -878,32 +873,40 @@ mod tests {
                    6, SLT_Link,         "req 7 rxreq";
                    6, SLT_SessClose,    "REM_CLOSE 0.008";
                    );
-        let session = apply_final!(state, 6, SLT_End, "");
+        let session_record = apply_final!(state, 6, SLT_End, "");
 
-        // Backend transaction request record will be the one from before retry (triggering)
-        assert_matches!(session.client_transactions[0].backend_transactions[0].access_record.transaction, BackendAccessTransaction::Abandoned {
-            request: HttpRequest {
-                ref url,
+        // It is handled as ususal; only difference is backend request reason
+        if let ClientAccessTransaction::Full { backend_request: Some(ref backend_request), .. } =
+            session_record.client_requests[0].get_resolved().unwrap().transaction {
+            let backend_record = backend_request.get_resolved().unwrap();
+
+            // Backend transaction request record will be the one from before retry (triggering)
+            assert_matches!(backend_record.transaction, BackendAccessTransaction::Abandoned {
+                request: HttpRequest {
+                    ref url,
+                    ..
+                },
                 ..
-            },
-            ..
-        } if url == "/retry"
-        );
+            } if url == "/retry");
 
-        // Backend transaction will have retrys
-        let retry_transaction = assert_some!(session.client_transactions[0].backend_transactions[0].retry_transaction.as_ref());
+            if let BackendAccessTransaction::Abandoned { retry_request: Some(ref retry_request), .. } =
+                backend_record.transaction {
+                let backend_record = retry_request.get_resolved().unwrap();
 
-        // It will have "retry" reason
-        assert_eq!(retry_transaction.access_record.reason, "retry".to_string());
-        assert!(retry_transaction.retry_transaction.is_none());
-        assert_matches!(retry_transaction.access_record.transaction, BackendAccessTransaction::Full {
-            request: HttpRequest {
-                ref url,
-                ..
-            },
-            ..
-        } if url == "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg"
-        );
+                assert_eq!(backend_record.reason, "retry".to_string());
+                assert_matches!(backend_record.transaction, BackendAccessTransaction::Full {
+                    request: HttpRequest {
+                        ref url,
+                        ..
+                    },
+                    ..
+                } if url == "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg");
+            } else {
+                unreachable!()
+            }
+        } else {
+            unreachable!()
+        }
     }
 
     #[test]
@@ -953,10 +956,13 @@ mod tests {
                    3, SLT_SessClose,      "TX_PIPE 0.008";
               );
 
-        let session = apply_final!(state, 3, SLT_End, "");
+        let session_record = apply_final!(state, 3, SLT_End, "");
 
-        assert_matches!(session.client_transactions[0].access_record.transaction, ClientAccessTransaction::Piped { .. });
-        assert_matches!(session.client_transactions[0].backend_transactions[0].access_record.transaction, BackendAccessTransaction::Piped { .. });
+        if let ClientAccessTransaction::Piped { ref backend_request, .. } =
+            session_record.client_requests[0].get_resolved().unwrap().transaction {
+            assert_matches!(backend_request.get_resolved().unwrap().transaction, BackendAccessTransaction::Piped { .. });
+        } else {
+            unreachable!()
+        }
     }
-    */
 }
