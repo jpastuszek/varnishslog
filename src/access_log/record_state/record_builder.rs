@@ -1,5 +1,4 @@
 /// TODO:
-/// * rename _request(s) to _access_record(s)
 /// * ESI level
 /// * result?: pipe, hit, miss, pass, synth
 /// * Call trace
@@ -175,8 +174,8 @@ pub enum ClientAccessTransaction {
     Full {
         request: HttpRequest,
         response: HttpResponse,
-        esi_requests: Vec<Link<ClientAccessRecord>>,
-        backend_request: Option<Link<BackendAccessRecord>>,
+        esi_records: Vec<Link<ClientAccessRecord>>,
+        backend_record: Option<Link<BackendAccessRecord>>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time waiting for backend response fetch to finish; None for HIT
@@ -191,11 +190,11 @@ pub enum ClientAccessTransaction {
         request: HttpRequest,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
-        restart_request: Link<ClientAccessRecord>,
+        restart_record: Link<ClientAccessRecord>,
     },
     Piped {
         request: HttpRequest,
-        backend_request: Link<BackendAccessRecord>,
+        backend_record: Link<BackendAccessRecord>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time it took to get first byte of response
@@ -258,7 +257,7 @@ pub enum BackendAccessTransaction {
     Failed {
         request: HttpRequest,
         synth_response: HttpResponse,
-        retry_request: Option<Link<BackendAccessRecord>>,
+        retry_record: Option<Link<BackendAccessRecord>>,
         /// Total duration it took to synthesise response
         synth: Duration,
     },
@@ -270,7 +269,7 @@ pub enum BackendAccessTransaction {
     Abandoned {
         request: HttpRequest,
         response: HttpResponse,
-        retry_request: Option<Link<BackendAccessRecord>>,
+        retry_record: Option<Link<BackendAccessRecord>>,
         send: Duration,
         /// Time waiting for first byte of backend response after request was sent
         wait: Duration,
@@ -293,7 +292,7 @@ pub struct SessionRecord {
     pub duration: Duration,
     pub local: Option<Address>,
     pub remote: Address,
-    pub client_requests: Vec<Link<ClientAccessRecord>>,
+    pub client_records: Vec<Link<ClientAccessRecord>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -811,10 +810,10 @@ pub struct RecordBuilder {
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
     sess_local: Option<Address>,
-    client_requests: Vec<Link<ClientAccessRecord>>,
-    backend_request: Option<Link<BackendAccessRecord>>,
-    restart_request: Option<Link<ClientAccessRecord>>,
-    retry_request: Option<Link<BackendAccessRecord>>,
+    client_records: Vec<Link<ClientAccessRecord>>,
+    backend_record: Option<Link<BackendAccessRecord>>,
+    restart_record: Option<Link<ClientAccessRecord>>,
+    retry_record: Option<Link<BackendAccessRecord>>,
     log: Vec<LogEntry>,
 }
 
@@ -841,10 +840,10 @@ impl RecordBuilder {
             sess_duration: None,
             sess_remote: None,
             sess_local: None,
-            client_requests: Vec::new(),
-            backend_request: None,
-            restart_request: None,
-            retry_request: None,
+            client_records: Vec::new(),
+            backend_record: None,
+            restart_record: None,
+            retry_record: None,
             log: Vec::new(),
         }
     }
@@ -955,38 +954,38 @@ impl RecordBuilder {
 
                 match (reason, child_type) {
                     ("req", "restart") => {
-                        if let Some(link) = self.restart_request {
+                        if let Some(link) = self.restart_record {
                             warn!("Already have restart client request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
                         }
                         RecordBuilder {
-                            restart_request: Some(Link::Unresolved(child_vxid)),
+                            restart_record: Some(Link::Unresolved(child_vxid)),
                             .. self
                         }
                     },
                     ("req", _) => {
-                        let mut client_requests = self.client_requests;
-                        client_requests.push(Link::Unresolved(child_vxid));
+                        let mut client_records = self.client_records;
+                        client_records.push(Link::Unresolved(child_vxid));
 
                         RecordBuilder {
-                            client_requests: client_requests,
+                            client_records: client_records,
                             .. self
                         }
                     },
                     ("bereq", "retry") => {
-                        if let Some(link) = self.retry_request {
+                        if let Some(link) = self.retry_record {
                             warn!("Already have retry backend request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
                         }
                         RecordBuilder {
-                            retry_request: Some(Link::Unresolved(child_vxid)),
+                            retry_record: Some(Link::Unresolved(child_vxid)),
                             .. self
                         }
                     },
                     ("bereq", _) => {
-                        if let Some(link) = self.backend_request {
+                        if let Some(link) = self.backend_record {
                             warn!("Already have backend request link with ident {}; replacing with {}", link.unwrap_unresolved(), child_vxid);
                         }
                         RecordBuilder {
-                            backend_request: Some(Link::Unresolved(child_vxid)),
+                            backend_record: Some(Link::Unresolved(child_vxid)),
                             .. self
                         }
                     },
@@ -1357,7 +1356,7 @@ impl RecordBuilder {
                             duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
                             local: self.sess_local,
                             remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
-                            client_requests: self.client_requests,
+                            client_records: self.client_records,
                         };
 
                         return Ok(Complete(Record::Session(record)))
@@ -1375,8 +1374,8 @@ impl RecordBuilder {
                                         ClientAccessTransaction::Full {
                                             request: request,
                                             response: try!(http_response.get_complete()),
-                                            esi_requests: self.client_requests,
-                                            backend_request: self.backend_request,
+                                            esi_records: self.client_records,
+                                            backend_record: self.backend_record,
                                             process: self.req_process,
                                             fetch: self.resp_fetch,
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
@@ -1388,13 +1387,13 @@ impl RecordBuilder {
                                         ClientAccessTransaction::Restarted {
                                             request: request,
                                             process: self.req_process,
-                                            restart_request: try!(self.restart_request.ok_or(RecordBuilderError::RecordIncomplete("restart_request"))),
+                                            restart_record: try!(self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))),
                                         }
                                     },
                                     ClientAccessTransactionType::Piped => {
                                         ClientAccessTransaction::Piped {
                                             request: request,
-                                            backend_request: try!(self.backend_request.ok_or(RecordBuilderError::RecordIncomplete("backend_request"))),
+                                            backend_record: try!(self.backend_record.ok_or(RecordBuilderError::RecordIncomplete("backend_record"))),
                                             process: self.req_process,
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
                                         }
@@ -1453,7 +1452,7 @@ impl RecordBuilder {
                                         BackendAccessTransaction::Failed {
                                             request: request,
                                             synth_response: try!(http_response.get_complete()),
-                                            retry_request: self.retry_request,
+                                            retry_record: self.retry_record,
                                             synth: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
                                         }
                                     }
@@ -1466,7 +1465,7 @@ impl RecordBuilder {
                                         BackendAccessTransaction::Abandoned {
                                             request: request,
                                             response: try!(self.http_response.get_complete()),
-                                            retry_request: self.retry_request,
+                                            retry_record: self.retry_record,
                                             send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
                                             wait: try!(self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))),
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
@@ -1618,7 +1617,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_backend_request_response() {
+    fn apply_backend_record_response() {
         let builder = RecordBuilder::new(123);
 
         let builder = apply_all!(builder,
@@ -1658,7 +1657,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_request_header_updates() {
+    fn apply_record_header_updates() {
         let builder = RecordBuilder::new(123);
 
         // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
@@ -1746,7 +1745,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_backend_request_locking() {
+    fn apply_backend_record_locking() {
         let builder = RecordBuilder::new(123);
 
         let builder = apply_all!(builder,
@@ -1782,7 +1781,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_backend_request_non_utf8() {
+    fn apply_backend_record_non_utf8() {
         let builder = RecordBuilder::new(123);
 
         let builder = apply_all!(builder,
@@ -1908,7 +1907,7 @@ mod tests {
                 ..
             },
             process: Some(0.0),
-            restart_request: Link::Unresolved(5),
+            restart_record: Link::Unresolved(5),
         } if url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
     }
 
@@ -1950,7 +1949,7 @@ mod tests {
                 ref headers,
                 ..
             },
-            ref backend_request,
+            ref backend_record,
             process: Some(0.0),
             ttfb: 0.000209,
         } if
@@ -1958,7 +1957,7 @@ mod tests {
             headers == &[
                 ("Upgrade".to_string(), "websocket".to_string()),
                 ("Connection".to_string(), "Upgrade".to_string())] &&
-            backend_request == &Link::Unresolved(5)
+            backend_record == &Link::Unresolved(5)
         );
     }
 

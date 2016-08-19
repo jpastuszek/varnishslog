@@ -141,8 +141,8 @@ mod tests {
                     sent_body: 1366,
                     sent_total: 2416,
                 },
-                backend_request: Some(ref backend_request),
-                ref esi_requests,
+                backend_record: Some(ref backend_record),
+                ref esi_records,
                 ..
             },
             start: 1471355385.239203,
@@ -150,8 +150,8 @@ mod tests {
             ..
         } if
             reason == "rxreq" &&
-            backend_request == &Link::Unresolved(5) &&
-            esi_requests.is_empty()
+            backend_record == &Link::Unresolved(5) &&
+            esi_records.is_empty()
         );
 
         assert_matches!(client.transaction, ClientAccessTransaction::Full {
@@ -296,7 +296,7 @@ mod tests {
             duration: 0.001,
             local: Some(("127.0.0.1".to_string(), 1080)),
             remote: ("192.168.1.10".to_string(), 40078),
-            client_requests: vec![Link::Unresolved(32773)],
+            client_records: vec![Link::Unresolved(32773)],
         });
     }
 
