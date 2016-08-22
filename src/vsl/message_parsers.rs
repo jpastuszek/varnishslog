@@ -183,3 +183,9 @@ named!(pub slt_fetch_body<&[u8], (FetchMode, &str, bool)>, tuple!(
 
 named!(pub slt_vcl_log<&[u8], &MaybeStr>, maybe_str!(
         non_empty));
+
+named!(pub slt_backend_open<&[u8], (FileDescriptor, &str, (&str, Port), (&str, Port))>, tuple!(
+        file_descriptor,        // Connection file descriptor
+        symbol,                 // Backend display name
+        tuple!(symbol, port),   // Remote IPv4/6 address Remote TCP port
+        tuple!(symbol, port))); // Local IPv4/6 address Local TCP port

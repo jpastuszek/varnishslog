@@ -1,7 +1,5 @@
 /// TODO:
 /// * more tests
-/// * backend info
-/// * SLT_ExpBan         196625 banned lookup
 ///
 /// Client headers:
 /// ---
@@ -121,6 +119,8 @@ use std::fmt::Debug;
 use vsl::*;
 use vsl::VslRecordTag::*;
 
+pub type Address = (String, Port);
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LogEntry {
     /// VCL std.log logged messages
@@ -239,6 +239,14 @@ pub struct CacheObject {
     response: HttpResponse
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackendConnection {
+    pub fd: FileDescriptor,
+    pub name: String,
+    pub remote: Address,
+    pub local: Address,
+}
+
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendAccessRecord {
@@ -258,6 +266,8 @@ pub enum BackendAccessTransaction {
     Full {
         request: HttpRequest,
         response: HttpResponse,
+        /// Backend connection used/created
+        backend_connection: BackendConnection,
         /// Response that was stored in memory
         cache_object: CacheObject,
         /// Time it took to send backend request, e.g. it may include backend access/connect time
@@ -272,6 +282,7 @@ pub enum BackendAccessTransaction {
     Failed {
         request: HttpRequest,
         synth_response: HttpResponse,
+        /// Some if this was retried
         retry_record: Option<Link<BackendAccessRecord>>,
         /// Total duration it took to synthesise response
         synth: Duration,
@@ -284,7 +295,11 @@ pub enum BackendAccessTransaction {
     Abandoned {
         request: HttpRequest,
         response: HttpResponse,
+        /// Backend connection used/created
+        backend_connection: BackendConnection,
+        /// Some if this was a retry
         retry_record: Option<Link<BackendAccessRecord>>,
+        /// Time it took to send backend request, e.g. it may include backend access/connect time
         send: Duration,
         /// Time waiting for first byte of backend response after request was sent
         wait: Duration,
@@ -295,10 +310,10 @@ pub enum BackendAccessTransaction {
     },
     Piped {
         request: HttpRequest,
+        /// Backend connection used/created
+        backend_connection: BackendConnection,
     },
 }
-
-pub type Address = (String, Port);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionRecord {
@@ -814,6 +829,7 @@ pub struct RecordBuilder {
     cache_object: BuilderResult<HttpResponseBuilder, HttpResponse>,
     obj_storage: Option<ObjStorage>,
     obj_ttl: Option<ObjTtl>,
+    backend_connection: Option<BackendConnection>,
     fetch_body: Option<FetchBody>,
     resp_fetch: Option<Duration>,
     req_process: Option<Duration>,
@@ -845,6 +861,7 @@ impl RecordBuilder {
             cache_object: Building(HttpResponseBuilder::new()),
             obj_storage: None,
             obj_ttl: None,
+            backend_connection: None,
             fetch_body: None,
             req_process: None,
             resp_fetch: None,
@@ -1134,6 +1151,20 @@ impl RecordBuilder {
                         sent_header: sent_header,
                         sent_body: sent_body,
                         sent_total: sent_total,
+                    }),
+                    .. self
+                }
+            }
+            SLT_BackendOpen => {
+                let (fd, name, (remote_addr, remote_port), (local_addr, local_port)) =
+                    try!(vsl.parse_data(slt_backend_open));
+
+                RecordBuilder {
+                    backend_connection: Some(BackendConnection {
+                        fd: fd,
+                        name: name.to_string(),
+                        remote: (remote_addr.to_string(), remote_port),
+                        local: (local_addr.to_string(), local_port),
                     }),
                     .. self
                 }
@@ -1500,6 +1531,7 @@ impl RecordBuilder {
                                         BackendAccessTransaction::Full {
                                             request: request,
                                             response: try!(self.http_response.get_complete()),
+                                            backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
                                             cache_object: cache_object,
                                             send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
                                             wait: try!(self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))),
@@ -1528,6 +1560,7 @@ impl RecordBuilder {
                                         BackendAccessTransaction::Abandoned {
                                             request: request,
                                             response: try!(self.http_response.get_complete()),
+                                            backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
                                             retry_record: self.retry_record,
                                             send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
                                             wait: try!(self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))),
@@ -1538,6 +1571,7 @@ impl RecordBuilder {
                                     BackendAccessTransactionType::Piped => {
                                         BackendAccessTransaction::Piped {
                                             request: request,
+                                            backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
                                         }
                                     }
                                 };
@@ -2239,6 +2273,7 @@ mod tests {
                                  32769, SLT_BereqProtocol,    "HTTP/1.1";
                                  32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                                 32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
                                  32769, SLT_VCL_return,       "fetch";
                                  32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
                                  32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
@@ -2289,6 +2324,7 @@ mod tests {
                                  32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
                                  32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
                                  32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
                                  32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
                                  32769, SLT_BerespProtocol,   "HTTP/1.1";
@@ -2644,6 +2680,7 @@ mod tests {
                                  32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
                                  32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
                                  32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
                                  32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
                                  32769, SLT_BerespProtocol,   "HTTP/1.1";
@@ -2706,6 +2743,7 @@ mod tests {
                                  32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
                                  32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
                                  32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
                                  32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
                                  32769, SLT_BerespProtocol,   "HTTP/1.1";
@@ -2756,6 +2794,7 @@ mod tests {
                                  32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
                                  32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
                                  32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
                                  32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
                                  32769, SLT_BerespProtocol,   "HTTP/1.1";
@@ -2808,6 +2847,7 @@ mod tests {
                                  32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                                  32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
                                  32769, SLT_VCL_return,       "fetch";
+                                 32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
                                  32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
                                  32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
                                  32769, SLT_BerespProtocol,   "HTTP/1.1";

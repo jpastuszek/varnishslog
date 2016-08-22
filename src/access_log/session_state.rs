@@ -291,7 +291,6 @@ mod tests {
                100, SLT_VCL_return,     "lookup";
                100, SLT_VCL_call,       "PASS";
                100, SLT_Link,           "bereq 1000 fetch";
-               100, SLT_Timestamp,      "Fetch: 1469180763.484544 1.000000 0.000000";
                100, SLT_RespProtocol,   "HTTP/1.1";
                100, SLT_RespStatus,     "503";
                100, SLT_RespReason,     "Service Unavailable";
@@ -780,6 +779,7 @@ mod tests {
                    32772, SLT_BereqProtocol,    "HTTP/1.1";
                    32772, SLT_BereqHeader,      "X-Backend-Set-Header-Cache-Control: public, max-age=12345";
                    32772, SLT_VCL_return,       "fetch";
+                   32772, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
                    32772, SLT_Timestamp,        "Bereq: 1470304882.576719 0.000074 0.000074";
                    32772, SLT_Timestamp,        "Beresp: 1470304882.579056 0.002412 0.002337";
                    32772, SLT_BerespProtocol,   "HTTP/1.1";
@@ -831,6 +831,7 @@ mod tests {
                    8, SLT_BereqProtocol,    "HTTP/1.1";
                    8, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                    8, SLT_VCL_return,       "fetch";
+                   8, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
                    8, SLT_Timestamp,        "Bereq: 1470403414.664993 0.000070 0.000070";
                    8, SLT_Timestamp,        "Beresp: 1470403414.669313 0.004390 0.004320";
                    8, SLT_BerespProtocol,   "HTTP/1.1";
@@ -853,6 +854,7 @@ mod tests {
                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
                    32769, SLT_VCL_return,       "fetch";
+                   32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
                    32769, SLT_BerespProtocol,   "HTTP/1.1";
