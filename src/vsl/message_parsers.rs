@@ -1,6 +1,6 @@
 use std::str::{FromStr, from_utf8};
 
-use nom::{rest, space, eof};
+use nom::{rest, space, eof, non_empty};
 
 use super::{VslIdent, MaybeStr};
 
@@ -38,6 +38,7 @@ macro_rules! maybe_str {
 }
 
 //TODO: benchmark symbol unsafe conversion
+//TODO: rest -> non_empty as rest will match []
 named!(token<&[u8], &[u8]>, terminated!(is_not!(b" "), alt_complete!(space | eof)));
 named!(label<&[u8], &str>, map_res!(terminated!(take_until!(b": "), tag!(b": ")), from_utf8));
 named!(symbol<&[u8], &str>, map_res!(token, from_utf8));
@@ -141,11 +142,18 @@ named!(pub slt_hit<&[u8], VslIdent>, call!(
 named!(pub slt_hit_pass<&[u8], VslIdent>, call!(
         vsl_ident)); // Hit-for-pass object looked up in cache; Shows the VXID of the hit-for-pass object
 
-named!(pub slt_call<&[u8], &str>, call!(
+named!(pub slt_vcl_call<&[u8], &str>, call!(
         symbol));   // VCL method name
 
-named!(pub slt_return<&[u8], &str>, call!(
+named!(pub slt_vcl_return<&[u8], &str>, call!(
         symbol));   // VCL method terminating statement
+
+named!(pub slt_vcl_acl<&[u8], (&str, &str, Option<&MaybeStr>)>, chain!(
+        mat: symbol ~   // ACL result (MATCH, NO_MATCH, NOT_MATCH, etc.
+        name: symbol ~  // ACL name
+        // matched address
+        addr: opt!(maybe_str!(non_empty)),
+        || (mat, name, addr)));
 
 named!(pub slt_storage<&[u8], (&str, &str)>, tuple!(
         symbol,     // Type ("malloc", "file", "persistent" etc.)
@@ -174,5 +182,5 @@ named!(pub slt_fetch_body<&[u8], (FetchMode, &str, bool)>, tuple!(
                 |s| s == b"stream"),
             eof)));
 
-named!(pub slt_log<&[u8], &MaybeStr>, maybe_str!(
+named!(pub slt_vcl_log<&[u8], &MaybeStr>, maybe_str!(
         rest));

@@ -1,6 +1,4 @@
 /// TODO:
-/// * Call trace
-/// * ACL trace
 /// * more tests
 /// * backend info
 /// * SLT_ExpBan         196625 banned lookup
@@ -135,6 +133,8 @@ pub enum LogEntry {
     FetchError(String),
     /// Problems with processing headers, log messages etc
     Warning(String),
+    /// ACL match result, name and value
+    Acl(String, String, Option<String>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1013,7 +1013,7 @@ impl RecordBuilder {
                 }
             }
             SLT_VCL_Log => {
-                let log_entry = try!(vsl.parse_data(slt_log));
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
                 let mut log = self.log;
                 log.push(LogEntry::VCL(log_entry.to_lossy_string()));
@@ -1024,7 +1024,7 @@ impl RecordBuilder {
                 }
             }
             SLT_Debug => {
-                let log_entry = try!(vsl.parse_data(slt_log));
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
                 let mut log = self.log;
                 log.push(LogEntry::Debug(log_entry.to_lossy_string()));
@@ -1035,7 +1035,7 @@ impl RecordBuilder {
                 }
             }
             SLT_Error => {
-                let log_entry = try!(vsl.parse_data(slt_log));
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
                 let mut log = self.log;
                 log.push(LogEntry::Error(log_entry.to_lossy_string()));
@@ -1046,7 +1046,7 @@ impl RecordBuilder {
                 }
             }
             SLT_FetchError => {
-                let log_entry = try!(vsl.parse_data(slt_log));
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
                 let mut log = self.log;
                 log.push(LogEntry::FetchError(log_entry.to_lossy_string()));
@@ -1057,7 +1057,7 @@ impl RecordBuilder {
                 }
             }
             SLT_BogoHeader => {
-                let log_entry = try!(vsl.parse_data(slt_log));
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
                 let mut log = self.log;
                 log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", log_entry.to_lossy_string())));
@@ -1068,7 +1068,7 @@ impl RecordBuilder {
                 }
             }
             SLT_LostHeader => {
-                let log_entry = try!(vsl.parse_data(slt_log));
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
                 let mut log = self.log;
                 log.push(LogEntry::Warning(format!("Failed HTTP header operation due to resource exhaustion or configured limits; header was: {}", log_entry.to_lossy_string())));
@@ -1087,6 +1087,17 @@ impl RecordBuilder {
                         stype: storage_type.to_string(),
                         name: storage_name.to_string(),
                     }),
+                    .. self
+                }
+            }
+            SLT_VCL_acl => {
+                let (result, name, addr) = try!(vsl.parse_data(slt_vcl_acl));
+
+                let mut log = self.log;
+                log.push(LogEntry::Acl(result.to_string(), name.to_string(), addr.map(|addr| addr.to_lossy_string())));
+
+                RecordBuilder {
+                    log: log,
                     .. self
                 }
             }
@@ -1207,7 +1218,7 @@ impl RecordBuilder {
             }
 
             SLT_VCL_call => {
-                let method = try!(vsl.parse_data(slt_call));
+                let method = try!(vsl.parse_data(slt_vcl_call));
 
                 match method {
                     "RECV" => RecordBuilder {
@@ -1263,7 +1274,7 @@ impl RecordBuilder {
             }
 
             SLT_VCL_return => {
-                let action = try!(vsl.parse_data(slt_return));
+                let action = try!(vsl.parse_data(slt_vcl_return));
 
                 match action {
                     "restart" => {
@@ -2533,6 +2544,8 @@ mod tests {
                                  7, SLT_VCL_call,     "RECV";
                                  7, SLT_Debug,        "geoip2.lookup: No entry for this IP address (127.0.0.1)";
                                  7, SLT_VCL_Log,      "X-Varnish-Privileged-Client: false";
+                                 7, SLT_VCL_acl,      "NO_MATCH trusted_networks";
+                                 7, SLT_VCL_acl,      "MATCH external_proxies \"127.0.0.1\"";
                                  7, SLT_VCL_return,   "hash";
                                  7, SLT_VCL_call,     "HASH";
                                  7, SLT_VCL_return,   "lookup";
@@ -2564,6 +2577,8 @@ mod tests {
          assert_eq!(record.log, &[
                     LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
                     LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
+                    LogEntry::Acl("NO_MATCH".to_string(), "trusted_networks".to_string(), None),
+                    LogEntry::Acl("MATCH".to_string(), "external_proxies".to_string(), Some("\"127.0.0.1\"".to_string())),
                     LogEntry::Debug("XXXX HIT-FOR-PASS".to_string()),
                     LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
                     LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
