@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Display};
 use std::mem;
 
-use nom::{self, le_u32, IResult};
+use nom::{self, le_u32};
 use quick_error::ResultExt;
 
 mod tag_e;
@@ -82,24 +82,14 @@ quick_error! {
     }
 }
 
-trait IResultExt<O, E> {
-    fn into_result(self) -> Result<O, E>;
-}
-
-impl<I, O, E> IResultExt<O, nom::Err<I, E>> for IResult<I, O, E> {
-    fn into_result(self) -> Result<O, nom::Err<I, E>> {
-        match self {
-            IResult::Done(_, o) => Ok(o),
-            IResult::Error(err) => Err(err),
-            IResult::Incomplete(_) => panic!("assuming that parser is wrapped around complete!()"),
-        }
-    }
-}
-
 impl<'b> VslRecord<'b> {
     pub fn parse_data<T, P>(&'b self, parser: P) -> Result<T, VslRecordParseError> where
-        P: Fn(&'b [u8]) -> nom::IResult<&'b [u8], T> {
-        Ok(try!(complete!(self.data, parser).into_result().context(self)))
+    P: Fn(&'b [u8]) -> nom::IResult<&'b [u8], T> {
+        // Note: need type annotaion for the u32 error type as the output IResult has no Error
+        // variant that would help to infer it
+        let result: nom::IResult<_, Result<T, _>, u32> = opt_res!(self.data, complete!(parser));
+        // unwrap here is safe as complete! eliminates Incomplete variant and opt_res! remaining Error variant
+        result.unwrap().1.context(self).map_err(|err| From::from(err))
     }
 
     #[cfg(test)]
