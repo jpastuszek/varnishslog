@@ -1580,7 +1580,7 @@ impl RecordBuilder {
 mod tests {
     pub use super::*;
     pub use super::super::super::test_helpers::*;
-    use vsl::{VslRecord, VSL_CLIENTMARKER};
+    use vsl::{VslRecord, VSL_BACKENDMARKER};
 
     macro_rules! apply {
         ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{

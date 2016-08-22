@@ -28,11 +28,16 @@ impl RecordState {
     pub fn new() -> RecordState {
         //TODO: some sort of expirity mechanism like LRU
         //Note: tombstones will accumulate over time
-        //TODO: do not store 0 SLT_CLI Rd ping etc.
         RecordState { builders: HashMap::new() }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {
+        // Do not store 0 SLT_CLI Rd ping etc.
+        if ! (vsl.is_client() || vsl.is_backend()) {
+            debug!("Skipping non-client/backend record: {}", vsl);
+            return None
+        }
+
         let builder = match self.builders.remove(&vsl.ident) {
             None => RecordBuilder::new(vsl.ident),
             Some(Builder(builder)) => builder,

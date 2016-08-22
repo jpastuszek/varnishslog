@@ -55,8 +55,7 @@ impl Display for Marker {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "[{}{}]",
                if self.contains(VSL_CLIENTMARKER) { "C" } else { " " },
-               if self.contains(VSL_BACKENDMARKER) { "B" } else { " " }
-               )
+               if self.contains(VSL_BACKENDMARKER) { "B" } else { " " })
     }
 }
 
@@ -112,11 +111,19 @@ impl<'b> VslRecord<'b> {
         result.unwrap().1.context(self).map_err(|err| From::from(err))
     }
 
+    pub fn is_client(&self) -> bool {
+        self.marker.contains(VSL_CLIENTMARKER)
+    }
+
+    pub fn is_backend(&self) -> bool {
+        self.marker.contains(VSL_BACKENDMARKER)
+    }
+
     #[cfg(test)]
     pub fn from_str<'s>(tag: VslRecordTag, ident: VslIdent, message: &'s str) -> VslRecord<'s> {
         VslRecord {
             tag: tag,
-            marker: Marker::from_bits_truncate(0),
+            marker: VSL_CLIENTMARKER,
             ident: ident,
             data: message.as_ref()
         }
