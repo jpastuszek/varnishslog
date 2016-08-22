@@ -1580,7 +1580,7 @@ impl RecordBuilder {
 mod tests {
     pub use super::*;
     pub use super::super::super::test_helpers::*;
-    use vsl::VslRecord;
+    use vsl::{VslRecord, VSL_CLIENTMARKER};
 
     macro_rules! apply {
         ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{
@@ -1855,7 +1855,7 @@ mod tests {
 
         let result = builder.apply(&VslRecord {
             tag: SLT_BereqURL,
-            marker: 0,
+            marker: VSL_BACKENDMARKER,
             ident: 123,
             data: &[0, 159, 146, 150]
         });
@@ -1867,7 +1867,7 @@ mod tests {
 
         let result = builder.apply(&VslRecord {
             tag: SLT_BereqHeader,
-            marker: 0,
+            marker: VSL_BACKENDMARKER,
             ident: 123,
             data: &[72, 111, 115, 116, 58, 32, 0, 159, 146, 150]
         });

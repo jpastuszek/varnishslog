@@ -33,11 +33,32 @@ pub use self::maybe_string::{MaybeStr, MaybeString};
 
 const VSL_LENOFFSET: u32 = 24;
 const VSL_LENMASK: u32 = 0xffff;
-const VSL_MARKERMASK: u32 = 0x03;
-//const VSL_CLIENTMARKER: u32 = 1 << 30;
-//const VSL_BACKENDMARKER: u32 = 1 << 31;
-const VSL_IDENTOFFSET: u32 = 30;
-const VSL_IDENTMASK: u32 = !(3 << VSL_IDENTOFFSET);
+const VSL_IDENTOFFSET: u8 = 30;
+const VSL_IDENTMASK: u32 = !(0b0000_0011 << VSL_IDENTOFFSET);
+
+/*
+* VSL_CLIENT(ptr)
+*   Non-zero if this is a client transaction
+*
+* VSL_BACKEND(ptr)
+*   Non-zero if this is a backend transaction
+*/
+
+bitflags! {
+    pub flags Marker: u8 {
+        const VSL_CLIENTMARKER  = 0b0000_0001,
+        const VSL_BACKENDMARKER = 0b0000_0010,
+    }
+}
+
+impl Display for Marker {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "[{}{}]",
+               if self.contains(VSL_CLIENTMARKER) { "C" } else { " " },
+               if self.contains(VSL_BACKENDMARKER) { "B" } else { " " }
+               )
+    }
+}
 
 pub type VslIdent = u32;
 
@@ -47,7 +68,7 @@ named!(pub binary_vsl_tag<&[u8], &[u8]>, tag!(b"VSL\0"));
 struct VslRecordHeader {
     tag: u8,
     len: u16,
-    marker: u8,
+    marker: Marker,
     ident: VslIdent,
 }
 
@@ -58,16 +79,15 @@ fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeade
             VslRecordHeader {
                 tag: (r1 >> VSL_LENOFFSET) as u8,
                 len: (r1 & VSL_LENMASK) as u16,
-                marker: (r2 & VSL_MARKERMASK >> VSL_IDENTOFFSET) as u8,
+                marker: Marker::from_bits_truncate(((r2 & !VSL_IDENTMASK) >> VSL_IDENTOFFSET) as u8),
                 ident: r2 & VSL_IDENTMASK,
             }
         })
 }
 
-//TODO: use MaybeStr for data?
 pub struct VslRecord<'b> {
     pub tag: VslRecordTag,
-    pub marker: u8,
+    pub marker: Marker,
     pub ident: VslIdent,
     pub data: &'b[u8],
 }
@@ -96,7 +116,7 @@ impl<'b> VslRecord<'b> {
     pub fn from_str<'s>(tag: VslRecordTag, ident: VslIdent, message: &'s str) -> VslRecord<'s> {
         VslRecord {
             tag: tag,
-            marker: 0,
+            marker: Marker::from_bits_truncate(0),
             ident: ident,
             data: message.as_ref()
         }
@@ -119,9 +139,9 @@ impl<'b> Display for VslRecord<'b> {
         let tag = format!("{:?}", self.tag);
 
         if f.alternate() {
-            write!(f, "{:5} {:18} {}", self.ident, tag, MaybeStr::from_bytes(self.data))
+            write!(f, "{} {:5} {:18} {}", self.marker, self.ident, tag, MaybeStr::from_bytes(self.data))
         } else {
-            write!(f, "VSL record (ident: {} tag: {} data: {:?})", self.ident, tag, MaybeStr::from_bytes(self.data))
+            write!(f, "VSL record (marker: {} ident: {} tag: {} data: {:?})", self.marker, self.ident, tag, MaybeStr::from_bytes(self.data))
         }
     }
 }

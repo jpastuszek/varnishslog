@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate nom;
 #[macro_use]
+extern crate bitflags;
+#[macro_use]
 extern crate log;
 extern crate stderrlog;
 #[macro_use]
@@ -35,6 +37,7 @@ arg_enum! {
     #[derive(Debug)]
     enum OutputFormat {
         Log,
+        LogDebug,
         RecordDebug,
         SessionDebug
     }
@@ -133,6 +136,7 @@ fn main() {
 
         match output_format {
             OutputFormat::Log => println!("{:#}", record),
+            OutputFormat::LogDebug => println!("{:#?}", record),
             OutputFormat::RecordDebug => {
                 if let Some(record) = record_state.apply(&record) {
                     println!("{:#?}", record)
