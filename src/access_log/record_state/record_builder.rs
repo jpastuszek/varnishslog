@@ -1752,8 +1752,10 @@ mod tests {
                                  15, SLT_ReqHeader,     "X-Varnish-Original-URL: /test_page/abc";
                                  15, SLT_ReqUnset,      "X-Varnish-Result: miss";
                                  15, SLT_ReqHeader,     "X-Varnish-Result: hit_for_pass";
+                                 15, SLT_ReqHeader,     "X-Varnish-Result: ";
                                  15, SLT_ReqUnset,      "X-Varnish-Decision: Cacheable";
                                  15, SLT_ReqHeader,     "X-Varnish-Decision: Uncacheable-NoCacheClass";
+                                 15, SLT_ReqHeader,     "X-Varnish-Decision:";
                                  );
 
         let request = builder.http_request.complete().unwrap().unwrap();

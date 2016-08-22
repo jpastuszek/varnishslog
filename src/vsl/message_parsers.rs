@@ -1,6 +1,6 @@
 use std::str::{FromStr, from_utf8};
 
-use nom::{rest, space, eof, non_empty};
+use nom::{non_empty, space, eof};
 
 use super::{VslIdent, MaybeStr};
 
@@ -38,7 +38,6 @@ macro_rules! maybe_str {
 }
 
 //TODO: benchmark symbol unsafe conversion
-//TODO: rest -> non_empty as rest will match []
 named!(token<&[u8], &[u8]>, terminated!(is_not!(b" "), alt_complete!(space | eof)));
 named!(label<&[u8], &str>, map_res!(terminated!(take_until!(b": "), tag!(b": ")), from_utf8));
 named!(symbol<&[u8], &str>, map_res!(token, from_utf8));
@@ -46,7 +45,7 @@ named!(symbol<&[u8], &str>, map_res!(token, from_utf8));
 named!(header_name<&[u8], &MaybeStr>, maybe_str!(
         terminated!(take_until!(b":"), tag!(b":"))));
 named!(header_value<&[u8], Option<&MaybeStr> >,
-        delimited!(opt!(space), opt!(maybe_str!(rest)), eof));
+        delimited!(opt!(space), opt!(maybe_str!(non_empty)), eof));
 
 macro_rules! named_parsed_symbol {
     ($name:ident<$parse:ty>) => {
@@ -95,19 +94,19 @@ named!(pub slt_reqacc<&[u8], (ByteCount, ByteCount, ByteCount, ByteCount, ByteCo
         byte_count));   // Total bytes transmitted
 
 named!(pub slt_method<&[u8], &MaybeStr>, maybe_str!(
-        rest));
+        non_empty));
 
 named!(pub slt_url<&[u8], &MaybeStr>, maybe_str!(
-        rest));
+        non_empty));
 
 named!(pub slt_protocol<&[u8], &MaybeStr>, maybe_str!(
-        rest));
+        non_empty));
 
 named!(pub slt_status<&[u8], Status>, call!(
         status));
 
 named!(pub slt_reason<&[u8], &MaybeStr>, maybe_str!(
-        rest));
+        non_empty));
 
 named!(pub slt_header<&[u8], (&MaybeStr, Option<&MaybeStr>)>, tuple!(
         header_name,
@@ -183,4 +182,4 @@ named!(pub slt_fetch_body<&[u8], (FetchMode, &str, bool)>, tuple!(
             eof)));
 
 named!(pub slt_vcl_log<&[u8], &MaybeStr>, maybe_str!(
-        rest));
+        non_empty));
