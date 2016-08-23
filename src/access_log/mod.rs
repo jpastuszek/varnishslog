@@ -58,32 +58,54 @@ mod test_helpers {
 mod session_state;
 mod record_state;
 
+
 pub use self::record_state::*;
 pub use self::session_state::SessionState;
 
 include!(concat!(env!("OUT_DIR"), "/serde_types.rs"));
 
+use std::io::Error as IoError;
+
+use serde_json::error::Error as JsonError;
 use serde_json::ser::to_writer as write_json;
+use serde_json::ser::to_writer_pretty as write_json_pretty;
 use std::io::Write;
-use std::fmt::Display;
 
-pub enum Format {
-    Json
-}
-
-use std::fmt;
-impl<'a> fmt::Display for ClientAccessLogEntry<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Handling: {}", self.handing)
+quick_error! {
+    #[derive(Debug)]
+    pub enum OutputError {
+        JsonSerialization(err: JsonError) {
+            display("Failed to serialize to JSON: {}", err)
+            from()
+        }
+        Io(err: IoError) {
+            display("Failed to write to output: {}", err)
+            from()
+        }
     }
 }
 
-trait AsStr {
-    fn as_str(&self) -> &str;
+pub enum Format {
+    Json,
+    JsonPretty,
 }
 
-impl AsStr for Handling {
-    fn as_str(&self) -> &str {
+trait AsSer<'a> {
+    type Out;
+
+    fn as_ser(&'a self) -> Self::Out;
+}
+
+impl<'a> AsSer<'a> for Address {
+    type Out = (&'a str, u16);
+    fn as_ser(&'a self) -> Self::Out {
+        (self.0.as_str(), self.1)
+    }
+}
+
+impl<'a> AsSer<'a> for Handling {
+    type Out = &'a str;
+    fn as_ser(&self) -> Self::Out {
         match self {
             &Handling::Hit(_) => "hit",
             &Handling::Miss => "miss",
@@ -96,28 +118,36 @@ impl AsStr for Handling {
 }
 
 pub trait AccessLog {
-    fn client_access_logs<W>(&self, format: Format, out: &mut W) where W: Write;
+    fn client_access_logs<W>(&self, format: Format, out: &mut W) -> Result<(), OutputError> where W: Write;
 }
 
 impl AccessLog for SessionRecord {
-    fn client_access_logs<W>(&self, format: Format, out: &mut W) where W: Write {
-        match format {
-            Format::Json => {
-                for record_link in self.client_records.iter() {
-                    if let Some(record) = record_link.get_resolved() {
-                        write_json(out, &ClientAccessLogEntry {
-                            remote_address: (self.remote.0.as_str(), self.remote.1),
-                            session_timestamp: self.open,
-                            start_timestamp: record.start,
-                            end_timestamp: record.end,
-                            handing: record.handling.as_str(),
-                        });
-                    } else {
-                        write_json(out, &"foobar!");
+    fn client_access_logs<W>(&self, format: Format, out: &mut W) -> Result<(), OutputError> where W: Write {
+        for record_link in self.client_records.iter() {
+            if let Some(record) = record_link.get_resolved() {
+                let entry = ClientAccessLogEntry {
+                    remote_address: self.remote.as_ser(),
+                    session_timestamp: self.open,
+                    start_timestamp: record.start,
+                    end_timestamp: record.end,
+                    handing: record.handling.as_ser(),
+                };
+
+                match format {
+                    Format::Json | Format::JsonPretty => {
+                        let write = match format {
+                            Format::Json => write_json,
+                            Format::JsonPretty => write_json_pretty,
+                        };
+
+                        try!(write(out, &entry));
+                        try!(writeln!(out, ""));
                     }
-                    writeln!(out, "");
                 }
+            } else {
+                warn!("Found unresolved link: {:?}", record_link);
             }
         }
+        Ok(())
     }
 }

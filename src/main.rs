@@ -43,7 +43,8 @@ arg_enum! {
         LogDebug,
         RecordDebug,
         SessionDebug,
-        Json
+        Json,
+        JsonPretty
     }
 }
 
@@ -153,10 +154,17 @@ fn main() {
                     println!("{:#?}", session)
                 }
             }
-            OutputFormat::Json => {
+            _ => {
+                let format = match output_format {
+                    OutputFormat::Json => Format::Json,
+                    OutputFormat::JsonPretty => Format::JsonPretty,
+                    _ => unreachable!()
+                };
+
                 if let Some(session) = session_state.apply(&record) {
-                    //println!("{:#?}", session);
-                    session.client_access_logs(Format::Json, &mut out);
+                    if let Err(err) = session.client_access_logs(format, &mut out) {
+                        error!("Failed to write out client access logs: {:?}: {}", record, err);
+                    }
                 }
             }
         }

@@ -3,14 +3,8 @@ use std::collections::HashMap;
 use vsl::{VslRecord, VslIdent};
 
 mod record_builder;
-use self::record_builder::{RecordBuilder, RecordBuilderError};
+pub use self::record_builder::*;
 use self::record_builder::BuilderResult::*;
-
-pub use self::record_builder::Record;
-pub use self::record_builder::{
-    ClientAccessRecord, BackendAccessRecord, SessionRecord,
-    Link, ClientAccessTransaction, BackendAccessTransaction,
-    Handling, Accounting, HttpRequest, HttpResponse};
 
 #[derive(Debug)]
 enum RecordBuilderSlot {
