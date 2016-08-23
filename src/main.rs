@@ -162,7 +162,7 @@ fn main() {
                 };
 
                 if let Some(session) = session_state.apply(&record) {
-                    if let Err(err) = session.client_access_logs(format, &mut out) {
+                    if let Err(err) = session.client_access_logs(&format, &mut out) {
                         error!("Failed to write out client access logs: {:?}: {}", record, err);
                     }
                 }
