@@ -102,7 +102,7 @@ impl TransactionLookup for ClientAccessRecord {
                 if let Some(record) = restart_record.get_resolved() {
                     record.find_full(restart_count + 1)
                 } else {
-                    warn!("Found unresolved link: {:?}", restart_record);
+                    warn!("Found unresolved link {:?} in: {:?}", restart_record, self);
                     None
                 }
             },
@@ -177,7 +177,7 @@ pub trait AccessLog {
 
 impl AccessLog for SessionRecord {
     fn client_access_logs<W>(&self, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write {
-        fn write<W>(format: &Format, out: &mut W, log_entry: &ClientAccessLogEntry) -> Result<(), OutputError> where W: Write {
+        fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: EntryType {
             match format {
                 &Format::Json | &Format::JsonPretty => {
                     let write = match format {
@@ -186,7 +186,7 @@ impl AccessLog for SessionRecord {
                     };
 
                     try!(write(out, &Entry {
-                        record_type: "client_access",
+                        record_type: E::type_name(),
                         record: &log_entry,
                     }));
 
@@ -278,10 +278,41 @@ impl AccessLog for SessionRecord {
                             warn!("Full transaction not found on restarted transaction chain: {:?}", record);
                         }
                     },
-                    ClientAccessTransaction::Piped { .. } => (),
+                    ClientAccessTransaction::Piped {
+                        ref request,
+                        ref backend_record,
+                        process,
+                        ttfb,
+                        ..
+                    } => {
+                        if let Some(backend_record) = backend_record.get_resolved() {
+                            if let BackendAccessTransaction::Piped {
+                                request: ref backend_request,
+                                //TODO: ref backend_connection,
+                                ..
+                            } = backend_record.transaction {
+                                try!(write(format, out, &PipeSessionLogEntry {
+                                    remote_address: self.remote.as_ser(),
+                                    session_timestamp: self.open,
+                                    start_timestamp: record.start,
+                                    end_timestamp: record.end,
+                                    handing: record.handling.as_ser(),
+                                    request: request.as_ser(),
+                                    backend_request: backend_request.as_ser(),
+                                    process: process,
+                                    ttfb: ttfb,
+                                    log: record.log.as_ser(),
+                                }))
+                            } else {
+                                warn!("Piped ClientAccessRecord has not Piped BackendAccessTransaction linked: {:?} linked: {:?}", record, backend_record);
+                            }
+                        } else {
+                            warn!("Found unresolved link {:?} in: {:?}", backend_record, record);
+                        }
+                    },
                 }
             } else {
-                warn!("Found unresolved link: {:?}", record_link);
+                warn!("Found unresolved link {:?} in: {:?}", record_link, self);
             }
         }
         Ok(())

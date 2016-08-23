@@ -7,6 +7,10 @@ struct Entry<'a, S> where S: Serialize + 'a {
     record: &'a S,
 }
 
+trait EntryType: Serialize {
+    fn type_name() -> &'static str;
+}
+
 #[derive(Serialize, Debug)]
 struct ClientAccessLogEntry<'a> {
     remote_address: (&'a str, u16),
@@ -30,6 +34,34 @@ struct ClientAccessLogEntry<'a> {
     restart_count: usize,
     restart_log: Option<LogBook<'a>>,
     log: LogBook<'a>,
+    //TODO: esi_hit_rate, cache_object
+}
+
+impl<'a> EntryType for ClientAccessLogEntry<'a> {
+    fn type_name() -> &'static str {
+        "client_access"
+    }
+}
+
+#[derive(Serialize, Debug)]
+struct PipeSessionLogEntry<'a> {
+    remote_address: (&'a str, u16),
+    session_timestamp: f64,
+    start_timestamp: f64,
+    end_timestamp: f64,
+    handing: &'a str,
+    request: HttpRequestLogEntry<'a>,
+    backend_request: HttpRequestLogEntry<'a>,
+    process: Option<f64>,
+    ttfb: f64,
+    log: LogBook<'a>,
+    //TODO: thre should be SessAct or something with session bytes?
+}
+
+impl<'a> EntryType for PipeSessionLogEntry<'a> {
+    fn type_name() -> &'static str {
+        "pipe_session"
+    }
 }
 
 #[derive(Serialize, Debug)]
