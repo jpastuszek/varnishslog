@@ -90,6 +90,27 @@ pub enum Format {
     JsonPretty,
 }
 
+trait TransactionLookup {
+    fn find_full<'a>(&'a self, restart_count: usize) -> Option<(&'a Self, usize)>;
+}
+
+impl TransactionLookup for ClientAccessRecord {
+    fn find_full<'a>(&'a self, restart_count: usize) -> Option<(&'a Self, usize)> {
+        match self.transaction {
+            ClientAccessTransaction::Full { .. } => Some((self, restart_count)),
+            ClientAccessTransaction::Restarted { ref restart_record, .. } => {
+                if let Some(record) = restart_record.get_resolved() {
+                    record.find_full(restart_count + 1)
+                } else {
+                    warn!("Found unresolved link: {:?}", restart_record);
+                    None
+                }
+            },
+            ClientAccessTransaction::Piped { .. } => None,
+        }
+    }
+}
+
 trait AsSer<'a> {
     type Out;
 
@@ -207,14 +228,60 @@ impl AccessLog for SessionRecord {
                         sent_body_bytes: accounting.sent_body,
                         sent_total_bytes: accounting.sent_total,
                         esi_count: esi_records.len(),
+                        restart_count: 0,
+                        restart_log: None,
                         log: record.log.as_ser(),
                     })),
-                    ClientAccessTransaction::Restarted { .. } => continue,
-                    ClientAccessTransaction::Piped { .. } => continue,
+                    ClientAccessTransaction::Restarted {
+                        ref request,
+                        process,
+                        ..
+                    } => {
+                        if let Some((full_record, restart_count)) = record.find_full(0) {
+                            if let ClientAccessTransaction::Full {
+                                ref esi_records,
+                                ref response,
+                                fetch,
+                                ttfb,
+                                serve,
+                                ref accounting,
+                                ..
+                            } = full_record.transaction {
+                                try!(write(format, out, &ClientAccessLogEntry {
+                                    remote_address: self.remote.as_ser(),
+                                    session_timestamp: self.open,
+                                    start_timestamp: record.start,
+                                    end_timestamp: full_record.end,
+                                    handing: full_record.handling.as_ser(),
+                                    request: request.as_ser(),
+                                    response: response.as_ser(),
+                                    process: process,
+                                    fetch: fetch,
+                                    ttfb: ttfb,
+                                    serve: serve,
+                                    recv_header_bytes: accounting.recv_header,
+                                    recv_body_bytes: accounting.recv_body,
+                                    recv_total_bytes: accounting.recv_total,
+                                    sent_header_bytes: accounting.sent_header,
+                                    sent_body_bytes: accounting.sent_body,
+                                    sent_total_bytes: accounting.sent_total,
+                                    esi_count: esi_records.len(),
+                                    restart_count: restart_count,
+                                    restart_log: Some(record.log.as_ser()),
+                                    //TODO: still will miss intermediate log entreis
+                                    log: full_record.log.as_ser(),
+                                }))
+                            } else {
+                                panic!("ClientAccessRecord::find_full found not ClientAccessTransaction::Full: {:?}", record)
+                            }
+                        } else {
+                            warn!("Full transaction not found on restarted transaction chain: {:?}", record);
+                        }
+                    },
+                    ClientAccessTransaction::Piped { .. } => (),
                 }
             } else {
                 warn!("Found unresolved link: {:?}", record_link);
-                continue
             }
         }
         Ok(())

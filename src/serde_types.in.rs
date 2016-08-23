@@ -27,6 +27,8 @@ struct ClientAccessLogEntry<'a> {
     sent_body_bytes: u64,
     sent_total_bytes: u64,
     esi_count: usize,
+    restart_count: usize,
+    restart_log: Option<LogBook<'a>>,
     log: LogBook<'a>,
 }
 
