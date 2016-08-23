@@ -124,7 +124,7 @@ pub type Address = (String, Port);
 #[derive(Debug, Clone, PartialEq)]
 pub enum LogEntry {
     /// VCL std.log logged messages
-    VCL(String),
+    Vcl(String),
     /// Debug messages that may be logged by Varnish or it's modules
     Debug(String),
     /// Varnish logged errors
@@ -1033,7 +1033,7 @@ impl RecordBuilder {
                 let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
                 let mut log = self.log;
-                log.push(LogEntry::VCL(log_entry.to_lossy_string()));
+                log.push(LogEntry::Vcl(log_entry.to_lossy_string()));
 
                 RecordBuilder {
                     log: log,
@@ -1668,9 +1668,9 @@ mod tests {
                                  1, SLT_VCL_Log,        "X-Varnish-Force-Failure: false";
                                 );
         assert_eq!(builder.log, &[
-                   LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
-                   LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-                   LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
+                   LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
+                   LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+                   LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),
         ]);
     }
 
@@ -2614,12 +2614,12 @@ mod tests {
 
          assert_eq!(record.log, &[
                     LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
-                    LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
+                    LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
                     LogEntry::Acl("NO_MATCH".to_string(), "trusted_networks".to_string(), None),
                     LogEntry::Acl("MATCH".to_string(), "external_proxies".to_string(), Some("\"127.0.0.1\"".to_string())),
                     LogEntry::Debug("XXXX HIT-FOR-PASS".to_string()),
-                    LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-                    LogEntry::VCL("X-Varnish-Force-Failure: false".to_string()),
+                    LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+                    LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),
                     LogEntry::Debug("RES_MODE 2".to_string()),
                     LogEntry::Error("oh no!".to_string()),
                     LogEntry::Warning("Failed HTTP header operation due to resource exhaustion or configured limits; header was: SetCookie: foo=bar".to_string()),
@@ -2660,9 +2660,9 @@ mod tests {
            .unwrap_backend_access();
 
        assert_eq!(record.log, &[
-                  LogEntry::VCL("X-Varnish-Privileged-Client: false".to_string()),
+                  LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
                   LogEntry::Debug("RES_MODE 2".to_string()),
-                  LogEntry::VCL("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+                  LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
                   LogEntry::FetchError("no backend connection".to_string()),
                   LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
        ]);

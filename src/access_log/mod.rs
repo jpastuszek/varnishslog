@@ -141,6 +141,15 @@ impl<'a> AsSer<'a> for HttpResponse {
     }
 }
 
+impl<'a> AsSer<'a> for Vec<LogEntry> {
+    type Out = LogBook<'a>;
+    fn as_ser(&'a self) -> Self::Out {
+        LogBook {
+            entries: self.as_slice(),
+        }
+    }
+}
+
 pub trait AccessLog {
     fn client_access_logs<W>(&self, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write;
 }
@@ -155,7 +164,7 @@ impl AccessLog for SessionRecord {
                         &Format::JsonPretty => write_json_pretty,
                     };
 
-                    try!(write(out, &LogEntry {
+                    try!(write(out, &Entry {
                         record_type: "client_access",
                         record: &log_entry,
                     }));
@@ -181,6 +190,7 @@ impl AccessLog for SessionRecord {
                         handing: record.handling.as_ser(),
                         request: request.as_ser(),
                         response: response.as_ser(),
+                        log: record.log.as_ser(),
                     })),
                     ClientAccessTransaction::Restarted { .. } => continue,
                     ClientAccessTransaction::Piped { .. } => continue,
