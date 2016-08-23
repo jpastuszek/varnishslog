@@ -184,11 +184,11 @@ impl<'a> AsSer<'a> for BackendConnection {
 }
 
 pub trait AccessLog {
-    fn client_access_logs<W>(&self, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write;
+    fn access_log<W>(&self, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write;
 }
 
 impl AccessLog for SessionRecord {
-    fn client_access_logs<W>(&self, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write {
+    fn access_log<W>(&self, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write {
         fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: EntryType {
             match format {
                 &Format::Json | &Format::JsonPretty => {
@@ -208,7 +208,11 @@ impl AccessLog for SessionRecord {
             Ok(())
         }
 
-        for record_link in self.client_records.iter() {
+        fn log_client_record<W>(
+            format: &Format, out: &mut W,
+            session_record: &SessionRecord,
+            record_link: &Link<ClientAccessRecord>,
+            request_type: &'static str) -> Result<(), OutputError> where W: Write {
             if let Some(record) = record_link.get_resolved() {
                 match record.transaction {
                     ClientAccessTransaction::Full {
@@ -221,29 +225,36 @@ impl AccessLog for SessionRecord {
                         serve,
                         ref accounting,
                         ..
-                    } => try!(write(format, out, &ClientAccessLogEntry {
-                        remote_address: self.remote.as_ser(),
-                        session_timestamp: self.open,
-                        start_timestamp: record.start,
-                        end_timestamp: record.end,
-                        handing: record.handling.as_ser(),
-                        request: request.as_ser(),
-                        response: response.as_ser(),
-                        process: process,
-                        fetch: fetch,
-                        ttfb: ttfb,
-                        serve: serve,
-                        recv_header_bytes: accounting.recv_header,
-                        recv_body_bytes: accounting.recv_body,
-                        recv_total_bytes: accounting.recv_total,
-                        sent_header_bytes: accounting.sent_header,
-                        sent_body_bytes: accounting.sent_body,
-                        sent_total_bytes: accounting.sent_total,
-                        esi_count: esi_records.len(),
-                        restart_count: 0,
-                        restart_log: None,
-                        log: record.log.as_ser(),
-                    })),
+                    } => {
+                        try!(write(format, out, &ClientAccessLogEntry {
+                            request_type: request_type,
+                            remote_address: session_record.remote.as_ser(),
+                            session_timestamp: session_record.open,
+                            start_timestamp: record.start,
+                            end_timestamp: record.end,
+                            handing: record.handling.as_ser(),
+                            request: request.as_ser(),
+                            response: response.as_ser(),
+                            process: process,
+                            fetch: fetch,
+                            ttfb: ttfb,
+                            serve: serve,
+                            recv_header_bytes: accounting.recv_header,
+                            recv_body_bytes: accounting.recv_body,
+                            recv_total_bytes: accounting.recv_total,
+                            sent_header_bytes: accounting.sent_header,
+                            sent_body_bytes: accounting.sent_body,
+                            sent_total_bytes: accounting.sent_total,
+                            esi_count: esi_records.len(),
+                            restart_count: 0,
+                            restart_log: None,
+                            log: record.log.as_ser(),
+                        }));
+
+                        for esi_record_link in esi_records {
+                            try!(log_client_record(format, out, session_record, esi_record_link, "esi"))
+                        }
+                    }
                     ClientAccessTransaction::Restarted {
                         ref request,
                         process,
@@ -260,8 +271,9 @@ impl AccessLog for SessionRecord {
                                 ..
                             } = full_record.transaction {
                                 try!(write(format, out, &ClientAccessLogEntry {
-                                    remote_address: self.remote.as_ser(),
-                                    session_timestamp: self.open,
+                                    request_type: request_type,
+                                    remote_address: session_record.remote.as_ser(),
+                                    session_timestamp: session_record.open,
                                     start_timestamp: record.start,
                                     end_timestamp: full_record.end,
                                     handing: full_record.handling.as_ser(),
@@ -282,11 +294,16 @@ impl AccessLog for SessionRecord {
                                     restart_log: Some(record.log.as_ser()),
                                     //TODO: still will miss intermediate log entreis
                                     log: full_record.log.as_ser(),
-                                }))
+                                }));
+
+                                for esi_record_link in esi_records {
+                                    try!(log_client_record(format, out, session_record, esi_record_link, "esi"))
+                                }
                             } else {
                                 panic!("ClientAccessRecord::find_full found not ClientAccessTransaction::Full: {:?}", record)
                             }
                         } else {
+                            //TODO: what about piped? etc? need to find_leaf record and handle it somehow
                             warn!("Full transaction not found on restarted transaction chain: {:?}", record);
                         }
                     },
@@ -304,8 +321,8 @@ impl AccessLog for SessionRecord {
                                 ..
                             } = backend_record.transaction {
                                 try!(write(format, out, &PipeSessionLogEntry {
-                                    remote_address: self.remote.as_ser(),
-                                    session_timestamp: self.open,
+                                    remote_address: session_record.remote.as_ser(),
+                                    session_timestamp: session_record.open,
                                     start_timestamp: record.start,
                                     end_timestamp: record.end,
                                     handing: record.handling.as_ser(),
@@ -325,8 +342,13 @@ impl AccessLog for SessionRecord {
                     },
                 }
             } else {
-                warn!("Found unresolved link {:?} in: {:?}", record_link, self);
+                warn!("Found unresolved link {:?} in: {:?}", record_link, session_record);
             }
+            Ok(())
+        }
+
+        for record_link in self.client_records.iter() {
+            try!(log_client_record(format, out, self, record_link, "remote"))
         }
         Ok(())
     }
