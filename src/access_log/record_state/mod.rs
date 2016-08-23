@@ -10,7 +10,7 @@ pub use self::record_builder::Record;
 pub use self::record_builder::{
     ClientAccessRecord, BackendAccessRecord, SessionRecord,
     Link, ClientAccessTransaction, BackendAccessTransaction,
-    Accounting, HttpRequest, HttpResponse};
+    Handling, Accounting, HttpRequest, HttpResponse};
 
 #[derive(Debug)]
 enum RecordBuilderSlot {

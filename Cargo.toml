@@ -2,6 +2,10 @@
 authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
 name = "varnishsyslogger"
 version = "0.1.0"
+build = "build.rs"
+
+[build-dependencies]
+serde_codegen = "0.8.4"
 
 [dependencies]
 assert_matches = "1.0.1"
@@ -11,4 +15,6 @@ env_logger = "0.3.4"
 log = "0.3.6"
 nom = "1.2.4"
 quick-error = "1.1.0"
+serde = "0.8.4"
+serde_json = "0.8.1"
 stderrlog = "0.2.1"

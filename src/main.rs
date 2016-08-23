@@ -12,6 +12,9 @@ extern crate quick_error;
 #[macro_use]
 extern crate assert_matches;
 
+extern crate serde;
+extern crate serde_json;
+
 #[cfg(test)]
 extern crate env_logger;
 
@@ -21,7 +24,7 @@ use clap::{Arg, App};
 #[macro_use]
 mod stream_buf;
 use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
-use access_log::{RecordState, SessionState};
+use access_log::*;
 
 // Generated with ./mk_vsl_tag from Varnish headers: include/tbl/vsl_tags.h include/tbl/vsl_tags_http.h include/vsl_int.h
 // https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
@@ -39,7 +42,8 @@ arg_enum! {
         Log,
         LogDebug,
         RecordDebug,
-        SessionDebug
+        SessionDebug,
+        Json
     }
 }
 
@@ -112,6 +116,8 @@ fn main() {
     let mut record_state = RecordState::new();
     let mut session_state = SessionState::new();
 
+    let mut out = std::io::stdout();
+
     loop {
         let record = match rfb.fill_apply(vsl_record) {
             Err(FillApplyError::FillError(FillError::Io(err))) => {
@@ -145,6 +151,12 @@ fn main() {
             OutputFormat::SessionDebug => {
                 if let Some(session) = session_state.apply(&record) {
                     println!("{:#?}", session)
+                }
+            }
+            OutputFormat::Json => {
+                if let Some(session) = session_state.apply(&record) {
+                    //println!("{:#?}", session);
+                    session.client_access_logs(Format::Json, &mut out);
                 }
             }
         }
