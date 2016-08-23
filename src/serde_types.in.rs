@@ -50,6 +50,7 @@ struct PipeSessionLogEntry<'a> {
     start_timestamp: f64,
     end_timestamp: f64,
     handing: &'a str,
+    backend_connection: BackendConnectionLogEntry<'a>,
     request: HttpRequestLogEntry<'a>,
     backend_request: HttpRequestLogEntry<'a>,
     process: Option<f64>,
@@ -119,4 +120,12 @@ impl<'a> Serialize for LogBook<'a> {
         try!(serializer.serialize_seq_end(state));
         Ok(())
     }
+}
+
+#[derive(Serialize, Debug)]
+struct BackendConnectionLogEntry<'a> {
+    fd: isize,
+    name: &'a str,
+    remote_address: (&'a str, u16),
+    local_address: (&'a str, u16),
 }

@@ -171,6 +171,18 @@ impl<'a> AsSer<'a> for Vec<LogEntry> {
     }
 }
 
+impl<'a> AsSer<'a> for BackendConnection {
+    type Out = BackendConnectionLogEntry<'a>;
+    fn as_ser(&'a self) -> Self::Out {
+        BackendConnectionLogEntry {
+            fd: self.fd,
+            name: self.name.as_str(),
+            remote_address: self.remote.as_ser(),
+            local_address: self.local.as_ser(),
+        }
+    }
+}
+
 pub trait AccessLog {
     fn client_access_logs<W>(&self, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write;
 }
@@ -288,7 +300,7 @@ impl AccessLog for SessionRecord {
                         if let Some(backend_record) = backend_record.get_resolved() {
                             if let BackendAccessTransaction::Piped {
                                 request: ref backend_request,
-                                //TODO: ref backend_connection,
+                                ref backend_connection,
                                 ..
                             } = backend_record.transaction {
                                 try!(write(format, out, &PipeSessionLogEntry {
@@ -302,6 +314,7 @@ impl AccessLog for SessionRecord {
                                     process: process,
                                     ttfb: ttfb,
                                     log: record.log.as_ser(),
+                                    backend_connection: backend_connection.as_ser(),
                                 }))
                             } else {
                                 warn!("Piped ClientAccessRecord has not Piped BackendAccessTransaction linked: {:?} linked: {:?}", record, backend_record);
