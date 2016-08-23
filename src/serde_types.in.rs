@@ -16,6 +16,17 @@ struct ClientAccessLogEntry<'a> {
     handing: &'a str,
     request: HttpRequestLogEntry<'a>,
     response: HttpResponseLogEntry<'a>,
+    process: Option<f64>,
+    fetch: Option<f64>,
+    ttfb: f64,
+    serve: f64,
+    recv_header_bytes: u64,
+    recv_body_bytes: u64,
+    recv_total_bytes: u64,
+    sent_header_bytes: u64,
+    sent_body_bytes: u64,
+    sent_total_bytes: u64,
+    esi_count: usize,
     log: LogBook<'a>,
 }
 

@@ -179,8 +179,14 @@ impl AccessLog for SessionRecord {
             if let Some(record) = record_link.get_resolved() {
                 match record.transaction {
                     ClientAccessTransaction::Full {
+                        ref esi_records,
                         ref request,
                         ref response,
+                        process,
+                        fetch,
+                        ttfb,
+                        serve,
+                        ref accounting,
                         ..
                     } => try!(write(format, out, &ClientAccessLogEntry {
                         remote_address: self.remote.as_ser(),
@@ -190,6 +196,17 @@ impl AccessLog for SessionRecord {
                         handing: record.handling.as_ser(),
                         request: request.as_ser(),
                         response: response.as_ser(),
+                        process: process,
+                        fetch: fetch,
+                        ttfb: ttfb,
+                        serve: serve,
+                        recv_header_bytes: accounting.recv_header,
+                        recv_body_bytes: accounting.recv_body,
+                        recv_total_bytes: accounting.recv_total,
+                        sent_header_bytes: accounting.sent_header,
+                        sent_body_bytes: accounting.sent_body,
+                        sent_total_bytes: accounting.sent_total,
+                        esi_count: esi_records.len(),
                         log: record.log.as_ser(),
                     })),
                     ClientAccessTransaction::Restarted { .. } => continue,
