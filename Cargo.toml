@@ -1,6 +1,6 @@
 [package]
 authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
-name = "varnishsyslogger"
+name = "varnishslog"
 version = "0.1.0"
 build = "build.rs"
 
