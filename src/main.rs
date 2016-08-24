@@ -162,9 +162,17 @@ fn main() {
                 };
 
                 if let Some(session) = session_state.apply(&record) {
-                    //TODO: handle Broken pipe
-                    if let Err(err) = session.access_log(&format, &mut out) {
-                        error!("Failed to write out client access logs: {:?}: {}", record, err);
+                    match log_session_record(&session, &format, &mut out) {
+                        Ok(()) => (),
+                        Err(OutputError::Io(err)) |
+                        Err(OutputError::JsonSerialization(JsonError::Io(err))) => match err.kind() {
+                            io::ErrorKind::BrokenPipe => {
+                                info!("Broken pipe");
+                                break
+                            }
+                            _ => error!("Failed to write out client access logs: {:?}: {}", record, err)
+                        },
+                        Err(err) => error!("Failed to serialize client access logs: {:?}: {}", record, err)
                     }
                 }
             }
