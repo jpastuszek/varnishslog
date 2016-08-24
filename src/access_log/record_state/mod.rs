@@ -217,6 +217,7 @@ mod tests {
                123, SLT_BerespUnset,    "Cache-Control: no-store";
                123, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
                123, SLT_VCL_call,       "BACKEND_ERROR";
+               123, SLT_BereqAcct,        "0 0 0 0 0 0";
                );
 
         let record = apply_final!(state, 123, SLT_End, "");

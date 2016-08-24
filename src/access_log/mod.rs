@@ -232,6 +232,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     wait,
                     ttfb,
                     fetch,
+                    ref accounting,
                     ..
                 } => try!(write(format, out, &BackendAccessLogEntry {
                     vxid: client_record.ident,
@@ -246,6 +247,12 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     wait_duration: Some(wait),
                     ttfb_duration: Some(ttfb),
                     fetch_duration: Some(fetch),
+                    sent_header_bytes: Some(accounting.sent_header),
+                    sent_body_bytes: Some(accounting.sent_body),
+                    sent_total_bytes: Some(accounting.sent_total),
+                    recv_header_bytes: Some(accounting.recv_header),
+                    recv_body_bytes: Some(accounting.recv_body),
+                    recv_total_bytes: Some(accounting.recv_total),
                     retry: retry,
                     backend_connection: Some(backend_connection.as_ser()),
                     cache_object: Some(cache_object.as_ser()),
@@ -254,6 +261,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                 BackendAccessTransaction::Failed {
                     ref request,
                     synth,
+                    ref accounting,
                     ..
                 } => try!(write(format, out, &BackendAccessLogEntry {
                     vxid: client_record.ident,
@@ -268,6 +276,12 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     wait_duration: None,
                     ttfb_duration: None,
                     fetch_duration: None,
+                    sent_header_bytes: Some(accounting.sent_header),
+                    sent_body_bytes: Some(accounting.sent_body),
+                    sent_total_bytes: Some(accounting.sent_total),
+                    recv_header_bytes: Some(accounting.recv_header),
+                    recv_body_bytes: Some(accounting.recv_body),
+                    recv_total_bytes: Some(accounting.recv_total),
                     retry: retry,
                     backend_connection: None,
                     cache_object: None,
@@ -296,6 +310,12 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     wait_duration: Some(wait),
                     ttfb_duration: Some(ttfb),
                     fetch_duration: fetch,
+                    recv_header_bytes: None,
+                    recv_body_bytes: None,
+                    recv_total_bytes: None,
+                    sent_header_bytes: None,
+                    sent_body_bytes: None,
+                    sent_total_bytes: None,
                     retry: retry,
                     backend_connection: Some(backend_connection.as_ser()),
                     cache_object: None,
@@ -420,6 +440,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     session_timestamp: session_record.open,
                                     start_timestamp: final_record.start,
                                     end_timestamp: final_record.end,
+                                    //TODO: remove?
                                     handing: final_record.handling.as_ser(),
                                     request: request.as_ser(),
                                     backend_request: backend_request.as_ser(),

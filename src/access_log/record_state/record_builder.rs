@@ -1,6 +1,5 @@
 /// TODO:
 /// * more tests
-/// * BereqAcct
 ///
 /// Client headers:
 /// ---
@@ -286,6 +285,7 @@ pub enum BackendAccessTransaction {
         ttfb: Duration,
         /// Total duration it took to fetch the whole response
         fetch: Duration,
+        accounting: Accounting,
     },
     Failed {
         request: HttpRequest,
@@ -294,6 +294,7 @@ pub enum BackendAccessTransaction {
         retry_record: Option<Link<BackendAccessRecord>>,
         /// Total duration it took to synthesise response
         synth: Duration,
+        accounting: Accounting,
     },
     /// Aborted before we have made a backend request
     Aborted {
@@ -1149,6 +1150,7 @@ impl RecordBuilder {
                 }
             }
             SLT_ReqAcct => {
+                // Note: recv are first
                 let (recv_header, recv_body, recv_total,
                      sent_header, sent_body, sent_total) =
                     try!(vsl.parse_data(slt_req_acct));
@@ -1161,6 +1163,24 @@ impl RecordBuilder {
                         sent_header: sent_header,
                         sent_body: sent_body,
                         sent_total: sent_total,
+                    }),
+                    .. self
+                }
+            }
+            SLT_BereqAcct => {
+                // Note: sent are first
+                let (sent_header, sent_body, sent_total,
+                    recv_header, recv_body, recv_total) =
+                    try!(vsl.parse_data(slt_bereq_acct));
+
+                RecordBuilder {
+                    accounting: Some(Accounting {
+                        sent_header: sent_header,
+                        sent_body: sent_body,
+                        sent_total: sent_total,
+                        recv_header: recv_header,
+                        recv_body: recv_body,
+                        recv_total: recv_total,
                     }),
                     .. self
                 }
@@ -1561,6 +1581,7 @@ impl RecordBuilder {
                                             wait: try!(self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))),
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
                                             fetch: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
+                                            accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
                                         }
                                     }
                                     BackendAccessTransactionType::Failed => {
@@ -1573,6 +1594,7 @@ impl RecordBuilder {
                                             synth_response: try!(http_response.get_complete()),
                                             retry_record: self.retry_record,
                                             synth: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
+                                            accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
                                         }
                                     }
                                     BackendAccessTransactionType::Aborted => {
@@ -2365,6 +2387,7 @@ mod tests {
                                  32769, SLT_BackendReuse,     "19 boot.iss";
                                  32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
                                  32769, SLT_Link,             "bereq 32769 retry";
+                                 32769, SLT_BereqAcct,        "0 0 0 0 0 0";
                                  );
 
        let record = apply_last!(builder, 32769, SLT_End, "")
@@ -2493,6 +2516,7 @@ mod tests {
                                  32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
                                  32769, SLT_VCL_call,         "BACKEND_ERROR";
                                  32769, SLT_Length,           "6962";
+                                 32769, SLT_BereqAcct,        "0 0 0 0 0 0";
                                  );
 
        let record = apply_last!(builder, 32769, SLT_End, "")

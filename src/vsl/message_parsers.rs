@@ -93,6 +93,14 @@ named!(pub slt_req_acct<&[u8], (ByteCount, ByteCount, ByteCount, ByteCount, Byte
         byte_count,     // Body bytes transmitted
         byte_count));   // Total bytes transmitted
 
+named!(pub slt_bereq_acct<&[u8], (ByteCount, ByteCount, ByteCount, ByteCount, ByteCount, ByteCount) >, tuple!(
+        byte_count,     // Header bytes transmitted
+        byte_count,     // Body bytes transmitted
+        byte_count,     // Total bytes transmitted
+        byte_count,     // Header bytes received
+        byte_count,     // Body bytes received
+        byte_count));   // Total bytes received
+
 named!(pub slt_pipe_acct<&[u8], (ByteCount, ByteCount, ByteCount, ByteCount) >, tuple!(
         byte_count,     // Client request headers
         byte_count,     // Backend request headers

@@ -327,6 +327,7 @@ mod tests {
                1000, SLT_BerespUnset,   "Cache-Control: no-store";
                1000, SLT_BerespHeader,  "Content-Type: text/html; charset=utf-8";
                1000, SLT_VCL_call,      "BACKEND_ERROR";
+               1000, SLT_BereqAcct,     "0 0 0 0 0 0";
                1000, SLT_End,           "";
 
                10, SLT_Begin,       "sess 0 HTTP/1";
