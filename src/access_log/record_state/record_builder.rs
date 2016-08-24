@@ -220,23 +220,23 @@ pub enum ClientAccessTransaction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CacheObject {
     /// Type ("malloc", "file", "persistent" etc.)
-    storage_type: String,
+    pub storage_type: String,
     /// Name of storage backend
-    storage_name: String,
+    pub storage_name: String,
     /// TTL; None if unset
-    ttl: Option<Duration>,
+    pub ttl: Option<Duration>,
     /// Grace; None if unset
-    grace: Option<Duration>,
+    pub grace: Option<Duration>,
     /// Keep; None if unset
-    keep: Option<Duration>,
+    pub keep: Option<Duration>,
     /// Reference time for TTL
-    since: TimeStamp,
+    pub since: TimeStamp,
     /// Reference time for object lifetime (now - Age)
-    origin: TimeStamp,
+    pub origin: TimeStamp,
     /// Text description of body fetch mode
-    fetch_mode: String,
-    fetch_streamed: bool,
-    response: HttpResponse
+    pub fetch_mode: String,
+    pub fetch_streamed: bool,
+    pub response: HttpResponse
 }
 
 #[derive(Debug, Clone, PartialEq)]

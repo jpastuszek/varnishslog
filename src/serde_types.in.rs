@@ -22,6 +22,7 @@ struct ClientAccessLogEntry<'a> {
     handing: &'a str,
     request: HttpRequestLogEntry<'a>,
     response: HttpResponseLogEntry<'a>,
+    // TODO: rename to _took or smth
     process: Option<f64>,
     fetch: Option<f64>,
     ttfb: f64,
@@ -36,12 +37,36 @@ struct ClientAccessLogEntry<'a> {
     restart_count: usize,
     restart_log: Option<LogBook<'a>>,
     log: LogBook<'a>,
-    //TODO: esi_hit_rate, cache_object
 }
 
 impl<'a> EntryType for ClientAccessLogEntry<'a> {
     fn type_name() -> &'static str {
         "client_access"
+    }
+}
+
+#[derive(Serialize, Debug)]
+struct BackendAccessLogEntry<'a> {
+    vxid: u32,
+    remote_address: (&'a str, u16),
+    session_timestamp: f64,
+    start_timestamp: f64,
+    end_timestamp: f64,
+    request: HttpRequestLogEntry<'a>,
+    response: Option<HttpResponseLogEntry<'a>>,
+    sent: f64,
+    wait: Option<f64>,
+    ttfb: Option<f64>,
+    fetch: Option<f64>,
+    retry: usize,
+    backend_connection: Option<BackendConnectionLogEntry<'a>>,
+    cache_object: Option<CacheObjectLogEntry<'a>>,
+    log: LogBook<'a>,
+}
+
+impl<'a> EntryType for BackendAccessLogEntry<'a> {
+    fn type_name() -> &'static str {
+        "backend_access"
     }
 }
 
@@ -123,6 +148,20 @@ impl<'a> Serialize for LogBook<'a> {
         try!(serializer.serialize_seq_end(state));
         Ok(())
     }
+}
+
+#[derive(Serialize, Debug)]
+struct CacheObjectLogEntry<'a> {
+    storage_type: &'a str,
+    storage_name: &'a str,
+    ttl: Option<f64>,
+    grace: Option<f64>,
+    keep: Option<f64>,
+    since: f64,
+    origin: f64,
+    fetch_mode: &'a str,
+    fetch_streamed: bool,
+    response: HttpResponseLogEntry<'a>,
 }
 
 #[derive(Serialize, Debug)]

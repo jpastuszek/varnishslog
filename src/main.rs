@@ -162,6 +162,7 @@ fn main() {
                 };
 
                 if let Some(session) = session_state.apply(&record) {
+                    //TODO: handle Broken pipe
                     if let Err(err) = session.access_log(&format, &mut out) {
                         error!("Failed to write out client access logs: {:?}: {}", record, err);
                     }

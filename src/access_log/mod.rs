@@ -162,6 +162,25 @@ impl<'a> AsSer<'a> for BackendConnection {
     }
 }
 
+impl<'a> AsSer<'a> for CacheObject {
+    type Out = CacheObjectLogEntry<'a>;
+    fn as_ser(&'a self) -> Self::Out {
+        CacheObjectLogEntry {
+            storage_type: self.storage_type.as_str(),
+            storage_name: self.storage_name.as_str(),
+            ttl: self.ttl,
+            grace: self.grace,
+            keep: self.keep,
+            since: self.since,
+            origin: self.origin,
+            fetch_mode: self.fetch_mode.as_str(),
+            fetch_streamed: self.fetch_streamed,
+            response: self.response.as_ser(),
+        }
+    }
+}
+
+//TODO: make it standalon function
 pub trait AccessLog {
     fn access_log<W>(&self, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write;
 }
@@ -187,18 +206,119 @@ impl AccessLog for SessionRecord {
             Ok(())
         }
 
-        fn find_final(record: &ClientAccessRecord, restart_count: usize) -> Option<(&ClientAccessRecord, usize)> {
+        fn follow_restarts(record: &ClientAccessRecord, restart_count: usize) -> Option<(&ClientAccessRecord, usize)> {
             match record.transaction {
-                ClientAccessTransaction::Full { .. } | ClientAccessTransaction::Piped { .. } => Some((record, restart_count)),
+                ClientAccessTransaction::Full { .. } |
+                ClientAccessTransaction::Piped { .. } => Some((record, restart_count)),
                 ClientAccessTransaction::Restarted { ref restart_record, .. } => {
                     if let Some(record) = restart_record.get_resolved() {
-                        find_final(record, restart_count + 1)
+                        follow_restarts(record, restart_count + 1)
                     } else {
                         warn!("Found unresolved link {:?} in: {:?}", restart_record, record);
                         None
                     }
                 },
             }
+        }
+
+        fn log_linked_backend_access_record<W>(
+            format: &Format,
+            out: &mut W,
+            session_record: &SessionRecord,
+            client_record: &ClientAccessRecord,
+            record_link: &Link<BackendAccessRecord>,
+            retry: usize) -> Result<(), OutputError> where W: Write {
+            if let Some(record) = record_link.get_resolved() {
+                match record.transaction {
+                    BackendAccessTransaction::Full {
+                        ref request,
+                        ref response,
+                        ref backend_connection,
+                        ref cache_object,
+                        send,
+                        wait,
+                        ttfb,
+                        fetch,
+                        ..
+                    } => try!(write(format, out, &BackendAccessLogEntry {
+                        vxid: client_record.ident,
+                        remote_address: session_record.remote.as_ser(),
+                        session_timestamp: session_record.open,
+                        start_timestamp: record.start,
+                        end_timestamp: record.end.unwrap_or(record.start),
+                        request: request.as_ser(),
+                        response: Some(response.as_ser()),
+                        sent: send,
+                        wait: Some(wait),
+                        ttfb: Some(ttfb),
+                        fetch: Some(fetch),
+                        retry: retry,
+                        backend_connection: Some(backend_connection.as_ser()),
+                        cache_object: Some(cache_object.as_ser()),
+                        log: record.log.as_ser(),
+                    })),
+                    BackendAccessTransaction::Failed {
+                        ref request,
+                        synth,
+                        ..
+                    } => try!(write(format, out, &BackendAccessLogEntry {
+                        vxid: client_record.ident,
+                        remote_address: session_record.remote.as_ser(),
+                        session_timestamp: session_record.open,
+                        start_timestamp: record.start,
+                        end_timestamp: record.end.unwrap_or(record.start),
+                        request: request.as_ser(),
+                        response: None,
+                        sent: synth,
+                        wait: None,
+                        ttfb: None,
+                        fetch: None,
+                        retry: retry,
+                        backend_connection: None,
+                        cache_object: None,
+                        log: record.log.as_ser(),
+                    })),
+                    BackendAccessTransaction::Abandoned {
+                        ref request,
+                        ref response,
+                        ref backend_connection,
+                        send,
+                        wait,
+                        ttfb,
+                        fetch,
+                        ..
+                    } => try!(write(format, out, &BackendAccessLogEntry {
+                        vxid: client_record.ident,
+                        remote_address: session_record.remote.as_ser(),
+                        session_timestamp: session_record.open,
+                        start_timestamp: record.start,
+                        end_timestamp: record.end.unwrap_or(record.start),
+                        request: request.as_ser(),
+                        response: Some(response.as_ser()),
+                        sent: send,
+                        wait: Some(wait),
+                        ttfb: Some(ttfb),
+                        fetch: fetch,
+                        retry: retry,
+                        backend_connection: Some(backend_connection.as_ser()),
+                        cache_object: None,
+                        log: record.log.as_ser(),
+                    })),
+                    BackendAccessTransaction::Aborted { .. } |
+                    BackendAccessTransaction::Piped { .. } => (),
+                }
+
+                match record.transaction {
+                    BackendAccessTransaction::Failed { retry_record: Some(ref record_link), .. } |
+                    BackendAccessTransaction::Abandoned { retry_record: Some(ref record_link), .. } => {
+                        try!(log_linked_backend_access_record(format, out, session_record, client_record, record_link, retry + 1))
+                    },
+                    _ => (),
+                }
+            } else {
+                warn!("Found unresolved link {:?} in: {:?}", record_link, session_record);
+            }
+            Ok(())
         }
 
         fn log_linked_client_access_record<W>(
@@ -208,7 +328,7 @@ impl AccessLog for SessionRecord {
             record_link: &Link<ClientAccessRecord>,
             request_type: &'static str) -> Result<(), OutputError> where W: Write {
             if let Some(record) = record_link.get_resolved() {
-                if let Some((final_record, restart_count)) = find_final(record, 0) {
+                if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
                     // Note: we skip all the intermediate restart records
                     match (&record.transaction, &final_record.transaction) {
                         (&ClientAccessTransaction::Restarted {
@@ -328,7 +448,15 @@ impl AccessLog for SessionRecord {
                         } => for esi_record_link in esi_records {
                             try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "ESI"))
                         },
-                        &ClientAccessTransaction::Restarted { .. } | &ClientAccessTransaction::Piped { .. } => (),
+                        _ => (),
+                    }
+
+                    match &final_record.transaction {
+                        &ClientAccessTransaction::Full {
+                            backend_record: Some(ref backend_record),
+                            ..
+                        } => try!(log_linked_backend_access_record(format, out, session_record, record, backend_record, 0)),
+                        _ => (),
                     }
                 } else {
                     warn!("Failed to find final record for: {:?}", record);
