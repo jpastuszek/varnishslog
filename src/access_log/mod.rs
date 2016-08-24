@@ -224,6 +224,7 @@ impl AccessLog for SessionRecord {
                             ref accounting,
                             ..
                         }) => try!(write(format, out, &ClientAccessLogEntry {
+                            vxid: record.ident,
                             request_type: request_type,
                             remote_address: session_record.remote.as_ser(),
                             session_timestamp: session_record.open,
@@ -258,6 +259,7 @@ impl AccessLog for SessionRecord {
                             ref accounting,
                             ..
                         }) => try!(write(format, out, &ClientAccessLogEntry {
+                            vxid: record.ident,
                             request_type: request_type,
                             remote_address: session_record.remote.as_ser(),
                             session_timestamp: session_record.open,
@@ -295,6 +297,7 @@ impl AccessLog for SessionRecord {
                                     ..
                                 } = backend_record.transaction {
                                     try!(write(format, out, &PipeSessionLogEntry {
+                                        vxid: record.ident,
                                         remote_address: session_record.remote.as_ser(),
                                         session_timestamp: session_record.open,
                                         start_timestamp: final_record.start,

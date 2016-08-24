@@ -13,6 +13,7 @@ trait EntryType: Serialize {
 
 #[derive(Serialize, Debug)]
 struct ClientAccessLogEntry<'a> {
+    vxid: u32,
     request_type: &'a str,
     remote_address: (&'a str, u16),
     session_timestamp: f64,
@@ -46,6 +47,7 @@ impl<'a> EntryType for ClientAccessLogEntry<'a> {
 
 #[derive(Serialize, Debug)]
 struct PipeSessionLogEntry<'a> {
+    vxid: u32,
     remote_address: (&'a str, u16),
     session_timestamp: f64,
     start_timestamp: f64,
