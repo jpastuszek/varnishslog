@@ -83,7 +83,6 @@ struct PipeSessionLogEntry<'a> {
     session_timestamp: f64,
     start_timestamp: f64,
     end_timestamp: f64,
-    handing: &'a str,
     backend_connection: BackendConnectionLogEntry<'a>,
     request: HttpRequestLogEntry<'a>,
     backend_request: HttpRequestLogEntry<'a>,
@@ -92,7 +91,6 @@ struct PipeSessionLogEntry<'a> {
     recv_total_bytes: u64,
     sent_total_bytes: u64,
     log: LogBook<'a>,
-    //TODO: thre should be SessAct or something with session bytes?
 }
 
 impl<'a> EntryType for PipeSessionLogEntry<'a> {

@@ -440,8 +440,6 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     session_timestamp: session_record.open,
                                     start_timestamp: final_record.start,
                                     end_timestamp: final_record.end,
-                                    //TODO: remove?
-                                    handing: final_record.handling.as_ser(),
                                     request: request.as_ser(),
                                     backend_request: backend_request.as_ser(),
                                     process_duration: process,
