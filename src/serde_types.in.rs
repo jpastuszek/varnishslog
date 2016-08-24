@@ -52,6 +52,7 @@ struct BackendAccessLogEntry<'a> {
     session_timestamp: f64,
     start_timestamp: f64,
     end_timestamp: f64,
+    handing: &'a str,
     request: HttpRequestLogEntry<'a>,
     response: Option<HttpResponseLogEntry<'a>>,
     sent: f64,
