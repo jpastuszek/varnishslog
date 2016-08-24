@@ -95,15 +95,15 @@ fn main() {
     if ! arguments.is_present("v3") {
         loop {
             match rfb.fill_apply(binary_vsl_tag) {
-                Err(FillApplyError::Parser(_)) => {
-                    error!("Input is not Varnish v4 VSL binary format");
-                    panic!("Bad input format")
-                }
                 Err(err) => {
                     error!("Error while reading VSL tag: {}", err);
                     panic!("VSL tag error")
                 }
                 Ok(None) => continue,
+                Ok(Some(Some(_))) => {
+                    info!("Found VSL tag");
+                    break
+                }
                 Ok(Some(_)) => break,
             }
         }

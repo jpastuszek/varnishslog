@@ -61,7 +61,7 @@ impl Display for Marker {
 
 pub type VslIdent = u32;
 
-named!(pub binary_vsl_tag<&[u8], &[u8]>, tag!(b"VSL\0"));
+named!(pub binary_vsl_tag<&[u8], Option<&[u8]> >, opt!(complete!(tag!(b"VSL\0"))));
 
 #[derive(Debug)]
 struct VslRecordHeader {
