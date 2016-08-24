@@ -83,6 +83,8 @@ struct PipeSessionLogEntry<'a> {
     backend_request: HttpRequestLogEntry<'a>,
     process_duration: Option<f64>,
     ttfb_duration: f64,
+    recv_total_bytes: u64,
+    sent_total_bytes: u64,
     log: LogBook<'a>,
     //TODO: thre should be SessAct or something with session bytes?
 }

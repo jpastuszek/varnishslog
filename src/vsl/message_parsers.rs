@@ -85,13 +85,19 @@ named!(pub slt_timestamp<&[u8], (&str, TimeStamp, Duration, Duration)>, tuple!(
         duration,       // Time since start of work unit
         duration));     // Time since last timestamp
 
-named!(pub slt_reqacc<&[u8], (ByteCount, ByteCount, ByteCount, ByteCount, ByteCount, ByteCount) >, tuple!(
+named!(pub slt_req_acct<&[u8], (ByteCount, ByteCount, ByteCount, ByteCount, ByteCount, ByteCount) >, tuple!(
         byte_count,     // Header bytes received
         byte_count,     // Body bytes received
         byte_count,     // Total bytes received
         byte_count,     // Header bytes transmitted
         byte_count,     // Body bytes transmitted
         byte_count));   // Total bytes transmitted
+
+named!(pub slt_pipe_acct<&[u8], (ByteCount, ByteCount, ByteCount, ByteCount) >, tuple!(
+        byte_count,     // Client request headers
+        byte_count,     // Backend request headers
+        byte_count,     // Piped bytes from client
+        byte_count));   // Piped bytes to client
 
 named!(pub slt_method<&[u8], &MaybeStr>, maybe_str!(
         non_empty));

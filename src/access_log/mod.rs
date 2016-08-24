@@ -405,6 +405,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         ref backend_record,
                         process,
                         ttfb,
+                        ref accounting,
                         ..
                     }) => {
                         if let Some(backend_record) = backend_record.get_resolved() {
@@ -424,6 +425,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     backend_request: backend_request.as_ser(),
                                     process_duration: process,
                                     ttfb_duration: ttfb,
+                                    recv_total_bytes: accounting.recv_total,
+                                    sent_total_bytes: accounting.sent_total,
                                     log: final_record.log.as_ser(),
                                     backend_connection: backend_connection.as_ser(),
                                 }))

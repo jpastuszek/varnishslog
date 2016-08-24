@@ -1,5 +1,6 @@
 /// TODO:
 /// * more tests
+/// * BereqAcct
 ///
 /// Client headers:
 /// ---
@@ -148,6 +149,12 @@ pub struct Accounting {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct PipeAccounting {
+    pub recv_total: ByteCount,
+    pub sent_total: ByteCount,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Handling {
     /// Cache hit and served from cache
     Hit(VslIdent),
@@ -214,6 +221,7 @@ pub enum ClientAccessTransaction {
         process: Option<Duration>,
         /// Time it took to get first byte of response
         ttfb: Duration,
+        accounting: PipeAccounting,
     },
 }
 
@@ -837,6 +845,7 @@ pub struct RecordBuilder {
     req_took: Option<Duration>,
     resp_end: Option<TimeStamp>,
     accounting: Option<Accounting>,
+    pipe_accounting: Option<PipeAccounting>,
     sess_open: Option<TimeStamp>,
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
@@ -869,6 +878,7 @@ impl RecordBuilder {
             req_took: None,
             resp_end: None,
             accounting: None,
+            pipe_accounting: None,
             sess_open: None,
             sess_duration: None,
             sess_remote: None,
@@ -1141,7 +1151,7 @@ impl RecordBuilder {
             SLT_ReqAcct => {
                 let (recv_header, recv_body, recv_total,
                      sent_header, sent_body, sent_total) =
-                    try!(vsl.parse_data(slt_reqacc));
+                    try!(vsl.parse_data(slt_req_acct));
 
                 RecordBuilder {
                     accounting: Some(Accounting {
@@ -1151,6 +1161,19 @@ impl RecordBuilder {
                         sent_header: sent_header,
                         sent_body: sent_body,
                         sent_total: sent_total,
+                    }),
+                    .. self
+                }
+            }
+            SLT_PipeAcct => {
+                let (client_request_headers, _backend_request_headers,
+                     piped_from_client, piped_to_client) =
+                    try!(vsl.parse_data(slt_pipe_acct));
+
+                RecordBuilder {
+                    pipe_accounting: Some(PipeAccounting {
+                        recv_total: client_request_headers + piped_from_client,
+                        sent_total: piped_to_client,
                     }),
                     .. self
                 }
@@ -1489,6 +1512,7 @@ impl RecordBuilder {
                                             backend_record: try!(self.backend_record.ok_or(RecordBuilderError::RecordIncomplete("backend_record"))),
                                             process: self.req_process,
                                             ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
+                                            accounting: try!(self.pipe_accounting.ok_or(RecordBuilderError::RecordIncomplete("pipe_accounting"))),
                                         }
                                     },
                                 };
@@ -2059,6 +2083,10 @@ mod tests {
             ref backend_record,
             process: Some(0.0),
             ttfb: 0.000209,
+            accounting: PipeAccounting {
+                recv_total: 268,
+                sent_total: 480,
+            }
         } if
             url == "/websocket" &&
             headers == &[
