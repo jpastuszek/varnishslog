@@ -1,4 +1,4 @@
-big.vsl
 target
 Cargo.lock
-target
+.vimrc
+*.log

@@ -26,13 +26,8 @@ mod stream_buf;
 use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
 use access_log::*;
 
-// Generated with ./mk_vsl_tag from Varnish headers: include/tbl/vsl_tags.h include/tbl/vsl_tags_http.h include/vsl_int.h
-// https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
-// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags.h
-// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags_http.h
 mod vsl;
-use vsl::{binary_vsl_tag, vsl_record_v3, vsl_record_v4};
-use vsl::VslRecord;
+use vsl::{binary_vsl_tag, vsl_record_v4};
 
 mod access_log;
 
@@ -53,10 +48,6 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Reads binary VSL log entreis, correlates them togeter and emits JSON log entry to syslog")
-        .arg(Arg::with_name("v3")
-             .long("varnish-v3")
-             .short("3")
-             .help("Parse Varnish v3 binary log"))
         .arg(Arg::with_name("quiet")
              .long("quiet")
              .short("q")
@@ -90,26 +81,19 @@ fn main() {
     //let mut rfb = ReadStreamBuf::with_capacity(stdin, 123);
     let mut rfb = ReadStreamBuf::new(stdin);
 
-    let vsl_record: fn(&[u8]) -> nom::IResult<&[u8], VslRecord>;
-
-    if ! arguments.is_present("v3") {
-        loop {
-            match rfb.fill_apply(binary_vsl_tag) {
-                Err(err) => {
-                    error!("Error while reading VSL tag: {}", err);
-                    panic!("VSL tag error")
-                }
-                Ok(None) => continue,
-                Ok(Some(Some(_))) => {
-                    info!("Found VSL tag");
-                    break
-                }
-                Ok(Some(_)) => break,
+    loop {
+        match rfb.fill_apply(binary_vsl_tag) {
+            Err(err) => {
+                error!("Error while reading VSL tag: {}", err);
+                panic!("VSL tag error")
             }
+            Ok(None) => continue,
+            Ok(Some(Some(_))) => {
+                info!("Found VSL tag");
+                break
+            }
+            Ok(Some(_)) => break,
         }
-        vsl_record = vsl_record_v4;
-    } else {
-        vsl_record = vsl_record_v3;
     }
 
     rfb.recycle(); // TODO: VSL should benefit from alignment - bench test it
@@ -120,7 +104,7 @@ fn main() {
     let mut out = std::io::stdout();
 
     loop {
-        let record = match rfb.fill_apply(vsl_record) {
+        let record = match rfb.fill_apply(vsl_record_v4) {
             Err(FillApplyError::FillError(FillError::Io(err))) => {
                 if err.kind() == io::ErrorKind::UnexpectedEof {
                     info!("Reached end of stream");

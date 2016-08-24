@@ -4,6 +4,10 @@ use std::mem;
 use nom::{self, le_u32};
 use quick_error::ResultExt;
 
+// Generated with ./mk_vsl_tag from Varnish headers: include/tbl/vsl_tags.h include/tbl/vsl_tags_http.h include/vsl_int.h
+// https://github.com/varnishcache/varnish-cache/blob/master/include/vapi/vsl_int.h
+// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags.h
+// https://github.com/varnishcache/varnish-cache/blob/master/include/tbl/vsl_tags_http.h
 mod tag_e;
 pub use self::tag_e::VSL_tag_e as VslRecordTag;
 
@@ -158,39 +162,14 @@ fn to_vsl_record_tag(num: u8) -> VslRecordTag {
     unsafe { mem::transmute(num as u32) }
 }
 
-pub fn vsl_record_v3<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
-    chain!(
-        input,
-        header: vsl_record_header ~ data: take!(header.len) ~ take!((4 - header.len % 4) % 4),
-        || {
-            VslRecord {
-                tag: to_vsl_record_tag(header.tag),
-                marker: header.marker,
-                ident: header.ident,
-                data: data
-            }
-        })
-}
-
 pub fn vsl_record_v4<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
     chain!(
         input,
         header: vsl_record_header ~ data: take!(header.len - 1) ~ take!(1) ~ take!((4 - header.len % 4) % 4),
-        || {
-            VslRecord {
-                tag: to_vsl_record_tag(header.tag),
-                marker: header.marker,
-                ident: header.ident,
-                data: data
-            }
-        })
+        || VslRecord {
+        tag: to_vsl_record_tag(header.tag),
+        marker: header.marker,
+        ident: header.ident,
+        data: data
+    })
 }
-
-/*
-fn binary_vsl_records<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], Vec<VslRecord<'b>>, u32> {
-    chain!(
-        input, binary_vsl_tag ~ records: many1!(vsl_record),
-        || { records })
-}
-*/
-
