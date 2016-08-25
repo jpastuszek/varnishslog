@@ -70,6 +70,8 @@ use serde_json::ser::to_writer as write_json;
 use serde_json::ser::to_writer_pretty as write_json_pretty;
 use std::io::Write;
 
+use chrono::NaiveDateTime;
+
 quick_error! {
     #[derive(Debug)]
     pub enum OutputError {
@@ -87,6 +89,7 @@ quick_error! {
 pub enum Format {
     Json,
     JsonPretty,
+    NcsaJson,
 }
 
 trait AsSer<'a> {
@@ -184,14 +187,61 @@ impl<'a> AsSer<'a> for CacheObject {
 
 pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write {
     fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: EntryType {
+        let write_entry = match format {
+            &Format::Json => write_json,
+            &Format::JsonPretty => write_json_pretty,
+            &Format::NcsaJson => write_json,
+        };
         match format {
             &Format::Json | &Format::JsonPretty => {
-                let write = match format {
-                    &Format::Json => write_json,
-                    &Format::JsonPretty => write_json_pretty,
-                };
+                try!(write_entry(out, &Entry {
+                    record_type: E::type_name(),
+                    record: &log_entry,
+                }));
 
-                try!(write(out, &Entry {
+                try!(writeln!(out, ""));
+            }
+            &Format::NcsaJson => {
+                // 192.168.1.115 - - [25/Aug/2016:11:56:55 +0000] "GET http://staging.eod.whatclinic.net/ HTTP/1.1" 503 1366
+                let date_time = NaiveDateTime::from_timestamp(log_entry.timestamp() as i64, 0);
+
+                //TODO: bench
+                /*
+                fn escape(s: &str) -> String {
+                    s.split('"').collect::<Vec<_>>().join("\\\"")
+                }
+                */
+                fn write_escaped<W>(out: &mut W, s: &str) -> Result<(), IoError> where W: Write {
+                    let mut iter = s.split('"').peekable();
+                    loop {
+                        match (iter.next(), iter.peek()) {
+                            (Some(i), Some(_)) => try!(write!(out, "{}\\\"", i)),
+                            (Some(i), None) => {
+                                try!(write!(out, "{}", i));
+                                break
+                            }
+                            _ => unreachable!()
+                        }
+                    }
+                    Ok(())
+                }
+
+                try!(write!(out, "{} {} - [{}] \"",
+                            log_entry.remote_ip(),
+                            E::type_name(),
+                            date_time.format("%d/%b/%Y:%H:%M:%S +0000")));
+
+                try!(write_escaped(out, log_entry.request_method()));
+                try!(write!(out, " "));
+                try!(write_escaped(out, log_entry.request_url()));
+                try!(write!(out, " "));
+                try!(write_escaped(out, log_entry.request_protocol()));
+
+                try!(write!(out, "\" {} {} ",
+                            log_entry.response_status().unwrap_or(0),
+                            log_entry.response_bytes().unwrap_or(0)));
+
+                try!(write_entry(out, &Entry {
                     record_type: E::type_name(),
                     record: &log_entry,
                 }));

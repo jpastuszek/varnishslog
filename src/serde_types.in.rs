@@ -9,6 +9,13 @@ struct Entry<'a, S> where S: Serialize + 'a {
 
 trait EntryType: Serialize {
     fn type_name() -> &'static str;
+    fn remote_ip(&self) -> &str;
+    fn timestamp(&self) -> f64;
+    fn request_method(&self) -> &str;
+    fn request_url(&self) -> &str;
+    fn request_protocol(&self) -> &str;
+    fn response_status(&self) -> Option<u32>;
+    fn response_bytes(&self) -> Option<u64>;
 }
 
 #[derive(Serialize, Debug)]
@@ -42,6 +49,27 @@ impl<'a> EntryType for ClientAccessLogEntry<'a> {
     fn type_name() -> &'static str {
         "client_access"
     }
+    fn remote_ip(&self) -> &str {
+        self.remote_address.ip
+    }
+    fn timestamp(&self) -> f64 {
+        self.end_timestamp
+    }
+    fn request_method(&self) -> &str {
+        self.request.method
+    }
+    fn request_url(&self) -> &str {
+        self.request.url
+    }
+    fn request_protocol(&self) -> &str {
+        self.request.protocol
+    }
+    fn response_status(&self) -> Option<u32> {
+        Some(self.response.status)
+    }
+    fn response_bytes(&self) -> Option<u64> {
+        Some(self.sent_total_bytes)
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -74,6 +102,27 @@ impl<'a> EntryType for BackendAccessLogEntry<'a> {
     fn type_name() -> &'static str {
         "backend_access"
     }
+    fn remote_ip(&self) -> &str {
+        self.remote_address.ip
+    }
+    fn timestamp(&self) -> f64 {
+        self.end_timestamp
+    }
+    fn request_method(&self) -> &str {
+        self.request.method
+    }
+    fn request_url(&self) -> &str {
+        self.request.url
+    }
+    fn request_protocol(&self) -> &str {
+        self.request.protocol
+    }
+    fn response_status(&self) -> Option<u32> {
+        self.response.as_ref().map(|r| r.status).or(Some(503)) // no response
+    }
+    fn response_bytes(&self) -> Option<u64> {
+        self.recv_total_bytes
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -96,6 +145,27 @@ struct PipeSessionLogEntry<'a> {
 impl<'a> EntryType for PipeSessionLogEntry<'a> {
     fn type_name() -> &'static str {
         "pipe_session"
+    }
+    fn remote_ip(&self) -> &str {
+        self.remote_address.ip
+    }
+    fn timestamp(&self) -> f64 {
+        self.end_timestamp
+    }
+    fn request_method(&self) -> &str {
+        self.request.method
+    }
+    fn request_url(&self) -> &str {
+        self.request.url
+    }
+    fn request_protocol(&self) -> &str {
+        self.request.protocol
+    }
+    fn response_status(&self) -> Option<u32> {
+        None
+    }
+    fn response_bytes(&self) -> Option<u64> {
+        Some(self.sent_total_bytes)
     }
 }
 

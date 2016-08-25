@@ -1,8 +1,8 @@
 [package]
 authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
+build = "build.rs"
 name = "varnishslog"
 version = "0.1.0"
-build = "build.rs"
 
 [build-dependencies]
 serde_codegen = "0.8.4"
@@ -10,6 +10,7 @@ serde_codegen = "0.8.4"
 [dependencies]
 assert_matches = "1.0.1"
 bitflags = "0.7.0"
+chrono = "0.2.25"
 clap = "2.10.0"
 env_logger = "0.3.4"
 log = "0.3.6"

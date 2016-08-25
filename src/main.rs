@@ -15,6 +15,8 @@ extern crate assert_matches;
 extern crate serde;
 extern crate serde_json;
 
+extern crate chrono;
+
 #[cfg(test)]
 extern crate env_logger;
 
@@ -39,7 +41,8 @@ arg_enum! {
         RecordDebug,
         SessionDebug,
         Json,
-        JsonPretty
+        JsonPretty,
+        NcsaJson
     }
 }
 
@@ -142,6 +145,7 @@ fn main() {
                 let format = match output_format {
                     OutputFormat::Json => Format::Json,
                     OutputFormat::JsonPretty => Format::JsonPretty,
+                    OutputFormat::NcsaJson => Format::NcsaJson,
                     _ => unreachable!()
                 };
 
