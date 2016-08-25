@@ -96,9 +96,12 @@ trait AsSer<'a> {
 }
 
 impl<'a> AsSer<'a> for Address {
-    type Out = (&'a str, u16);
+    type Out = AddressLogEntry<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        (self.0.as_str(), self.1)
+        AddressLogEntry {
+            ip: self.0.as_str(),
+            port: self.1,
+        }
     }
 }
 

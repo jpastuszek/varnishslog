@@ -15,7 +15,7 @@ trait EntryType: Serialize {
 struct ClientAccessLogEntry<'a> {
     vxid: u32,
     request_type: &'a str,
-    remote_address: (&'a str, u16),
+    remote_address: AddressLogEntry<'a>,
     session_timestamp: f64,
     start_timestamp: f64,
     end_timestamp: f64,
@@ -47,7 +47,7 @@ impl<'a> EntryType for ClientAccessLogEntry<'a> {
 #[derive(Serialize, Debug)]
 struct BackendAccessLogEntry<'a> {
     vxid: u32,
-    remote_address: (&'a str, u16),
+    remote_address: AddressLogEntry<'a>,
     session_timestamp: f64,
     start_timestamp: f64,
     end_timestamp: f64,
@@ -79,7 +79,7 @@ impl<'a> EntryType for BackendAccessLogEntry<'a> {
 #[derive(Serialize, Debug)]
 struct PipeSessionLogEntry<'a> {
     vxid: u32,
-    remote_address: (&'a str, u16),
+    remote_address: AddressLogEntry<'a>,
     session_timestamp: f64,
     start_timestamp: f64,
     end_timestamp: f64,
@@ -97,6 +97,12 @@ impl<'a> EntryType for PipeSessionLogEntry<'a> {
     fn type_name() -> &'static str {
         "pipe_session"
     }
+}
+
+#[derive(Serialize, Debug)]
+struct AddressLogEntry<'a> {
+    ip: &'a str,
+    port: u16,
 }
 
 #[derive(Serialize, Debug)]
@@ -174,6 +180,6 @@ struct CacheObjectLogEntry<'a> {
 struct BackendConnectionLogEntry<'a> {
     fd: isize,
     name: &'a str,
-    remote_address: (&'a str, u16),
-    local_address: (&'a str, u16),
+    remote_address: AddressLogEntry<'a>,
+    local_address: AddressLogEntry<'a>,
 }
