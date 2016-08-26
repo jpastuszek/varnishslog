@@ -1,12 +1,6 @@
 use serde::ser::Serialize;
 use serde::ser::Serializer;
 
-#[derive(Serialize, Debug)]
-struct Entry<'a, S> where S: Serialize + 'a {
-    record_type: &'a str,
-    record: &'a S,
-}
-
 trait EntryType: Serialize {
     fn type_name() -> &'static str;
     fn remote_ip(&self) -> &str;
@@ -20,6 +14,7 @@ trait EntryType: Serialize {
 
 #[derive(Serialize, Debug)]
 struct ClientAccessLogEntry<'a> {
+    record_type: &'a str,
     vxid: u32,
     request_type: &'a str,
     remote_address: AddressLogEntry<'a>,
@@ -74,6 +69,7 @@ impl<'a> EntryType for ClientAccessLogEntry<'a> {
 
 #[derive(Serialize, Debug)]
 struct BackendAccessLogEntry<'a> {
+    record_type: &'a str,
     vxid: u32,
     remote_address: AddressLogEntry<'a>,
     session_timestamp: f64,
@@ -127,6 +123,7 @@ impl<'a> EntryType for BackendAccessLogEntry<'a> {
 
 #[derive(Serialize, Debug)]
 struct PipeSessionLogEntry<'a> {
+    record_type: &'a str,
     vxid: u32,
     remote_address: AddressLogEntry<'a>,
     session_timestamp: f64,

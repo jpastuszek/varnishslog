@@ -194,10 +194,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         };
         match format {
             &Format::Json | &Format::JsonPretty => {
-                try!(write_entry(out, &Entry {
-                    record_type: E::type_name(),
-                    record: &log_entry,
-                }));
+                try!(write_entry(out, &log_entry));
 
                 try!(writeln!(out, ""));
             }
@@ -241,10 +238,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             log_entry.response_status().unwrap_or(0),
                             log_entry.response_bytes().unwrap_or(0)));
 
-                try!(write_entry(out, &Entry {
-                    record_type: E::type_name(),
-                    record: &log_entry,
-                }));
+                try!(write_entry(out, &log_entry));
 
                 try!(writeln!(out, ""));
             }
@@ -288,6 +282,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     ref accounting,
                     ..
                 } => try!(write(format, out, &BackendAccessLogEntry {
+                    record_type: BackendAccessLogEntry::type_name(),
                     vxid: client_record.ident,
                     remote_address: session_record.remote.as_ser(),
                     session_timestamp: session_record.open,
@@ -317,6 +312,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     ref accounting,
                     ..
                 } => try!(write(format, out, &BackendAccessLogEntry {
+                    record_type: BackendAccessLogEntry::type_name(),
                     vxid: client_record.ident,
                     remote_address: session_record.remote.as_ser(),
                     session_timestamp: session_record.open,
@@ -351,6 +347,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     fetch,
                     ..
                 } => try!(write(format, out, &BackendAccessLogEntry {
+                    record_type: BackendAccessLogEntry::type_name(),
                     vxid: client_record.ident,
                     remote_address: session_record.remote.as_ser(),
                     session_timestamp: session_record.open,
@@ -414,6 +411,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         ref accounting,
                         ..
                     }) => try!(write(format, out, &ClientAccessLogEntry {
+                        record_type: ClientAccessLogEntry::type_name(),
                         vxid: record.ident,
                         request_type: request_type,
                         remote_address: session_record.remote.as_ser(),
@@ -449,6 +447,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         ref accounting,
                         ..
                     }) => try!(write(format, out, &ClientAccessLogEntry {
+                        record_type: ClientAccessLogEntry::type_name(),
                         vxid: record.ident,
                         request_type: request_type,
                         remote_address: session_record.remote.as_ser(),
@@ -488,6 +487,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 ..
                             } = backend_record.transaction {
                                 try!(write(format, out, &PipeSessionLogEntry {
+                                    record_type: PipeSessionLogEntry::type_name(),
                                     vxid: record.ident,
                                     remote_address: session_record.remote.as_ser(),
                                     session_timestamp: session_record.open,
