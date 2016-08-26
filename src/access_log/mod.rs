@@ -122,6 +122,15 @@ impl<'a> AsSer<'a> for Handling {
     }
 }
 
+impl<'a> AsSer<'a> for Vec<(String, String)> {
+    type Out = HeadersLogEntry<'a>;
+    fn as_ser(&'a self) -> Self::Out {
+        HeadersLogEntry {
+            headers: self.as_slice(),
+        }
+    }
+}
+
 impl<'a> AsSer<'a> for HttpRequest {
     type Out = HttpRequestLogEntry<'a>;
     fn as_ser(&'a self) -> Self::Out {
@@ -129,7 +138,7 @@ impl<'a> AsSer<'a> for HttpRequest {
             protocol: self.protocol.as_str(),
             method: self.method.as_str(),
             url: self.url.as_str(),
-            headers: self.headers.as_slice(),
+            headers: self.headers.as_ser(),
         }
     }
 }
@@ -141,7 +150,7 @@ impl<'a> AsSer<'a> for HttpResponse {
             status: self.status,
             reason: self.reason.as_str(),
             protocol: self.protocol.as_str(),
-            headers: self.headers.as_slice(),
+            headers: self.headers.as_ser(),
         }
     }
 }
