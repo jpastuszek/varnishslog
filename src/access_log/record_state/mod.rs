@@ -80,6 +80,7 @@ impl RecordState {
 mod tests {
     pub use super::*;
     pub use super::super::test_helpers::*;
+    use linked_hash_map::LinkedHashMap;
 
     #[test]
     fn apply_record_state_client_access() {
@@ -153,6 +154,10 @@ mod tests {
             esi_records.is_empty()
         );
 
+        let mut req_headers = LinkedHashMap::new();
+        req_headers.insert("Date".to_string(), vec!["Tue, 16 Aug 2016 13:49:45 GMT".to_string()]);
+        req_headers.insert("Host".to_string(), vec!["127.0.0.1:1236".to_string()]);
+
         assert_matches!(client.transaction, ClientAccessTransaction::Full {
             request: HttpRequest {
                 ref method,
@@ -165,10 +170,13 @@ mod tests {
             method == "GET" &&
             url == "/test_page/123.html" &&
             protocol == "HTTP/1.1" &&
-            headers == &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-                ("Host".to_string(), "127.0.0.1:1236".to_string())]
+            headers == &req_headers
         );
+
+        let mut resp_headers = LinkedHashMap::new();
+        resp_headers.insert("Date".to_string(), vec!["Tue, 16 Aug 2016 13:49:45 GMT".to_string()]);
+        resp_headers.insert("Server".to_string(), vec!["Varnish".to_string()]);
+        resp_headers.insert("Content-Length".to_string(), vec!["1366".to_string()]);
 
         assert_matches!(client.transaction, ClientAccessTransaction::Full {
             response: HttpResponse {
@@ -182,10 +190,7 @@ mod tests {
             protocol == "HTTP/1.1" &&
             status == 503 &&
             reason == "Backend fetch failed" &&
-            headers == &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-                ("Server".to_string(), "Varnish".to_string()),
-                ("Content-Length".to_string(), "1366".to_string())]
+            headers == &resp_headers
         );
     }
 
@@ -236,6 +241,10 @@ mod tests {
             ..
         } if reason == "fetch");
 
+        let mut req_headers = LinkedHashMap::new();
+        req_headers.insert("Host".to_string(), vec!["localhost:8080".to_string()]);
+        req_headers.insert("User-Agent".to_string(), vec!["curl/7.40.0".to_string()]);
+
         assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
             request: HttpRequest {
                 ref method,
@@ -248,10 +257,13 @@ mod tests {
             method == "GET" &&
             url == "/foobar" &&
             protocol == "HTTP/1.1" &&
-            headers == &[
-                ("Host".to_string(), "localhost:8080".to_string()),
-                ("User-Agent".to_string(), "curl/7.40.0".to_string())]
+            headers == &req_headers
         );
+
+        let mut resp_headers = LinkedHashMap::new();
+        resp_headers.insert("Date".to_string(), vec!["Fri, 22 Jul 2016 09:46:02 GMT".to_string()]);
+        resp_headers.insert("Server".to_string(), vec!["Varnish".to_string()]);
+        resp_headers.insert("Content-Type".to_string(), vec!["text/html; charset=utf-8".to_string()]);
 
         assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
             synth_response: HttpResponse {
@@ -265,10 +277,7 @@ mod tests {
             protocol == "HTTP/1.1" &&
             status == 503 &&
             reason == "Backend fetch failed" &&
-            headers == &[
-                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                ("Server".to_string(), "Varnish".to_string()),
-                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+            headers == &resp_headers
         );
     }
 

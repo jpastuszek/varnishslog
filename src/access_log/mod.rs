@@ -122,11 +122,11 @@ impl<'a> AsSer<'a> for Handling {
     }
 }
 
-impl<'a> AsSer<'a> for Vec<(String, String)> {
+impl<'a> AsSer<'a> for LinkedHashMap<String, Vec<String>> {
     type Out = HeadersLogEntry<'a>;
     fn as_ser(&'a self) -> Self::Out {
         HeadersLogEntry {
-            headers: self.as_slice(),
+            headers: self,
         }
     }
 }

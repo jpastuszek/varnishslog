@@ -1,5 +1,6 @@
 use serde::ser::Serialize;
 use serde::ser::Serializer;
+use linked_hash_map::LinkedHashMap;
 
 trait EntryType: Serialize {
     fn type_name() -> &'static str;
@@ -174,25 +175,17 @@ struct AddressLogEntry<'a> {
 
 #[derive(Debug)]
 struct HeadersLogEntry<'a> {
-    headers: &'a [(String, String)],
-}
-
-#[derive(Serialize, Debug)]
-struct HeaderLogEntry<'a> {
-    name: &'a str,
-    value: &'a str,
+    headers: &'a LinkedHashMap<String, Vec<String>>,
 }
 
 impl<'a> Serialize for HeadersLogEntry<'a> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_seq(Some(self.headers.len())));
-        for &(ref name, ref value) in self.headers {
-            try!(serializer.serialize_seq_elt(&mut state, &HeaderLogEntry {
-                name: name.as_str(),
-                value: value.as_str(),
-            }));
+        let mut state = try!(serializer.serialize_map(Some(self.headers.len())));
+        for (ref name, ref values) in self.headers {
+            try!(serializer.serialize_map_key(&mut state, name));
+            try!(serializer.serialize_map_value(&mut state, values));
         }
-        try!(serializer.serialize_seq_end(state));
+        try!(serializer.serialize_map_end(state));
         Ok(())
     }
 }

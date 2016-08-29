@@ -119,6 +119,8 @@ use std::fmt::Debug;
 use vsl::*;
 use vsl::VslRecordTag::*;
 
+use linked_hash_map::LinkedHashMap;
+
 pub type Address = (String, Port);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -339,7 +341,7 @@ pub struct HttpRequest {
     pub protocol: String,
     pub method: String,
     pub url: String,
-    pub headers: Vec<(String, String)>,
+    pub headers: LinkedHashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -347,7 +349,7 @@ pub struct HttpResponse {
     pub status: Status,
     pub reason: String,
     pub protocol: String,
-    pub headers: Vec<(String, String)>,
+    pub headers: LinkedHashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -549,19 +551,22 @@ trait DetailBuilder<C>: Sized {
 // Note: we need to use bytes here since we need to be 1 to 1 comparable with original byte value
 #[derive(Debug)]
 struct HeadersBuilder {
-    headers: Vec<(MaybeString, MaybeString)>,
+    headers: LinkedHashMap<MaybeString, Vec<MaybeString>>,
 }
 
 impl HeadersBuilder {
     fn new() -> HeadersBuilder {
         HeadersBuilder {
-            headers: Vec::new()
+            headers: LinkedHashMap::new()
         }
     }
 
     fn set(self, name: MaybeString, value: MaybeString) -> HeadersBuilder {
         let mut headers = self.headers;
-        headers.push((name, value));
+
+        let mut values = headers.remove(&name).unwrap_or(Vec::new());
+        values.push(value);
+        headers.insert(name, values);
 
         HeadersBuilder {
             headers: headers,
@@ -571,10 +576,17 @@ impl HeadersBuilder {
 
     fn unset(self, name: &MaybeStr, value: &MaybeStr) -> HeadersBuilder {
         let mut headers = self.headers;
-        headers.retain(|header| {
-            let &(ref t_name, ref t_value) = header;
-            (t_name.as_maybe_str(), t_value.as_maybe_str()) != (name, value)
-        });
+        let mut remove = false;
+
+        if let Some(values) = headers.get_mut(name) {
+            values.retain(|t_value| {
+                t_value.as_maybe_str() != value
+            });
+            remove = values.is_empty();
+        }
+        if remove {
+            headers.remove(name);
+        }
 
         HeadersBuilder {
             headers: headers,
@@ -582,7 +594,7 @@ impl HeadersBuilder {
         }
     }
 
-    fn unwrap(self) -> Vec<(MaybeString, MaybeString)> {
+    fn unwrap(self) -> LinkedHashMap<MaybeString, Vec<MaybeString>> {
         self.headers
     }
 }
@@ -671,8 +683,9 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
             method: try!(self.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))),
             url: try!(self.url.ok_or(RecordBuilderError::RecordIncomplete("Request.url"))),
             headers: self.headers.unwrap().into_iter()
-                .map(|(name, value)| (name.to_lossy_string(), value.to_lossy_string()))
-                .collect(),
+                .fold(LinkedHashMap::new(), |mut acc, (name, values)| {
+                    acc.insert(name.to_lossy_string(), values.into_iter().map(MaybeString::to_lossy_string).collect());
+                    acc}),
         })
     }
 }
@@ -761,8 +774,9 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
             status: try!(self.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))),
             reason: try!(self.reason.ok_or(RecordBuilderError::RecordIncomplete("Response.reason"))),
             headers: self.headers.unwrap().into_iter()
-                .map(|(name, value)| (name.to_lossy_string(), value.to_lossy_string()))
-                .collect(),
+                .fold(LinkedHashMap::new(), |mut acc, (name, values)| {
+                    acc.insert(name.to_lossy_string(), values.into_iter().map(MaybeString::to_lossy_string).collect());
+                    acc}),
         })
     }
 }
@@ -1661,6 +1675,7 @@ mod tests {
     pub use super::*;
     pub use super::super::super::test_helpers::*;
     use vsl::{VslRecord, VSL_BACKENDMARKER};
+    use linked_hash_map::LinkedHashMap;
 
     macro_rules! apply {
         ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{
@@ -1782,21 +1797,25 @@ mod tests {
                                  123, SLT_VCL_call,         "BACKEND_RESPONSE";
                                 );
 
+        let mut req_headers = LinkedHashMap::new();
+        req_headers.insert("Host".to_string(), vec!["localhost:8080".to_string()]);
+        req_headers.insert("User-Agent".to_string(), vec!["curl/7.40.0".to_string()]);
+
         let request = builder.http_request.as_ref().unwrap();
         assert_eq!(request.method, "GET".to_string());
         assert_eq!(request.url, "/foobar".to_string());
         assert_eq!(request.protocol, "HTTP/1.1".to_string());
-        assert_eq!(request.headers, &[
-                   ("Host".to_string(), "localhost:8080".to_string()),
-                   ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
+        assert_eq!(request.headers, req_headers);
+
+        let mut resp_headers = LinkedHashMap::new();
+        resp_headers.insert("Date".to_string(), vec!["Fri, 22 Jul 2016 09:46:02 GMT".to_string()]);
+        resp_headers.insert("Server".to_string(), vec!["Varnish".to_string()]);
 
         let response = builder.http_response.as_ref().unwrap();
         assert_eq!(response.protocol, "HTTP/1.1".to_string());
         assert_eq!(response.status, 503);
         assert_eq!(response.reason, "Backend fetch failed".to_string());
-        assert_eq!(response.headers, &[
-                   ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                   ("Server".to_string(), "Varnish".to_string())]);
+        assert_eq!(response.headers, resp_headers);
     }
 
     #[test]
@@ -1836,23 +1855,24 @@ mod tests {
                                  15, SLT_ReqUnset,      "X-Varnish-Decision: Cacheable";
                                  15, SLT_ReqHeader,     "X-Varnish-Decision: Uncacheable-NoCacheClass";
                                  15, SLT_ReqHeader,     "X-Varnish-Decision:";
+                                 15, SLT_ReqHeader,     "Foo: bar";
+                                 15, SLT_ReqUnset,      "Foo: bar";
                                  );
 
+        let mut req_headers = LinkedHashMap::new();
+        req_headers.insert("Host".to_string(), vec!["127.0.0.1:1209".to_string()]);
+        req_headers.insert("Test".to_string(), vec!["1".to_string(), "2".to_string(), "3".to_string()]);
+        req_headers.insert("X-Varnish-Data-Source".to_string(), vec!["Backend".to_string()]);
+        req_headers.insert("X-Forwarded-For".to_string(), vec!["127.0.0.1".to_string()]);
+        req_headers.insert("X-Varnish-User-Agent-Class".to_string(), vec!["Unknown-Bot".to_string()]);
+        req_headers.insert("X-Varnish-Client-Device".to_string(), vec!["D".to_string()]);
+        req_headers.insert("X-Varnish-Client-Country".to_string(), vec!["Unknown".to_string()]);
+        req_headers.insert("X-Varnish-Original-URL".to_string(), vec!["/test_page/abc".to_string()]);
+        req_headers.insert("X-Varnish-Result".to_string(), vec!["hit_for_pass".to_string()]);
+        req_headers.insert("X-Varnish-Decision".to_string(), vec!["Uncacheable-NoCacheClass".to_string()]);
+
         let request = builder.http_request.complete().unwrap().unwrap();
-        assert_eq!(request.headers, &[
-                   ("Host".to_string(), "127.0.0.1:1209".to_string()),
-                   ("Test".to_string(), "1".to_string()),
-                   ("Test".to_string(), "2".to_string()),
-                   ("Test".to_string(), "3".to_string()),
-                   ("X-Varnish-Data-Source".to_string(), "Backend".to_string()),
-                   ("X-Forwarded-For".to_string(), "127.0.0.1".to_string()),
-                   ("X-Varnish-User-Agent-Class".to_string(), "Unknown-Bot".to_string()),
-                   ("X-Varnish-Client-Device".to_string(), "D".to_string()),
-                   ("X-Varnish-Client-Country".to_string(), "Unknown".to_string()),
-                   ("X-Varnish-Original-URL".to_string(), "/test_page/abc".to_string()),
-                   ("X-Varnish-Result".to_string(), "hit_for_pass".to_string()),
-                   ("X-Varnish-Decision".to_string(), "Uncacheable-NoCacheClass".to_string()),
-        ]);
+        assert_eq!(request.headers, req_headers);
     }
 
     #[test]
@@ -1876,17 +1896,19 @@ mod tests {
                                  15, SLT_RespHeader,     "Via: 1.1 test-varnish (Varnish)";
                                  15, SLT_RespHeader,     "X-Request-ID: rid-15";
                                  15, SLT_RespUnset,      "X-Varnish: 15";
+                                 15, SLT_RespHeader,     "Foo: bar";
+                                 15, SLT_RespUnset,      "Foo: bar";
                                 );
 
+        let mut resp_headers = LinkedHashMap::new();
+        resp_headers.insert("Content-Type".to_string(), vec!["text/html; charset=utf-8".to_string()]);
+        resp_headers.insert("Test".to_string(), vec!["1".to_string(), "3".to_string()]);
+        resp_headers.insert("Age".to_string(), vec!["0".to_string()]);
+        resp_headers.insert("Via".to_string(), vec!["1.1 test-varnish (Varnish)".to_string()]);
+        resp_headers.insert("X-Request-ID".to_string(), vec!["rid-15".to_string()]);
+
         let response = builder.http_response.complete().unwrap().unwrap();
-        assert_eq!(response.headers, &[
-                   ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
-                   ("Test".to_string(), "1".to_string()),
-                   ("Test".to_string(), "3".to_string()),
-                   ("Age".to_string(), "0".to_string()),
-                   ("Via".to_string(), "1.1 test-varnish (Varnish)".to_string()),
-                   ("X-Request-ID".to_string(), "rid-15".to_string()),
-        ]);
+        assert_eq!(response.headers, resp_headers);
     }
 
     #[test]
@@ -1916,13 +1938,15 @@ mod tests {
                    123, SLT_BereqHeader,    "Baz: bar";
                    );
 
+        let mut req_headers = LinkedHashMap::new();
+        req_headers.insert("Host".to_string(), vec!["localhost:8080".to_string()]);
+        req_headers.insert("User-Agent".to_string(), vec!["curl/7.40.0".to_string()]);
+
         let requests = builder.http_request.as_ref().unwrap();
         assert_eq!(requests.method, "GET".to_string());
         assert_eq!(requests.url, "/foobar".to_string());
         assert_eq!(requests.protocol, "HTTP/1.1".to_string());
-        assert_eq!(requests.headers, &[
-                   ("Host".to_string(), "localhost:8080".to_string()),
-                   ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
+        assert_eq!(requests.headers, req_headers);
     }
 
     #[test]
@@ -1960,11 +1984,12 @@ mod tests {
                    123, SLT_VCL_call,       "BACKEND_RESPONSE";
                    );
 
+        let mut resp_headers = LinkedHashMap::new();
+        resp_headers.insert("Host".to_string(), vec!["\u{0}\u{fffd}\u{fffd}\u{fffd}".to_string()]);
+
         let requests = builder.http_request.as_ref().unwrap();
         assert_eq!(requests.url, "\u{0}\u{fffd}\u{fffd}\u{fffd}".to_string());
-        assert_eq!(requests.headers, vec![
-                   ("Host".to_string(), "\u{0}\u{fffd}\u{fffd}\u{fffd}".to_string())
-        ]);
+        assert_eq!(requests.headers,resp_headers);
     }
 
     //TODO: _full test
@@ -2096,6 +2121,10 @@ mod tests {
 
         assert_eq!(record.handling, Handling::Pipe);
 
+        let mut req_headers = LinkedHashMap::new();
+        req_headers.insert("Upgrade".to_string(), vec!["websocket".to_string()]);
+        req_headers.insert("Connection".to_string(), vec!["Upgrade".to_string()]);
+
         assert_matches!(record.transaction, ClientAccessTransaction::Piped {
             request: HttpRequest {
                 ref url,
@@ -2111,9 +2140,7 @@ mod tests {
             }
         } if
             url == "/websocket" &&
-            headers == &[
-                ("Upgrade".to_string(), "websocket".to_string()),
-                ("Connection".to_string(), "Upgrade".to_string())] &&
+            headers == &req_headers &&
             backend_record == &Link::Unresolved(5)
         );
     }
@@ -2276,23 +2303,28 @@ mod tests {
            ..
        });
 
-        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-            request: HttpRequest {
-                ref method,
-                ref url,
-                ref protocol,
-                ref headers,
-            },
-            ..
-        } if
-            method == "GET" &&
-            url == "/test_page/123.html" &&
-            protocol == "HTTP/1.1" &&
-            headers == &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:36:19 GMT".to_string()),
-                ("Host".to_string(), "127.0.0.1:1202".to_string()),
-                ("Accept-Encoding".to_string(), "gzip".to_string())]
-        );
+       let mut req_headers = LinkedHashMap::new();
+       req_headers.insert("Date".to_string(), vec!["Tue, 16 Aug 2016 13:36:19 GMT".to_string()]);
+       req_headers.insert("Host".to_string(), vec!["127.0.0.1:1202".to_string()]);
+       req_headers.insert("Accept-Encoding".to_string(), vec!["gzip".to_string()]);
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+           request: HttpRequest {
+               ref method,
+               ref url,
+               ref protocol,
+               ref headers,
+           },
+           ..
+       } if
+           method == "GET" &&
+           url == "/test_page/123.html" &&
+           protocol == "HTTP/1.1" &&
+           headers == &req_headers
+       );
+
+        let mut resp_headers = LinkedHashMap::new();
+        resp_headers.insert("Content-Type".to_string(), vec!["text/html; charset=utf-8".to_string()]);
 
        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
            response: HttpResponse {
@@ -2306,8 +2338,7 @@ mod tests {
            protocol == "HTTP/1.1" &&
            status == 500 &&
            reason == "Internal Server Error" &&
-           headers == &[
-               ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+           headers == &resp_headers
        );
     }
 
@@ -2458,6 +2489,10 @@ mod tests {
            ..
        });
 
+       let mut req_headers = LinkedHashMap::new();
+       req_headers.insert("Date".to_string(), vec!["Tue, 16 Aug 2016 13:49:45 GMT".to_string()]);
+       req_headers.insert("Host".to_string(), vec!["127.0.0.1:1236".to_string()]);
+
         assert_matches!(record.transaction, BackendAccessTransaction::Failed {
             request: HttpRequest {
                 ref method,
@@ -2470,10 +2505,13 @@ mod tests {
             method == "GET" &&
             url == "/test_page/123.html" &&
             protocol == "HTTP/1.1" &&
-            headers == &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-                ("Host".to_string(), "127.0.0.1:1236".to_string())]
+            headers == &req_headers
         );
+
+       let mut resp_headers = LinkedHashMap::new();
+       resp_headers.insert("Date".to_string(), vec!["Tue, 16 Aug 2016 13:49:45 GMT".to_string()]);
+       resp_headers.insert("Server".to_string(), vec!["Varnish".to_string()]);
+       resp_headers.insert("Retry-After".to_string(), vec!["20".to_string()]);
 
        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
            synth_response: HttpResponse {
@@ -2487,10 +2525,7 @@ mod tests {
            protocol == "HTTP/1.1" &&
            status == 503 &&
            reason == "Backend fetch failed" &&
-           headers == &[
-               ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-               ("Server".to_string(), "Varnish".to_string()),
-               ("Retry-After".to_string(), "20".to_string())]
+           headers == &resp_headers
        );
     }
 
@@ -2558,6 +2593,10 @@ mod tests {
        assert_eq!(record.start, 1471355444.744344);
        assert_eq!(record.end, None);
 
+       let mut req_headers = LinkedHashMap::new();
+       req_headers.insert("Connection".to_string(), vec!["Upgrade".to_string()]);
+       req_headers.insert("Upgrade".to_string(), vec!["websocket".to_string()]);
+
        assert_matches!(record.transaction, BackendAccessTransaction::Piped {
            request: HttpRequest {
                ref method,
@@ -2570,9 +2609,7 @@ mod tests {
            method == "GET" &&
            url == "/websocket" &&
            protocol == "HTTP/1.1" &&
-           headers == &[
-               ("Connection".to_string(), "Upgrade".to_string()),
-               ("Upgrade".to_string(), "websocket".to_string())]
+           headers == &req_headers
        );
     }
 
@@ -2600,6 +2637,10 @@ mod tests {
        assert_eq!(record.start, 1471449766.106695);
        assert_eq!(record.end, None);
 
+        let mut req_headers = LinkedHashMap::new();
+        req_headers.insert("User-Agent".to_string(), vec!["curl/7.40.0".to_string()]);
+        req_headers.insert("Host".to_string(), vec!["localhost:1080".to_string()]);
+
        assert_matches!(record.transaction, BackendAccessTransaction::Aborted {
            request: HttpRequest {
                ref method,
@@ -2612,9 +2653,7 @@ mod tests {
            method == "GET" &&
            url == "/" &&
            protocol == "HTTP/1.1" &&
-           headers == &[
-               ("User-Agent".to_string(), "curl/7.40.0".to_string()),
-               ("Host".to_string(), "localhost:1080".to_string())]
+           headers == &req_headers
        );
     }
 
@@ -2757,6 +2796,10 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
+       let mut resp_headers = LinkedHashMap::new();
+       resp_headers.insert("Content-Type".to_string(), vec!["text/html; charset=utf-8".to_string()]);
+       resp_headers.insert("X-Aspnet-Version".to_string(), vec!["4.0.30319".to_string()]);
+
        assert_matches!(record.transaction, BackendAccessTransaction::Full {
            cache_object: CacheObject {
                ref fetch_mode,
@@ -2776,9 +2819,7 @@ mod tests {
            protocol == "HTTP/1.1" &&
            status == 200 &&
            reason == "OK" &&
-           headers == &[
-               ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
-               ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]
+           headers == &resp_headers
        );
    }
 
