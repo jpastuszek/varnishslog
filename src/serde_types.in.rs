@@ -64,7 +64,7 @@ impl<'a> EntryType for ClientAccessLogEntry<'a> {
         Some(self.response.status)
     }
     fn response_bytes(&self) -> Option<u64> {
-        Some(self.sent_total_bytes)
+        Some(self.sent_body_bytes)
     }
 }
 
@@ -118,7 +118,7 @@ impl<'a> EntryType for BackendAccessLogEntry<'a> {
         self.response.as_ref().map(|r| r.status).or(Some(503)) // no response
     }
     fn response_bytes(&self) -> Option<u64> {
-        self.recv_total_bytes
+        self.recv_body_bytes
     }
 }
 
@@ -180,12 +180,11 @@ struct HeadersLogEntry<'a> {
 
 impl<'a> Serialize for HeadersLogEntry<'a> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_map(Some(self.headers.len())));
+        let mut state = try!(serializer.serialize_seq(Some(self.headers.len())));
         for (ref name, ref values) in self.headers {
-            try!(serializer.serialize_map_key(&mut state, name));
-            try!(serializer.serialize_map_value(&mut state, values));
+            try!(serializer.serialize_seq_elt(&mut state, (name, values)));
         }
-        try!(serializer.serialize_map_end(state));
+        try!(serializer.serialize_seq_end(state));
         Ok(())
     }
 }
