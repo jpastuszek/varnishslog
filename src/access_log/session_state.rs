@@ -265,7 +265,6 @@ impl SessionState {
 mod tests {
     pub use super::*;
     pub use super::super::test_helpers::*;
-    use linked_hash_map::LinkedHashMap;
 
     //TODO: testing too much here; should only test session state related structures and how they
     //are put together
@@ -358,44 +357,32 @@ mod tests {
             esi_records.is_empty()
         );
 
-        let mut req_headers = LinkedHashMap::new();
-        req_headers.insert("Host".to_string(), vec!["localhost:8080".to_string()]);
-        req_headers.insert("User-Agent".to_string(), vec!["curl/7.40.0".to_string()]);
-
         assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
-            request: HttpRequest {
-                ref method,
-                ref url,
-                ref protocol,
-                ref headers,
-            },
+            ref request,
             ..
         } if
-            method == "GET" &&
-            url == "/foobar" &&
-            protocol == "HTTP/1.1" &&
-            headers == &req_headers
-        );
-
-        let mut resp_headers = LinkedHashMap::new();
-        resp_headers.insert("Date".to_string(), vec!["Fri, 22 Jul 2016 09:46:02 GMT".to_string()]);
-        resp_headers.insert("Server".to_string(), vec!["Varnish".to_string()]);
-        resp_headers.insert("Content-Type".to_string(), vec!["text/html; charset=utf-8".to_string()]);
+            request == &HttpRequest {
+                method: "GET".to_string(),
+                url: "/foobar".to_string(),
+                protocol: "HTTP/1.1".to_string(),
+                headers: vec![
+                    ("Host".to_string(), "localhost:8080".to_string()),
+                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]
+        });
 
         assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
-            response: HttpResponse {
-                ref protocol,
-                status,
-                ref reason,
-                ref headers,
-            },
+            ref response,
             ..
         } if
-            protocol == "HTTP/1.1" &&
-            status == 503 &&
-            reason == "Backend fetch failed" &&
-            headers == &resp_headers
-        );
+            response == &HttpResponse {
+                protocol: "HTTP/1.1".to_string(),
+                status: 503,
+                reason: "Backend fetch failed".to_string(),
+                headers: vec![
+                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                    ("Server".to_string(), "Varnish".to_string()),
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+        });
 
         if let ClientAccessTransaction::Full { backend_record: Some(ref backend_record), .. } = client_record.transaction {
             let backend_record = backend_record.get_resolved().unwrap();
@@ -410,33 +397,30 @@ mod tests {
             } if reason == "fetch");
 
             assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
-                request: HttpRequest {
-                    ref method,
-                    ref url,
-                    ref protocol,
-                    ref headers,
-                },
+                ref request,
                 ..
             } if
-                method == "GET" &&
-                url == "/foobar" &&
-                protocol == "HTTP/1.1" &&
-                headers == &req_headers
-            );
+                request == &HttpRequest {
+                    method: "GET".to_string(),
+                    url: "/foobar".to_string(),
+                    protocol: "HTTP/1.1".to_string(),
+                    headers: vec![
+                        ("Host".to_string(), "localhost:8080".to_string()),
+                        ("User-Agent".to_string(), "curl/7.40.0".to_string())]
+            });
             assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
-                synth_response: HttpResponse {
-                    ref protocol,
-                    status,
-                    ref reason,
-                    ref headers,
-                },
+                ref synth_response,
                 ..
             } if
-                protocol == "HTTP/1.1" &&
-                status == 503 &&
-                reason == "Backend fetch failed" &&
-                headers == &resp_headers
-            );
+                synth_response == &HttpResponse {
+                    protocol: "HTTP/1.1".to_string(),
+                    status: 503,
+                    reason: "Backend fetch failed".to_string(),
+                    headers: vec![
+                        ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                        ("Server".to_string(), "Varnish".to_string()),
+                        ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+            });
         } else {
             unreachable!()
         }

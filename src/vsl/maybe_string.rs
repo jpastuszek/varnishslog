@@ -1,9 +1,8 @@
 use std::str::from_utf8;
 use std::fmt::{self, Debug, Display};
 use std::ops::Deref;
-use std::borrow::Borrow;
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq)]
 pub struct MaybeStr([u8]);
 
 impl MaybeStr {
@@ -51,7 +50,7 @@ impl Deref for MaybeStr {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq)]
 pub struct MaybeString(pub Vec<u8>);
 
 impl MaybeString {
@@ -91,11 +90,5 @@ impl Debug for MaybeString {
 impl Display for MaybeString {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{}", self.as_maybe_str())
-    }
-}
-
-impl Borrow<MaybeStr> for MaybeString {
-    fn borrow(&self) -> &MaybeStr {
-        self
     }
 }

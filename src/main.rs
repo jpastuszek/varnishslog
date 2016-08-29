@@ -11,10 +11,12 @@ extern crate clap;
 extern crate quick_error;
 #[macro_use]
 extern crate assert_matches;
-extern crate linked_hash_map;
+
 extern crate serde;
 extern crate serde_json;
+
 extern crate chrono;
+
 #[cfg(test)]
 extern crate env_logger;
 
