@@ -42,6 +42,8 @@ struct ClientAccessLogEntry<'a> {
     request_header_index: Option<HeaderIndex<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
     response_header_index: Option<HeaderIndex<'a>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    log_vars_index: Option<LogVarsIndex<'a>>,
 }
 
 impl<'a> EntryType for ClientAccessLogEntry<'a> {
@@ -100,6 +102,8 @@ struct BackendAccessLogEntry<'a> {
     request_header_index: Option<HeaderIndex<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
     response_header_index: Option<HeaderIndex<'a>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    log_vars_index: Option<LogVarsIndex<'a>>,
 }
 
 impl<'a> EntryType for BackendAccessLogEntry<'a> {
@@ -149,6 +153,8 @@ struct PipeSessionLogEntry<'a> {
     request_header_index: Option<HeaderIndex<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
     backend_request_header_index: Option<HeaderIndex<'a>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    log_vars_index: Option<LogVarsIndex<'a>>,
 }
 
 impl<'a> EntryType for PipeSessionLogEntry<'a> {
@@ -252,6 +258,24 @@ impl<'a> Serialize for HeaderIndex<'a> {
         for (ref key, ref values) in self.index {
             try!(serializer.serialize_map_key(&mut state, key));
             try!(serializer.serialize_map_value(&mut state, values));
+        }
+        try!(serializer.serialize_map_end(state));
+        Ok(())
+    }
+}
+
+//TODO: make this a new-type patter thing
+#[derive(Debug)]
+struct LogVarsIndex<'a> {
+    index: &'a LinkedHashMap<String, String>,
+}
+
+impl<'a> Serialize for LogVarsIndex<'a> {
+    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
+        let mut state = try!(serializer.serialize_map(Some(self.index.len())));
+        for (ref key, ref value) in self.index {
+            try!(serializer.serialize_map_key(&mut state, key));
+            try!(serializer.serialize_map_value(&mut state, value));
         }
         try!(serializer.serialize_map_end(state));
         Ok(())

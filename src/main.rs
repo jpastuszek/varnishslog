@@ -71,7 +71,7 @@ fn main() {
         .arg(Arg::with_name("make-indices")
              .long("make-indices")
              .short("i")
-             .help("Make indices of request and response headers with normalized header names"))
+             .help("Make indices of request and response headers with normalized header names and VSL log vars"))
         .get_matches();
 
     stderrlog::new()

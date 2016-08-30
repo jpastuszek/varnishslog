@@ -173,6 +173,15 @@ impl<'a> AsSer<'a> for LinkedHashMap<String, Vec<String>> {
     }
 }
 
+impl<'a> AsSer<'a> for LinkedHashMap<String, String> {
+    type Out = LogVarsIndex<'a>;
+    fn as_ser(&'a self) -> Self::Out {
+        LogVarsIndex {
+            index: self
+        }
+    }
+}
+
 impl<'a> AsSer<'a> for BackendConnection {
     type Out = BackendConnectionLogEntry<'a>;
     fn as_ser(&'a self) -> Self::Out {
@@ -305,6 +314,25 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         })
     }
 
+    fn make_log_vars_index(logs: &[LogEntry]) -> LinkedHashMap<String, String> {
+        let mut index = LinkedHashMap::new();
+
+        for log_entry in logs {
+            if let &LogEntry::Vcl(ref message) = log_entry {
+                let mut s = message.splitn(2, ": ");
+                if let Some(name) = s.next() {
+                    if name.contains(' ') {
+                        continue
+                    }
+                    if let Some(value) = s.next() {
+                        index.insert(name.to_owned(), value.to_owned());
+                    }
+                }
+            }
+        }
+        index
+    }
+
     fn log_linked_backend_access_record<W>(
         format: &Format,
         out: &mut W,
@@ -329,6 +357,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                 } => {
                     let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
                     let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                    let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(record.log.as_slice()));
                     try!(write(format, out, &BackendAccessLogEntry {
                         record_type: BackendAccessLogEntry::type_name(),
                         vxid: client_record.ident,
@@ -355,6 +384,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         log: record.log.as_ser(),
                         request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                         response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                        log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                 }))},
                 BackendAccessTransaction::Failed {
                     ref request,
@@ -363,6 +393,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     ..
                 } => {
                     let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                    let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(record.log.as_slice()));
                     try!(write(format, out, &BackendAccessLogEntry {
                         record_type: BackendAccessLogEntry::type_name(),
                         vxid: client_record.ident,
@@ -389,6 +420,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         log: record.log.as_ser(),
                         request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                         response_header_index: None,
+                        log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                     }))},
                 BackendAccessTransaction::Abandoned {
                     ref request,
@@ -403,6 +435,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                 } => {
                     let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
                     let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                    let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(record.log.as_slice()));
                     try!(write(format, out, &BackendAccessLogEntry {
                         record_type: BackendAccessLogEntry::type_name(),
                         vxid: client_record.ident,
@@ -429,6 +462,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         log: record.log.as_ser(),
                         request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                         response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                        log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                     }))},
                 BackendAccessTransaction::Aborted { .. } |
                 BackendAccessTransaction::Piped { .. } => (),
@@ -473,6 +507,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     }) => {
                         let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
                         let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                        let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
                         try!(write(format, out, &ClientAccessLogEntry {
                             record_type: ClientAccessLogEntry::type_name(),
                             vxid: record.ident,
@@ -500,6 +535,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             log: final_record.log.as_ser(),
                             request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                             response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                            log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                         }))},
                     (_, &ClientAccessTransaction::Full {
                         ref esi_records,
@@ -514,6 +550,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     }) => {
                         let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
                         let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                        let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
                         try!(write(format, out, &ClientAccessLogEntry {
                             record_type: ClientAccessLogEntry::type_name(),
                             vxid: record.ident,
@@ -541,6 +578,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             log: final_record.log.as_ser(),
                             request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                             response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                            log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                         }))},
                     (_, &ClientAccessTransaction::Piped {
                         ref request,
@@ -558,6 +596,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             } = backend_record.transaction {
                                 let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
                                 let backend_request_header_index = make_indices.as_some_from(|| make_header_index(backend_request.headers.as_slice()));
+                                let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
                                 try!(write(format, out, &PipeSessionLogEntry {
                                     record_type: PipeSessionLogEntry::type_name(),
                                     vxid: record.ident,
@@ -575,6 +614,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     backend_connection: backend_connection.as_ser(),
                                     request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                                     backend_request_header_index: backend_request_header_index.as_ref().map(|v| v.as_ser()),
+                                    log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                                 }))
                             } else {
                                 warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
