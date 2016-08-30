@@ -177,22 +177,13 @@ struct HeadersLogEntry<'a> {
     headers: &'a [(String, String)],
 }
 
-#[derive(Serialize, Debug)]
-struct HeaderLogEntry<'a> {
-    name: &'a str,
-    value: &'a str,
-}
-
 impl<'a> Serialize for HeadersLogEntry<'a> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_seq(Some(self.headers.len())));
+        let mut state = try!(serializer.serialize_tuple(self.headers.len()));
         for &(ref name, ref value) in self.headers {
-            try!(serializer.serialize_seq_elt(&mut state, &HeaderLogEntry {
-                name: name.as_str(),
-                value: value.as_str(),
-            }));
+            try!(serializer.serialize_tuple_elt(&mut state, (name.as_str(), value.as_str())));
         }
-        try!(serializer.serialize_seq_end(state));
+        try!(serializer.serialize_tuple_end(state));
         Ok(())
     }
 }
