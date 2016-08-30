@@ -165,18 +165,9 @@ impl<'a> AsSer<'a> for Vec<LogEntry> {
 }
 
 impl<'a> AsSer<'a> for LinkedHashMap<String, Vec<String>> {
-    type Out = HeaderIndex<'a>;
+    type Out = Index<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        HeaderIndex {
-            index: self
-        }
-    }
-}
-
-impl<'a> AsSer<'a> for LinkedHashMap<String, String> {
-    type Out = LogVarsIndex<'a>;
-    fn as_ser(&'a self) -> Self::Out {
-        LogVarsIndex {
+        Index {
             index: self
         }
     }
@@ -314,7 +305,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         })
     }
 
-    fn make_log_vars_index(logs: &[LogEntry]) -> LinkedHashMap<String, String> {
+    fn make_log_vars_index(logs: &[LogEntry]) -> LinkedHashMap<String, Vec<String>> {
         let mut index = LinkedHashMap::new();
 
         for log_entry in logs {
@@ -325,7 +316,9 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         continue
                     }
                     if let Some(value) = s.next() {
-                        index.insert(name.to_owned(), value.to_owned());
+                        let mut values = index.remove(name).unwrap_or(Vec::new());
+                        values.push(value.to_owned());
+                        index.insert(name.to_owned(), values);
                     }
                 }
             }
