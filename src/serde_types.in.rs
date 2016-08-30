@@ -172,28 +172,12 @@ struct AddressLogEntry<'a> {
     port: u16,
 }
 
-#[derive(Debug)]
-struct HeadersLogEntry<'a> {
-    headers: &'a [(String, String)],
-}
-
-impl<'a> Serialize for HeadersLogEntry<'a> {
-    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_tuple(self.headers.len()));
-        for &(ref name, ref value) in self.headers {
-            try!(serializer.serialize_tuple_elt(&mut state, (name.as_str(), value.as_str())));
-        }
-        try!(serializer.serialize_tuple_end(state));
-        Ok(())
-    }
-}
-
 #[derive(Serialize, Debug)]
 struct HttpRequestLogEntry<'a> {
     protocol: &'a str,
     method: &'a str,
     url: &'a str,
-    headers: HeadersLogEntry<'a>,
+    headers: &'a [(String, String)],
 }
 
 #[derive(Serialize, Debug)]
@@ -201,7 +185,7 @@ struct HttpResponseLogEntry<'a> {
     status: u32,
     reason: &'a str,
     protocol: &'a str,
-    headers: HeadersLogEntry<'a>,
+    headers: &'a [(String, String)],
 }
 
 #[derive(Debug)]

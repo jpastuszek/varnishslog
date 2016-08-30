@@ -123,11 +123,9 @@ impl<'a> AsSer<'a> for Handling {
 }
 
 impl<'a> AsSer<'a> for Vec<(String, String)> {
-    type Out = HeadersLogEntry<'a>;
+    type Out = &'a [(String, String)];
     fn as_ser(&'a self) -> Self::Out {
-        HeadersLogEntry {
-            headers: self.as_slice(),
-        }
+        self.as_slice()
     }
 }
 
