@@ -10,6 +10,7 @@ serde_codegen = "0.8.4"
 [dependencies]
 assert_matches = "1.0.1"
 bitflags = "0.7.0"
+boolinator = "0.1.0"
 chrono = "0.2.25"
 clap = "2.10.0"
 env_logger = "0.3.4"

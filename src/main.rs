@@ -16,9 +16,10 @@ extern crate serde;
 extern crate serde_json;
 
 extern crate chrono;
-
 #[cfg(test)]
 extern crate env_logger;
+extern crate linked_hash_map;
+extern crate boolinator;
 
 use std::io::{self, stdin};
 use clap::{Arg, App};
@@ -67,6 +68,10 @@ fn main() {
              .takes_value(true)
              .possible_values(&OutputFormat::variants())
              .default_value(OutputFormat::variants().last().unwrap()))
+        .arg(Arg::with_name("make-indices")
+             .long("make-indices")
+             .short("i")
+             .help("Make indices of request and response headers with normalized header names"))
         .get_matches();
 
     stderrlog::new()
@@ -150,7 +155,7 @@ fn main() {
                 };
 
                 if let Some(session) = session_state.apply(&record) {
-                    match log_session_record(&session, &format, &mut out) {
+                    match log_session_record(&session, &format, &mut out, arguments.is_present("make-indices")) {
                         Ok(()) => (),
                         Err(OutputError::Io(err)) |
                         Err(OutputError::JsonSerialization(JsonError::Io(err))) => match err.kind() {

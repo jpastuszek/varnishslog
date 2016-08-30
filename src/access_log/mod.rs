@@ -71,6 +71,8 @@ use serde_json::ser::to_writer_pretty as write_json_pretty;
 use std::io::Write;
 
 use chrono::NaiveDateTime;
+use linked_hash_map::LinkedHashMap;
+use boolinator::Boolinator;
 
 quick_error! {
     #[derive(Debug)]
@@ -162,6 +164,15 @@ impl<'a> AsSer<'a> for Vec<LogEntry> {
     }
 }
 
+impl<'a> AsSer<'a> for LinkedHashMap<String, Vec<String>> {
+    type Out = HeaderIndex<'a>;
+    fn as_ser(&'a self) -> Self::Out {
+        HeaderIndex {
+            index: self
+        }
+    }
+}
+
 impl<'a> AsSer<'a> for BackendConnection {
     type Out = BackendConnectionLogEntry<'a>;
     fn as_ser(&'a self) -> Self::Out {
@@ -192,7 +203,7 @@ impl<'a> AsSer<'a> for CacheObject {
     }
 }
 
-pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W) -> Result<(), OutputError> where W: Write {
+pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W, make_indices: bool) -> Result<(), OutputError> where W: Write {
     fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: EntryType {
         let write_entry = match format {
             &Format::Json => write_json,
@@ -268,13 +279,40 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         }
     }
 
+    fn make_header_index(headers: &[(String, String)]) -> LinkedHashMap<String, Vec<String>> {
+        fn title_case(s: &str) -> String {
+            let mut c = s.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().chain(c.flat_map(|t| t.to_lowercase())).collect(),
+            }
+        }
+
+        fn normalize_header_name(name: &str) -> String {
+            //TODO: benchmark with itertools join
+            name.split('-').map(|part| title_case(part)).collect::<Vec<_>>().join("-")
+        }
+
+        headers.iter().fold(LinkedHashMap::new(), |mut index, &(ref name, ref value)| {
+            let name = normalize_header_name(name);
+
+            // Note: this will put the header at the end of the index
+            let mut values = index.remove(&name).unwrap_or(Vec::new());
+            values.push(value.to_owned());
+            index.insert(name, values);
+
+            index
+        })
+    }
+
     fn log_linked_backend_access_record<W>(
         format: &Format,
         out: &mut W,
         session_record: &SessionRecord,
         client_record: &ClientAccessRecord,
         record_link: &Link<BackendAccessRecord>,
-        retry: usize) -> Result<(), OutputError> where W: Write {
+        retry: usize,
+        make_indices: bool) -> Result<(), OutputError> where W: Write {
         if let Some(record) = record_link.get_resolved() {
             match record.transaction {
                 BackendAccessTransaction::Full {
@@ -288,61 +326,70 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     fetch,
                     ref accounting,
                     ..
-                } => try!(write(format, out, &BackendAccessLogEntry {
-                    record_type: BackendAccessLogEntry::type_name(),
-                    vxid: client_record.ident,
-                    remote_address: session_record.remote.as_ser(),
-                    session_timestamp: session_record.open,
-                    start_timestamp: record.start,
-                    end_timestamp: record.end.unwrap_or(record.start),
-                    handing: "fetch",
-                    request: request.as_ser(),
-                    response: Some(response.as_ser()),
-                    send_duration: send,
-                    wait_duration: Some(wait),
-                    ttfb_duration: Some(ttfb),
-                    fetch_duration: Some(fetch),
-                    sent_header_bytes: Some(accounting.sent_header),
-                    sent_body_bytes: Some(accounting.sent_body),
-                    sent_total_bytes: Some(accounting.sent_total),
-                    recv_header_bytes: Some(accounting.recv_header),
-                    recv_body_bytes: Some(accounting.recv_body),
-                    recv_total_bytes: Some(accounting.recv_total),
-                    retry: retry,
-                    backend_connection: Some(backend_connection.as_ser()),
-                    cache_object: Some(cache_object.as_ser()),
-                    log: record.log.as_ser(),
-                })),
+                } => {
+                    let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                    let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                    try!(write(format, out, &BackendAccessLogEntry {
+                        record_type: BackendAccessLogEntry::type_name(),
+                        vxid: client_record.ident,
+                        remote_address: session_record.remote.as_ser(),
+                        session_timestamp: session_record.open,
+                        start_timestamp: record.start,
+                        end_timestamp: record.end.unwrap_or(record.start),
+                        handing: "fetch",
+                        request: request.as_ser(),
+                        response: Some(response.as_ser()),
+                        send_duration: send,
+                        wait_duration: Some(wait),
+                        ttfb_duration: Some(ttfb),
+                        fetch_duration: Some(fetch),
+                        sent_header_bytes: Some(accounting.sent_header),
+                        sent_body_bytes: Some(accounting.sent_body),
+                        sent_total_bytes: Some(accounting.sent_total),
+                        recv_header_bytes: Some(accounting.recv_header),
+                        recv_body_bytes: Some(accounting.recv_body),
+                        recv_total_bytes: Some(accounting.recv_total),
+                        retry: retry,
+                        backend_connection: Some(backend_connection.as_ser()),
+                        cache_object: Some(cache_object.as_ser()),
+                        log: record.log.as_ser(),
+                        request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                        response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                }))},
                 BackendAccessTransaction::Failed {
                     ref request,
                     synth,
                     ref accounting,
                     ..
-                } => try!(write(format, out, &BackendAccessLogEntry {
-                    record_type: BackendAccessLogEntry::type_name(),
-                    vxid: client_record.ident,
-                    remote_address: session_record.remote.as_ser(),
-                    session_timestamp: session_record.open,
-                    start_timestamp: record.start,
-                    end_timestamp: record.end.unwrap_or(record.start),
-                    handing: "fail",
-                    request: request.as_ser(),
-                    response: None,
-                    send_duration: synth,
-                    wait_duration: None,
-                    ttfb_duration: None,
-                    fetch_duration: None,
-                    sent_header_bytes: Some(accounting.sent_header),
-                    sent_body_bytes: Some(accounting.sent_body),
-                    sent_total_bytes: Some(accounting.sent_total),
-                    recv_header_bytes: Some(accounting.recv_header),
-                    recv_body_bytes: Some(accounting.recv_body),
-                    recv_total_bytes: Some(accounting.recv_total),
-                    retry: retry,
-                    backend_connection: None,
-                    cache_object: None,
-                    log: record.log.as_ser(),
-                })),
+                } => {
+                    let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                    try!(write(format, out, &BackendAccessLogEntry {
+                        record_type: BackendAccessLogEntry::type_name(),
+                        vxid: client_record.ident,
+                        remote_address: session_record.remote.as_ser(),
+                        session_timestamp: session_record.open,
+                        start_timestamp: record.start,
+                        end_timestamp: record.end.unwrap_or(record.start),
+                        handing: "fail",
+                        request: request.as_ser(),
+                        response: None,
+                        send_duration: synth,
+                        wait_duration: None,
+                        ttfb_duration: None,
+                        fetch_duration: None,
+                        sent_header_bytes: Some(accounting.sent_header),
+                        sent_body_bytes: Some(accounting.sent_body),
+                        sent_total_bytes: Some(accounting.sent_total),
+                        recv_header_bytes: Some(accounting.recv_header),
+                        recv_body_bytes: Some(accounting.recv_body),
+                        recv_total_bytes: Some(accounting.recv_total),
+                        retry: retry,
+                        backend_connection: None,
+                        cache_object: None,
+                        log: record.log.as_ser(),
+                        request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                        response_header_index: None,
+                    }))},
                 BackendAccessTransaction::Abandoned {
                     ref request,
                     ref response,
@@ -353,31 +400,36 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     ttfb,
                     fetch,
                     ..
-                } => try!(write(format, out, &BackendAccessLogEntry {
-                    record_type: BackendAccessLogEntry::type_name(),
-                    vxid: client_record.ident,
-                    remote_address: session_record.remote.as_ser(),
-                    session_timestamp: session_record.open,
-                    start_timestamp: record.start,
-                    end_timestamp: record.end.unwrap_or(record.start),
-                    handing: if retry_record.is_some() { "retry" } else { "abandon" },
-                    request: request.as_ser(),
-                    response: Some(response.as_ser()),
-                    send_duration: send,
-                    wait_duration: Some(wait),
-                    ttfb_duration: Some(ttfb),
-                    fetch_duration: fetch,
-                    recv_header_bytes: None,
-                    recv_body_bytes: None,
-                    recv_total_bytes: None,
-                    sent_header_bytes: None,
-                    sent_body_bytes: None,
-                    sent_total_bytes: None,
-                    retry: retry,
-                    backend_connection: Some(backend_connection.as_ser()),
-                    cache_object: None,
-                    log: record.log.as_ser(),
-                })),
+                } => {
+                    let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                    let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                    try!(write(format, out, &BackendAccessLogEntry {
+                        record_type: BackendAccessLogEntry::type_name(),
+                        vxid: client_record.ident,
+                        remote_address: session_record.remote.as_ser(),
+                        session_timestamp: session_record.open,
+                        start_timestamp: record.start,
+                        end_timestamp: record.end.unwrap_or(record.start),
+                        handing: if retry_record.is_some() { "retry" } else { "abandon" },
+                        request: request.as_ser(),
+                        response: Some(response.as_ser()),
+                        send_duration: send,
+                        wait_duration: Some(wait),
+                        ttfb_duration: Some(ttfb),
+                        fetch_duration: fetch,
+                        recv_header_bytes: None,
+                        recv_body_bytes: None,
+                        recv_total_bytes: None,
+                        sent_header_bytes: None,
+                        sent_body_bytes: None,
+                        sent_total_bytes: None,
+                        retry: retry,
+                        backend_connection: Some(backend_connection.as_ser()),
+                        cache_object: None,
+                        log: record.log.as_ser(),
+                        request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                        response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                    }))},
                 BackendAccessTransaction::Aborted { .. } |
                 BackendAccessTransaction::Piped { .. } => (),
             }
@@ -385,7 +437,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
             match record.transaction {
                 BackendAccessTransaction::Failed { retry_record: Some(ref record_link), .. } |
                 BackendAccessTransaction::Abandoned { retry_record: Some(ref record_link), .. } => {
-                    try!(log_linked_backend_access_record(format, out, session_record, client_record, record_link, retry + 1))
+                    try!(log_linked_backend_access_record(format, out, session_record, client_record, record_link, retry + 1, make_indices))
                 },
                 _ => (),
             }
@@ -400,7 +452,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         out: &mut W,
         session_record: &SessionRecord,
         record_link: &Link<ClientAccessRecord>,
-        request_type: &'static str) -> Result<(), OutputError> where W: Write {
+        request_type: &'static str,
+        make_indices: bool) -> Result<(), OutputError> where W: Write {
         if let Some(record) = record_link.get_resolved() {
             if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
                 // Note: we skip all the intermediate restart records
@@ -417,32 +470,37 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         serve,
                         ref accounting,
                         ..
-                    }) => try!(write(format, out, &ClientAccessLogEntry {
-                        record_type: ClientAccessLogEntry::type_name(),
-                        vxid: record.ident,
-                        request_type: request_type,
-                        remote_address: session_record.remote.as_ser(),
-                        session_timestamp: session_record.open,
-                        start_timestamp: record.start,
-                        end_timestamp: final_record.end,
-                        handing: final_record.handling.as_ser(),
-                        request: request.as_ser(),
-                        response: response.as_ser(),
-                        process_duration: process,
-                        fetch_duration: fetch,
-                        ttfb_duration: ttfb,
-                        serve_duration: serve,
-                        recv_header_bytes: accounting.recv_header,
-                        recv_body_bytes: accounting.recv_body,
-                        recv_total_bytes: accounting.recv_total,
-                        sent_header_bytes: accounting.sent_header,
-                        sent_body_bytes: accounting.sent_body,
-                        sent_total_bytes: accounting.sent_total,
-                        esi_count: esi_records.len(),
-                        restart_count: restart_count,
-                        restart_log: Some(record.log.as_ser()),
-                        log: final_record.log.as_ser(),
-                    })),
+                    }) => {
+                        let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                        let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                        try!(write(format, out, &ClientAccessLogEntry {
+                            record_type: ClientAccessLogEntry::type_name(),
+                            vxid: record.ident,
+                            request_type: request_type,
+                            remote_address: session_record.remote.as_ser(),
+                            session_timestamp: session_record.open,
+                            start_timestamp: record.start,
+                            end_timestamp: final_record.end,
+                            handing: final_record.handling.as_ser(),
+                            request: request.as_ser(),
+                            response: response.as_ser(),
+                            process_duration: process,
+                            fetch_duration: fetch,
+                            ttfb_duration: ttfb,
+                            serve_duration: serve,
+                            recv_header_bytes: accounting.recv_header,
+                            recv_body_bytes: accounting.recv_body,
+                            recv_total_bytes: accounting.recv_total,
+                            sent_header_bytes: accounting.sent_header,
+                            sent_body_bytes: accounting.sent_body,
+                            sent_total_bytes: accounting.sent_total,
+                            esi_count: esi_records.len(),
+                            restart_count: restart_count,
+                            restart_log: Some(record.log.as_ser()),
+                            log: final_record.log.as_ser(),
+                            request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                            response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                        }))},
                     (_, &ClientAccessTransaction::Full {
                         ref esi_records,
                         ref request,
@@ -453,32 +511,37 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         serve,
                         ref accounting,
                         ..
-                    }) => try!(write(format, out, &ClientAccessLogEntry {
-                        record_type: ClientAccessLogEntry::type_name(),
-                        vxid: record.ident,
-                        request_type: request_type,
-                        remote_address: session_record.remote.as_ser(),
-                        session_timestamp: session_record.open,
-                        start_timestamp: final_record.start,
-                        end_timestamp: final_record.end,
-                        handing: final_record.handling.as_ser(),
-                        request: request.as_ser(),
-                        response: response.as_ser(),
-                        process_duration: process,
-                        fetch_duration: fetch,
-                        ttfb_duration: ttfb,
-                        serve_duration: serve,
-                        recv_header_bytes: accounting.recv_header,
-                        recv_body_bytes: accounting.recv_body,
-                        recv_total_bytes: accounting.recv_total,
-                        sent_header_bytes: accounting.sent_header,
-                        sent_body_bytes: accounting.sent_body,
-                        sent_total_bytes: accounting.sent_total,
-                        esi_count: esi_records.len(),
-                        restart_count: restart_count,
-                        restart_log: None,
-                        log: final_record.log.as_ser(),
-                    })),
+                    }) => {
+                        let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                        let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                        try!(write(format, out, &ClientAccessLogEntry {
+                            record_type: ClientAccessLogEntry::type_name(),
+                            vxid: record.ident,
+                            request_type: request_type,
+                            remote_address: session_record.remote.as_ser(),
+                            session_timestamp: session_record.open,
+                            start_timestamp: final_record.start,
+                            end_timestamp: final_record.end,
+                            handing: final_record.handling.as_ser(),
+                            request: request.as_ser(),
+                            response: response.as_ser(),
+                            process_duration: process,
+                            fetch_duration: fetch,
+                            ttfb_duration: ttfb,
+                            serve_duration: serve,
+                            recv_header_bytes: accounting.recv_header,
+                            recv_body_bytes: accounting.recv_body,
+                            recv_total_bytes: accounting.recv_total,
+                            sent_header_bytes: accounting.sent_header,
+                            sent_body_bytes: accounting.sent_body,
+                            sent_total_bytes: accounting.sent_total,
+                            esi_count: esi_records.len(),
+                            restart_count: restart_count,
+                            restart_log: None,
+                            log: final_record.log.as_ser(),
+                            request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                            response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                        }))},
                     (_, &ClientAccessTransaction::Piped {
                         ref request,
                         ref backend_record,
@@ -493,6 +556,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 ref backend_connection,
                                 ..
                             } = backend_record.transaction {
+                                let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                                let backend_request_header_index = make_indices.as_some_from(|| make_header_index(backend_request.headers.as_slice()));
                                 try!(write(format, out, &PipeSessionLogEntry {
                                     record_type: PipeSessionLogEntry::type_name(),
                                     vxid: record.ident,
@@ -508,6 +573,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     sent_total_bytes: accounting.sent_total,
                                     log: final_record.log.as_ser(),
                                     backend_connection: backend_connection.as_ser(),
+                                    request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                                    backend_request_header_index: backend_request_header_index.as_ref().map(|v| v.as_ser()),
                                 }))
                             } else {
                                 warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
@@ -525,7 +592,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         ref esi_records,
                         ..
                     } => for esi_record_link in esi_records {
-                        try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "ESI"))
+                        try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "ESI", make_indices))
                     },
                     _ => (),
                 }
@@ -534,7 +601,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     &ClientAccessTransaction::Full {
                         backend_record: Some(ref backend_record),
                         ..
-                    } => try!(log_linked_backend_access_record(format, out, session_record, record, backend_record, 0)),
+                    } => try!(log_linked_backend_access_record(format, out, session_record, record, backend_record, 0, make_indices)),
                     _ => (),
                 }
             } else {
@@ -547,7 +614,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
     }
 
     for record_link in session_record.client_records.iter() {
-        try!(log_linked_client_access_record(format, out, session_record, record_link, "external"))
+        try!(log_linked_client_access_record(format, out, session_record, record_link, "external", make_indices))
     }
     Ok(())
 }
