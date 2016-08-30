@@ -207,9 +207,7 @@ struct HttpResponseLogEntry<'a> {
 }
 
 #[derive(Debug)]
-struct LogBook<'a> {
-    entries: &'a [LogEntry],
-}
+struct LogBook<'a>(&'a [LogEntry]);
 
 #[derive(Serialize, Debug)]
 struct LogBookEntry<'a> {
@@ -221,8 +219,8 @@ struct LogBookEntry<'a> {
 
 impl<'a> Serialize for LogBook<'a> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_seq(Some(self.entries.len())));
-        for log_entry in self.entries {
+        let mut state = try!(serializer.serialize_seq(Some(self.0.len())));
+        for log_entry in self.0 {
             let (entry_type, message, detail) = match log_entry {
                 &LogEntry::Vcl(ref msg) => ("VCL", msg.as_str(), None),
                 &LogEntry::Debug(ref msg) => ("Debug", msg.as_str(), None),
@@ -247,16 +245,13 @@ impl<'a> Serialize for LogBook<'a> {
     }
 }
 
-//TODO: make this a new-type patter thing
 #[derive(Debug)]
-struct Index<'a> {
-    index: &'a LinkedHashMap<String, Vec<String>>,
-}
+struct Index<'a>(&'a LinkedHashMap<String, Vec<String>>);
 
 impl<'a> Serialize for Index<'a> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_map(Some(self.index.len())));
-        for (ref key, ref values) in self.index {
+        let mut state = try!(serializer.serialize_map(Some(self.0.len())));
+        for (ref key, ref values) in self.0 {
             try!(serializer.serialize_map_key(&mut state, key));
             try!(serializer.serialize_map_value(&mut state, values));
         }

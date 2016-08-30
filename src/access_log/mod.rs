@@ -158,18 +158,14 @@ impl<'a> AsSer<'a> for HttpResponse {
 impl<'a> AsSer<'a> for Vec<LogEntry> {
     type Out = LogBook<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        LogBook {
-            entries: self.as_slice(),
-        }
+        LogBook(self)
     }
 }
 
 impl<'a> AsSer<'a> for LinkedHashMap<String, Vec<String>> {
     type Out = Index<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        Index {
-            index: self
-        }
+        Index(self)
     }
 }
 
