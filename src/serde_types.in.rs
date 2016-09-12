@@ -69,7 +69,7 @@ impl<'a> EntryType for ClientAccessLogEntry<'a> {
         Some(self.response.status)
     }
     fn response_bytes(&self) -> Option<u64> {
-        Some(self.sent_total_bytes)
+        Some(self.sent_body_bytes)
     }
 }
 
@@ -129,7 +129,7 @@ impl<'a> EntryType for BackendAccessLogEntry<'a> {
         self.response.as_ref().map(|r| r.status).or(Some(503)) // no response
     }
     fn response_bytes(&self) -> Option<u64> {
-        self.recv_total_bytes
+        self.recv_body_bytes
     }
 }
 
