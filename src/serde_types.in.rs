@@ -24,6 +24,7 @@ struct ClientAccessLogEntry<'a> {
     handling: &'a str,
     request: HttpRequestLogEntry<'a>,
     response: HttpResponseLogEntry<'a>,
+    backend_access: Option<&'a BackendAccessLogEntry<'a>>,
     process_duration: Option<f64>,
     fetch_duration: Option<f64>,
     ttfb_duration: f64,
