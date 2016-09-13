@@ -1,5 +1,7 @@
 /// TODO:
 /// * more tests
+/// * SLT_Gzip
+/// * use SLT_Length value when SLT_BereqAcct body size is 0 (ESI)
 ///
 /// Client headers:
 /// ---
