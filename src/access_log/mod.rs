@@ -347,6 +347,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
                         let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
                         let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(record.log.as_slice()));
+                        let cache_object_response_header_index = make_indices.as_some_from(|| make_header_index(cache_object.response.headers.as_slice()));
                         block(Some(&BackendAccessLogEntry {
                             vxid: client_record.ident,
                             remote_address: session_record.remote.as_ser(),
@@ -372,6 +373,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             log: record.log.as_ser(),
                             request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                             response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                            cache_object_response_header_index: cache_object_response_header_index.as_ref().map(|v| v.as_ser()),
                             log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                     }))},
                     BackendAccessTransaction::Failed { retry_record: ref record_link @ Some(_), .. } |
@@ -410,6 +412,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             log: record.log.as_ser(),
                             request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                             response_header_index: None,
+                            cache_object_response_header_index: None,
                             log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                         }))},
                     BackendAccessTransaction::Abandoned {
@@ -451,6 +454,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             log: record.log.as_ser(),
                             request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
                             response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                            cache_object_response_header_index: None,
                             log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                         }))},
                     BackendAccessTransaction::Aborted { .. } |

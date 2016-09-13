@@ -102,6 +102,8 @@ struct BackendAccessLogEntry<'a> {
     #[serde(skip_serializing_if="Option::is_none")]
     response_header_index: Option<Index<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
+    cache_object_response_header_index: Option<Index<'a>>,
+    #[serde(skip_serializing_if="Option::is_none")]
     log_vars_index: Option<Index<'a>>,
 }
 
