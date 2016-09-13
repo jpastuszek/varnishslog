@@ -620,7 +620,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         ref esi_records,
                         ..
                     } => for esi_record_link in esi_records {
-                        try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "ESI_subrequest", make_indices))
+                        try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "esi_subrequest", make_indices))
                     },
                     _ => (),
                 }
