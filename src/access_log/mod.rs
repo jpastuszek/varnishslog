@@ -239,7 +239,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
 
                 try!(write!(out, "{} {} - [{}] \"",
                             log_entry.remote_ip(),
-                            E::type_name(),
+                            log_entry.type_name(),
                             date_time.format("%d/%b/%Y:%H:%M:%S +0000")));
 
                 try!(write_escaped(out, log_entry.request_method()));
@@ -348,7 +348,6 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
                         let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(record.log.as_slice()));
                         block(Some(&BackendAccessLogEntry {
-                            record_type: BackendAccessLogEntry::type_name(),
                             vxid: client_record.ident,
                             remote_address: session_record.remote.as_ser(),
                             session_timestamp: session_record.open,
@@ -375,6 +374,9 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
                             log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                     }))},
+                    BackendAccessTransaction::Failed { retry_record: ref record_link @ Some(_), .. } |
+                    BackendAccessTransaction::Abandoned { retry_record: ref record_link @ Some(_), .. } =>
+                        with_linked_backend_access_record(session_record, client_record, record_link, retry + 1, make_indices, block),
                     BackendAccessTransaction::Failed {
                         ref request,
                         synth,
@@ -384,7 +386,6 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
                         let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(record.log.as_slice()));
                         block(Some(&BackendAccessLogEntry {
-                            record_type: BackendAccessLogEntry::type_name(),
                             vxid: client_record.ident,
                             remote_address: session_record.remote.as_ser(),
                             session_timestamp: session_record.open,
@@ -426,7 +427,6 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
                         let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(record.log.as_slice()));
                         block(Some(&BackendAccessLogEntry {
-                            record_type: BackendAccessLogEntry::type_name(),
                             vxid: client_record.ident,
                             remote_address: session_record.remote.as_ser(),
                             session_timestamp: session_record.open,
@@ -456,16 +456,6 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     BackendAccessTransaction::Aborted { .. } |
                     BackendAccessTransaction::Piped { .. } => block(None),
                 }
-
-                /* TODO: need to log all of them but for linking need just the last one
-                match record.transaction {
-                    BackendAccessTransaction::Failed { retry_record: Some(ref record_link), .. } |
-                    BackendAccessTransaction::Abandoned { retry_record: Some(ref record_link), .. } => {
-                        try!(log_linked_backend_access_record(format, out, session_record, client_record, record_link, retry + 1, make_indices))
-                    },
-                    _ => (),
-                }
-                */
             } else {
                 warn!("Found unresolved link {:?} in: {:?}", record_link, session_record);
                 block(None)
@@ -480,7 +470,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         out: &mut W,
         session_record: &SessionRecord,
         record_link: &Link<ClientAccessRecord>,
-        request_type: &'static str,
+        record_type: &'static str,
         make_indices: bool) -> Result<(), OutputError> where W: Write {
         if let Some(record) = record_link.get_resolved() {
             if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
@@ -505,9 +495,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
                         try!(with_linked_backend_access_record(session_record, record, backend_record, 0, make_indices, |backend_access| {
                             write(format, out, &ClientAccessLogEntry {
-                                record_type: ClientAccessLogEntry::type_name(),
+                                record_type: record_type,
                                 vxid: record.ident,
-                                request_type: request_type,
                                 remote_address: session_record.remote.as_ser(),
                                 session_timestamp: session_record.open,
                                 start_timestamp: record.start,
@@ -551,9 +540,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
                         try!(with_linked_backend_access_record(session_record, record, backend_record, 0, make_indices, |backend_access| {
                             write(format, out, &ClientAccessLogEntry {
-                                record_type: ClientAccessLogEntry::type_name(),
+                                record_type: record_type,
                                 vxid: record.ident,
-                                request_type: request_type,
                                 remote_address: session_record.remote.as_ser(),
                                 session_timestamp: session_record.open,
                                 start_timestamp: final_record.start,
@@ -598,7 +586,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 let backend_request_header_index = make_indices.as_some_from(|| make_header_index(backend_request.headers.as_slice()));
                                 let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
                                 try!(write(format, out, &PipeSessionLogEntry {
-                                    record_type: PipeSessionLogEntry::type_name(),
+                                    record_type: "pipe_session",
                                     vxid: record.ident,
                                     remote_address: session_record.remote.as_ser(),
                                     session_timestamp: session_record.open,
@@ -632,18 +620,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         ref esi_records,
                         ..
                     } => for esi_record_link in esi_records {
-                        try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "ESI", make_indices))
+                        try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "ESI_subrequest", make_indices))
                     },
-                    _ => (),
-                }
-
-                match &final_record.transaction {
-                    &ClientAccessTransaction::Full {
-                        backend_record: ref backend_record @ Some(_),
-                        ..
-                    } => try!(with_linked_backend_access_record(session_record, record, backend_record, 0, make_indices, |backend_access| {
-                        write(format, out, backend_access.unwrap())
-                    })),
                     _ => (),
                 }
             } else {
@@ -656,7 +634,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
     }
 
     for record_link in session_record.client_records.iter() {
-        try!(log_linked_client_access_record(format, out, session_record, record_link, "external", make_indices))
+        try!(log_linked_client_access_record(format, out, session_record, record_link, "client_request", make_indices))
     }
     Ok(())
 }

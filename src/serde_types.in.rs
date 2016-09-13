@@ -2,7 +2,7 @@ use serde::ser::Serialize;
 use serde::ser::Serializer;
 
 trait EntryType: Serialize {
-    fn type_name() -> &'static str;
+    fn type_name(&self) -> &str;
     fn remote_ip(&self) -> &str;
     fn timestamp(&self) -> f64;
     fn request_method(&self) -> &str;
@@ -16,7 +16,6 @@ trait EntryType: Serialize {
 struct ClientAccessLogEntry<'a> {
     record_type: &'a str,
     vxid: u32,
-    request_type: &'a str,
     remote_address: AddressLogEntry<'a>,
     session_timestamp: f64,
     start_timestamp: f64,
@@ -48,8 +47,8 @@ struct ClientAccessLogEntry<'a> {
 }
 
 impl<'a> EntryType for ClientAccessLogEntry<'a> {
-    fn type_name() -> &'static str {
-        "client_access"
+    fn type_name(&self) -> &str {
+        self.record_type
     }
     fn remote_ip(&self) -> &str {
         self.remote_address.ip
@@ -76,7 +75,6 @@ impl<'a> EntryType for ClientAccessLogEntry<'a> {
 
 #[derive(Serialize, Debug)]
 struct BackendAccessLogEntry<'a> {
-    record_type: &'a str,
     vxid: u32,
     remote_address: AddressLogEntry<'a>,
     session_timestamp: f64,
@@ -107,33 +105,6 @@ struct BackendAccessLogEntry<'a> {
     log_vars_index: Option<Index<'a>>,
 }
 
-impl<'a> EntryType for BackendAccessLogEntry<'a> {
-    fn type_name() -> &'static str {
-        "backend_access"
-    }
-    fn remote_ip(&self) -> &str {
-        self.remote_address.ip
-    }
-    fn timestamp(&self) -> f64 {
-        self.end_timestamp
-    }
-    fn request_method(&self) -> &str {
-        self.request.method
-    }
-    fn request_url(&self) -> &str {
-        self.request.url
-    }
-    fn request_protocol(&self) -> &str {
-        self.request.protocol
-    }
-    fn response_status(&self) -> Option<u32> {
-        self.response.as_ref().map(|r| r.status).or(Some(503)) // no response
-    }
-    fn response_bytes(&self) -> Option<u64> {
-        self.recv_body_bytes
-    }
-}
-
 #[derive(Serialize, Debug)]
 struct PipeSessionLogEntry<'a> {
     record_type: &'a str,
@@ -159,8 +130,8 @@ struct PipeSessionLogEntry<'a> {
 }
 
 impl<'a> EntryType for PipeSessionLogEntry<'a> {
-    fn type_name() -> &'static str {
-        "pipe_session"
+    fn type_name(&self) -> &str {
+        self.record_type
     }
     fn remote_ip(&self) -> &str {
         self.remote_address.ip
