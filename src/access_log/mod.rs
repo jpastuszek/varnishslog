@@ -325,11 +325,11 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
     fn with_linked_backend_access_record<F, R>(
         session_record: &SessionRecord,
         client_record: &ClientAccessRecord,
-        record: &Option<Link<BackendAccessRecord>>,
+        maybe_record_link: &Option<Link<BackendAccessRecord>>,
         retry: usize,
         make_indices: bool,
         block: F) -> R where F: FnOnce(Option<&BackendAccessLogEntry>) -> R {
-        if let &Some(ref record_link) = record {
+        if let &Some(ref record_link) = maybe_record_link {
             if let Some(ref record) = record_link.get_resolved() {
                 match record.transaction {
                     BackendAccessTransaction::Full {
@@ -469,6 +469,169 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         }
     }
 
+    enum LogRecord<'a> {
+        ClientAccess(ClientAccessLogEntry<'a>, &'a Vec<Link<ClientAccessRecord>>),
+        PipeSession(PipeSessionLogEntry<'a>),
+    }
+
+    fn with_log_record<F, R>(
+        session_record: &SessionRecord,
+        record: &ClientAccessRecord,
+        record_type: &'static str,
+        make_indices: bool,
+        block: F) -> R where F: FnOnce(Option<&LogRecord>) -> R {
+        if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
+            // Note: we skip all the intermediate restart records
+            match (&record.transaction, &final_record.transaction) {
+                (&ClientAccessTransaction::Restarted {
+                    ref request,
+                    process,
+                    ..
+                }, &ClientAccessTransaction::Full {
+                    ref esi_records,
+                    ref response,
+                    ref backend_record,
+                    fetch,
+                    ttfb,
+                    serve,
+                    ref accounting,
+                    ..
+                }) => {
+                    let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                    let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                    let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
+
+                    return with_linked_backend_access_record(session_record, record, backend_record, 0, make_indices, |backend_access| {
+                        block(Some(&LogRecord::ClientAccess(ClientAccessLogEntry {
+                            record_type: record_type,
+                            vxid: record.ident,
+                            remote_address: session_record.remote.as_ser(),
+                            session_timestamp: session_record.open,
+                            start_timestamp: record.start,
+                            end_timestamp: final_record.end,
+                            handling: final_record.handling.as_ser(),
+                            request: request.as_ser(),
+                            response: response.as_ser(),
+                            backend_access: backend_access,
+                            process_duration: process,
+                            fetch_duration: fetch,
+                            ttfb_duration: ttfb,
+                            serve_duration: serve,
+                            recv_header_bytes: accounting.recv_header,
+                            recv_body_bytes: accounting.recv_body,
+                            recv_total_bytes: accounting.recv_total,
+                            sent_header_bytes: accounting.sent_header,
+                            sent_body_bytes: accounting.sent_body,
+                            sent_total_bytes: accounting.sent_total,
+                            esi_count: esi_records.len(),
+                            restart_count: restart_count,
+                            restart_log: Some(record.log.as_ser()),
+                            log: final_record.log.as_ser(),
+                            request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                            response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                            log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
+                        }, esi_records)))
+                    })
+                },
+                (_, &ClientAccessTransaction::Full {
+                    ref esi_records,
+                    ref request,
+                    ref response,
+                    ref backend_record,
+                    process,
+                    fetch,
+                    ttfb,
+                    serve,
+                    ref accounting,
+                    ..
+                }) => {
+                    let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                    let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
+                    let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
+
+                    return with_linked_backend_access_record(session_record, record, backend_record, 0, make_indices, |backend_access| {
+                        block(Some(&LogRecord::ClientAccess(ClientAccessLogEntry {
+                            record_type: record_type,
+                            vxid: record.ident,
+                            remote_address: session_record.remote.as_ser(),
+                            session_timestamp: session_record.open,
+                            start_timestamp: final_record.start,
+                            end_timestamp: final_record.end,
+                            handling: final_record.handling.as_ser(),
+                            request: request.as_ser(),
+                            response: response.as_ser(),
+                            backend_access: backend_access,
+                            process_duration: process,
+                            fetch_duration: fetch,
+                            ttfb_duration: ttfb,
+                            serve_duration: serve,
+                            recv_header_bytes: accounting.recv_header,
+                            recv_body_bytes: accounting.recv_body,
+                            recv_total_bytes: accounting.recv_total,
+                            sent_header_bytes: accounting.sent_header,
+                            sent_body_bytes: accounting.sent_body,
+                            sent_total_bytes: accounting.sent_total,
+                            esi_count: esi_records.len(),
+                            restart_count: restart_count,
+                            restart_log: None,
+                            log: final_record.log.as_ser(),
+                            request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                            response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                            log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
+                        }, esi_records)))})}
+                (_, &ClientAccessTransaction::Piped {
+                    ref request,
+                    ref backend_record,
+                    process,
+                    ttfb,
+                    ref accounting,
+                    ..
+                }) => {
+                    if let Some(backend_record) = backend_record.get_resolved() {
+                        if let BackendAccessTransaction::Piped {
+                            request: ref backend_request,
+                            ref backend_connection,
+                            ..
+                        } = backend_record.transaction {
+                            let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
+                            let backend_request_header_index = make_indices.as_some_from(|| make_header_index(backend_request.headers.as_slice()));
+                            let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
+
+                            return block(Some(&LogRecord::PipeSession(PipeSessionLogEntry {
+                                record_type: "pipe_session",
+                                vxid: record.ident,
+                                remote_address: session_record.remote.as_ser(),
+                                session_timestamp: session_record.open,
+                                start_timestamp: final_record.start,
+                                end_timestamp: final_record.end,
+                                request: request.as_ser(),
+                                backend_request: backend_request.as_ser(),
+                                process_duration: process,
+                                ttfb_duration: ttfb,
+                                recv_total_bytes: accounting.recv_total,
+                                sent_total_bytes: accounting.sent_total,
+                                log: final_record.log.as_ser(),
+                                backend_connection: backend_connection.as_ser(),
+                                request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
+                                backend_request_header_index: backend_request_header_index.as_ref().map(|v| v.as_ser()),
+                                log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
+                            })))
+                        } else {
+                            warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
+                                  backend_record, final_record);
+                        }
+                    } else {
+                        warn!("Found unresolved link {:?} in: {:?}", backend_record, final_record);
+                    }
+                },
+                (_, &ClientAccessTransaction::Restarted { .. }) => panic!("got ClientAccessTransaction::Restarted as final final_record"),
+            }
+        } else {
+            warn!("Failed to find final record for: {:?}", record);
+        }
+        block(None)
+    }
+
     fn log_linked_client_access_record<W>(
         format: &Format,
         out: &mut W,
@@ -477,160 +640,22 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         record_type: &'static str,
         make_indices: bool) -> Result<(), OutputError> where W: Write {
         if let Some(record) = record_link.get_resolved() {
-            if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
-                // Note: we skip all the intermediate restart records
-                match (&record.transaction, &final_record.transaction) {
-                    (&ClientAccessTransaction::Restarted {
-                        ref request,
-                        process,
-                        ..
-                    }, &ClientAccessTransaction::Full {
-                        ref esi_records,
-                        ref response,
-                        ref backend_record,
-                        fetch,
-                        ttfb,
-                        serve,
-                        ref accounting,
-                        ..
-                    }) => {
-                        let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
-                        let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
-                        let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
-                        try!(with_linked_backend_access_record(session_record, record, backend_record, 0, make_indices, |backend_access| {
-                            write(format, out, &ClientAccessLogEntry {
-                                record_type: record_type,
-                                vxid: record.ident,
-                                remote_address: session_record.remote.as_ser(),
-                                session_timestamp: session_record.open,
-                                start_timestamp: record.start,
-                                end_timestamp: final_record.end,
-                                handling: final_record.handling.as_ser(),
-                                request: request.as_ser(),
-                                response: response.as_ser(),
-                                backend_access: backend_access,
-                                process_duration: process,
-                                fetch_duration: fetch,
-                                ttfb_duration: ttfb,
-                                serve_duration: serve,
-                                recv_header_bytes: accounting.recv_header,
-                                recv_body_bytes: accounting.recv_body,
-                                recv_total_bytes: accounting.recv_total,
-                                sent_header_bytes: accounting.sent_header,
-                                sent_body_bytes: accounting.sent_body,
-                                sent_total_bytes: accounting.sent_total,
-                                esi_count: esi_records.len(),
-                                restart_count: restart_count,
-                                restart_log: Some(record.log.as_ser()),
-                                log: final_record.log.as_ser(),
-                                request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
-                                response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
-                                log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
-                            })}))},
-                    (_, &ClientAccessTransaction::Full {
-                        ref esi_records,
-                        ref request,
-                        ref response,
-                        ref backend_record,
-                        process,
-                        fetch,
-                        ttfb,
-                        serve,
-                        ref accounting,
-                        ..
-                    }) => {
-                        let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
-                        let response_header_index = make_indices.as_some_from(|| make_header_index(response.headers.as_slice()));
-                        let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
-                        try!(with_linked_backend_access_record(session_record, record, backend_record, 0, make_indices, |backend_access| {
-                            write(format, out, &ClientAccessLogEntry {
-                                record_type: record_type,
-                                vxid: record.ident,
-                                remote_address: session_record.remote.as_ser(),
-                                session_timestamp: session_record.open,
-                                start_timestamp: final_record.start,
-                                end_timestamp: final_record.end,
-                                handling: final_record.handling.as_ser(),
-                                request: request.as_ser(),
-                                response: response.as_ser(),
-                                backend_access: backend_access,
-                                process_duration: process,
-                                fetch_duration: fetch,
-                                ttfb_duration: ttfb,
-                                serve_duration: serve,
-                                recv_header_bytes: accounting.recv_header,
-                                recv_body_bytes: accounting.recv_body,
-                                recv_total_bytes: accounting.recv_total,
-                                sent_header_bytes: accounting.sent_header,
-                                sent_body_bytes: accounting.sent_body,
-                                sent_total_bytes: accounting.sent_total,
-                                esi_count: esi_records.len(),
-                                restart_count: restart_count,
-                                restart_log: None,
-                                log: final_record.log.as_ser(),
-                                request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
-                                response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
-                                log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
-                        })}))},
-                    (_, &ClientAccessTransaction::Piped {
-                        ref request,
-                        ref backend_record,
-                        process,
-                        ttfb,
-                        ref accounting,
-                        ..
-                    }) => {
-                        if let Some(backend_record) = backend_record.get_resolved() {
-                            if let BackendAccessTransaction::Piped {
-                                request: ref backend_request,
-                                ref backend_connection,
-                                ..
-                            } = backend_record.transaction {
-                                let request_header_index = make_indices.as_some_from(|| make_header_index(request.headers.as_slice()));
-                                let backend_request_header_index = make_indices.as_some_from(|| make_header_index(backend_request.headers.as_slice()));
-                                let log_vars_index = make_indices.as_some_from(|| make_log_vars_index(final_record.log.as_slice()));
-                                try!(write(format, out, &PipeSessionLogEntry {
-                                    record_type: "pipe_session",
-                                    vxid: record.ident,
-                                    remote_address: session_record.remote.as_ser(),
-                                    session_timestamp: session_record.open,
-                                    start_timestamp: final_record.start,
-                                    end_timestamp: final_record.end,
-                                    request: request.as_ser(),
-                                    backend_request: backend_request.as_ser(),
-                                    process_duration: process,
-                                    ttfb_duration: ttfb,
-                                    recv_total_bytes: accounting.recv_total,
-                                    sent_total_bytes: accounting.sent_total,
-                                    log: final_record.log.as_ser(),
-                                    backend_connection: backend_connection.as_ser(),
-                                    request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
-                                    backend_request_header_index: backend_request_header_index.as_ref().map(|v| v.as_ser()),
-                                    log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
-                                }))
-                            } else {
-                                warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
-                                      backend_record, final_record);
+            try!(with_log_record(session_record, record, record_type, make_indices, |log_record| {
+                if let Some(log_record) = log_record {
+                    match log_record {
+                        &LogRecord::ClientAccess(ref client_access, esi_records) => {
+                            for esi_record_link in esi_records {
+                                try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "esi_subrequest", make_indices));
                             }
-                        } else {
-                            warn!("Found unresolved link {:?} in: {:?}", backend_record, final_record);
-                        }
+                            write(format, out, client_access)
+                        },
+                        &LogRecord::PipeSession(ref pipe_session) => write(format, out, pipe_session),
                     }
-                    (_, &ClientAccessTransaction::Restarted { .. }) => panic!("got ClientAccessTransaction::Restarted as final final_record")
+                } else {
+                    warn!("No log entry found for client access record {:?} in: {:?}", record, session_record);
+                    Ok(())
                 }
-
-                match &final_record.transaction {
-                    &ClientAccessTransaction::Full {
-                        ref esi_records,
-                        ..
-                    } => for esi_record_link in esi_records {
-                        try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "esi_subrequest", make_indices))
-                    },
-                    _ => (),
-                }
-            } else {
-                warn!("Failed to find final record for: {:?}", record);
-            }
+            }));
         } else {
             warn!("Found unresolved link {:?} in: {:?}", record_link, session_record);
         }
