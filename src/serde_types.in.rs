@@ -1,6 +1,8 @@
 use serde::ser::Serialize;
 use serde::ser::Serializer;
 
+//TODO: get ird of LogEntry postfix
+
 trait EntryType: Serialize {
     fn type_name(&self) -> &str;
     fn remote_ip(&self) -> &str;
@@ -164,12 +166,27 @@ struct AddressLogEntry<'a> {
     port: u16,
 }
 
+#[derive(Debug)]
+enum Headers<'a> {
+    Raw(&'a [(String, String)]),
+    Indexed(Index<'a>)
+}
+
+impl<'a> Serialize for Headers<'a> {
+    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
+        match self {
+            &Headers::Raw(slice) => slice.serialize(serializer),
+            &Headers::Indexed(ref index) => index.serialize(serializer),
+        }
+    }
+}
+
 #[derive(Serialize, Debug)]
 struct HttpRequestLogEntry<'a> {
     protocol: &'a str,
     method: &'a str,
     url: &'a str,
-    headers: &'a [(String, String)],
+    headers: Headers<'a>,
 }
 
 #[derive(Serialize, Debug)]
@@ -177,7 +194,7 @@ struct HttpResponseLogEntry<'a> {
     status: u32,
     reason: &'a str,
     protocol: &'a str,
-    headers: &'a [(String, String)],
+    headers: Headers<'a>,
 }
 
 #[derive(Debug)]

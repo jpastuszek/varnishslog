@@ -72,6 +72,7 @@ use std::io::Write;
 
 use chrono::NaiveDateTime;
 use linked_hash_map::LinkedHashMap;
+use boolinator::Boolinator;
 
 quick_error! {
     #[derive(Debug)]
@@ -95,8 +96,12 @@ pub enum Format {
 
 trait AsSer<'a> {
     type Out;
-
     fn as_ser(&'a self) -> Self::Out;
+}
+
+trait AsSerIndexed<'a> {
+    type Out;
+    fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out;
 }
 
 impl<'a> AsSer<'a> for Address {
@@ -137,7 +142,19 @@ impl<'a> AsSer<'a> for HttpRequest {
             protocol: self.protocol.as_str(),
             method: self.method.as_str(),
             url: self.url.as_str(),
-            headers: self.headers.as_ser(),
+            headers: Headers::Raw(self.headers.as_ser()),
+        }
+    }
+}
+
+impl<'a> AsSerIndexed<'a> for HttpRequest {
+    type Out = HttpRequestLogEntry<'a>;
+    fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
+        HttpRequestLogEntry {
+            protocol: self.protocol.as_str(),
+            method: self.method.as_str(),
+            url: self.url.as_str(),
+            headers: Headers::Indexed(index.as_ser()),
         }
     }
 }
@@ -149,7 +166,19 @@ impl<'a> AsSer<'a> for HttpResponse {
             status: self.status,
             reason: self.reason.as_str(),
             protocol: self.protocol.as_str(),
-            headers: self.headers.as_ser(),
+            headers: Headers::Raw(self.headers.as_ser()),
+        }
+    }
+}
+
+impl<'a> AsSerIndexed<'a> for HttpResponse {
+    type Out = HttpResponseLogEntry<'a>;
+    fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
+        HttpResponseLogEntry {
+            status: self.status,
+            reason: self.reason.as_str(),
+            protocol: self.protocol.as_str(),
+            headers: Headers::Indexed(index.as_ser()),
         }
     }
 }
@@ -198,7 +227,27 @@ impl<'a> AsSer<'a> for CacheObject {
     }
 }
 
-pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W, make_indices: bool) -> Result<(), OutputError> where W: Write {
+impl<'a> AsSerIndexed<'a> for CacheObject {
+    type Out = CacheObjectLogEntry<'a>;
+    fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
+        CacheObjectLogEntry {
+            storage_type: self.storage_type.as_str(),
+            storage_name: self.storage_name.as_str(),
+            ttl_duration: self.ttl,
+            grace_duration: self.grace,
+            keep_duration: self.keep,
+            since_timestamp: self.since,
+            origin_timestamp: self.origin,
+            fetch_mode: self.fetch_mode.as_str(),
+            fetch_streamed: self.fetch_streamed,
+            response: self.response.as_ser_indexed(index),
+        }
+    }
+}
+
+pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W,
+                             index_log_vars: bool, index_headers: bool, index_headers_inplace: bool)
+    -> Result<(), OutputError> where W: Write {
     fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: EntryType {
         let write_entry = match format {
             &Format::Json => write_json,
@@ -566,7 +615,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         session_record: &SessionRecord,
         record_link: &Link<ClientAccessRecord>,
         record_type: &'static str,
-        make_indices: bool) -> Result<(), OutputError> where W: Write {
+        index_log_vars: bool, index_headers: bool, index_headers_inplace: bool
+        ) -> Result<(), OutputError> where W: Write {
         flatten_linked_client_log_record(session_record, record_link, |client_log_record| {
             if let Some(client_log_record) = client_log_record {
                 match client_log_record {
@@ -586,23 +636,43 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         restart_log,
                     } => {
                         for esi_record_link in esi_records {
-                            try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "esi_subrequest", make_indices));
+                            try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "esi_subrequest",
+                                                                 index_log_vars, index_headers, index_headers_inplace));
                         }
 
                         try!(flatten_linked_backend_log_record(session_record, record, backend_record, 0, |backend_log_record| {
+                            // backend record
                             // Need to live up to write()
+                            let mut log_vars_index = None;
+
                             let mut request_header_index = None;
                             let mut response_header_index = None;
-                            let mut log_vars_index = None;
                             let mut cache_object_response_header_index = None;
 
-                            // backend record
+
                             let backend_access_log_entry = backend_log_record.map(|backend_log_record| {
-                                if make_indices {
-                                    request_header_index = Some(make_header_index(backend_log_record.request.headers.as_slice()));
-                                    response_header_index = backend_log_record.response.map(|response| make_header_index(response.headers.as_slice()));
+                                let indexed_request;
+                                let indexed_response;
+                                let indexed_cache_object;
+
+                                if index_log_vars {
                                     log_vars_index = Some(make_log_vars_index(backend_log_record.final_record.log.as_slice()));
-                                    cache_object_response_header_index = backend_log_record.cache_object.map(|cache_object| make_header_index(cache_object.response.headers.as_slice()));
+                                }
+
+                                if index_headers | index_headers_inplace {
+                                    request_header_index = Some(make_header_index(backend_log_record.request.headers.as_slice()));
+                                    response_header_index = backend_log_record.response.as_ref().map(|response| make_header_index(response.headers.as_slice()));
+                                    cache_object_response_header_index = backend_log_record.cache_object.as_ref().map(|cache_object| make_header_index(cache_object.response.headers.as_slice()));
+                                }
+
+                                if index_headers_inplace {
+                                    indexed_request = backend_log_record.request.as_ser_indexed(request_header_index.as_ref().unwrap());
+                                    indexed_response = backend_log_record.response.map(|response| response.as_ser_indexed(response_header_index.as_ref().unwrap()));
+                                    indexed_cache_object = backend_log_record.cache_object.map(|cache_object| cache_object.as_ser_indexed(cache_object_response_header_index.as_ref().unwrap()));
+                                } else {
+                                    indexed_request = backend_log_record.request.as_ser();
+                                    indexed_response = backend_log_record.response.map(|response| response.as_ser());
+                                    indexed_cache_object = backend_log_record.cache_object.map(|cache_object| cache_object.as_ser());
                                 }
 
                                 BackendAccessLogEntry {
@@ -612,8 +682,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     start_timestamp: backend_log_record.final_record.start,
                                     end_timestamp: backend_log_record.final_record.end.unwrap_or(backend_log_record.final_record.start),
                                     handling: backend_log_record.handling,
-                                    request: backend_log_record.request.as_ser(),
-                                    response: backend_log_record.response.as_ref().map(|r| r.as_ser()),
+                                    request: indexed_request,
+                                    response: indexed_response,
                                     send_duration: backend_log_record.send_duration,
                                     wait_duration: backend_log_record.wait_duration,
                                     ttfb_duration: backend_log_record.ttfb_duration,
@@ -626,24 +696,39 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     recv_total_bytes: backend_log_record.accounting.map(|a| a.recv_total),
                                     retry: backend_log_record.retry,
                                     backend_connection: backend_log_record.backend_connection.map(|b| b.as_ser()),
-                                    cache_object: backend_log_record.cache_object.map(|c| c.as_ser()),
+                                    cache_object: indexed_cache_object,
                                     log: backend_log_record.final_record.log.as_ser(),
-                                    request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
-                                    response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
-                                    cache_object_response_header_index: cache_object_response_header_index.as_ref().map(|v| v.as_ser()),
+                                    request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
+                                    response_header_index: response_header_index.as_ref().and_then(|index| index_headers.as_some_from(|| index.as_ser())),
+                                    cache_object_response_header_index: cache_object_response_header_index.as_ref().and_then(|index| index_headers.as_some_from(|| index.as_ser())),
                                     log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                                 }
                             });
 
                             // client record
-                            let mut request_header_index = None;
-                            let mut response_header_index = None;
                             let mut log_vars_index = None;
 
-                            if make_indices {
+                            let mut request_header_index = None;
+                            let mut response_header_index = None;
+
+                            let indexed_request;
+                            let indexed_response;
+
+                            if index_log_vars {
+                                log_vars_index = Some(make_log_vars_index(final_record.log.as_slice()));
+                            }
+
+                            if index_headers | index_headers_inplace {
                                 request_header_index = Some(make_header_index(request.headers.as_slice()));
                                 response_header_index = Some(make_header_index(response.headers.as_slice()));
-                                log_vars_index = Some(make_log_vars_index(final_record.log.as_slice()));
+                            }
+
+                            if index_headers_inplace {
+                                indexed_request = request.as_ser_indexed(request_header_index.as_ref().unwrap());
+                                indexed_response = response.as_ser_indexed(response_header_index.as_ref().unwrap());
+                            } else {
+                                indexed_request = request.as_ser();
+                                indexed_response = response.as_ser();
                             }
 
                             let client_access = ClientAccessLogEntry {
@@ -654,8 +739,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 start_timestamp: final_record.start,
                                 end_timestamp: final_record.end,
                                 handling: final_record.handling.as_ser(),
-                                request: request.as_ser(),
-                                response: response.as_ser(),
+                                request: indexed_request,
+                                response: indexed_response,
                                 backend_access: backend_access_log_entry.as_ref(),
                                 process_duration: process_duration,
                                 fetch_duration: fetch_duration,
@@ -671,8 +756,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 restart_count: restart_count,
                                 restart_log: restart_log.map(|l| l.as_ser()),
                                 log: final_record.log.as_ser(),
-                                request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
-                                response_header_index: response_header_index.as_ref().map(|v| v.as_ser()),
+                                request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
+                                response_header_index: index_headers.as_some_from(|| response_header_index.as_ref().unwrap().as_ser()),
                                 log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                             };
                             write(format, out, &client_access)
@@ -689,14 +774,28 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         accounting,
                         backend_connection,
                     } => {
+                        let mut log_vars_index = None;
                         let mut request_header_index = None;
                         let mut backend_request_header_index = None;
-                        let mut log_vars_index = None;
 
-                        if make_indices {
+                        let indexed_request;
+                        let indexed_backend_request;
+
+                        if index_log_vars {
+                            log_vars_index = Some(make_log_vars_index(final_record.log.as_slice()));
+                        }
+
+                        if index_headers || index_headers_inplace {
                             request_header_index = Some(make_header_index(request.headers.as_slice()));
                             backend_request_header_index = Some(make_header_index(backend_request.headers.as_slice()));
-                            log_vars_index = Some(make_log_vars_index(final_record.log.as_slice()));
+                        }
+
+                        if index_headers_inplace {
+                            indexed_request = request.as_ser_indexed(request_header_index.as_ref().unwrap());
+                            indexed_backend_request = backend_request.as_ser_indexed(backend_request_header_index.as_ref().unwrap());
+                        } else {
+                            indexed_request = request.as_ser();
+                            indexed_backend_request = backend_request.as_ser();
                         }
 
                         let pipe_session = PipeSessionLogEntry {
@@ -706,16 +805,16 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             session_timestamp: session_record.open,
                             start_timestamp: final_record.start,
                             end_timestamp: final_record.end,
-                            request: request.as_ser(),
-                            backend_request: backend_request.as_ser(),
+                            request: indexed_request,
+                            backend_request: indexed_backend_request,
                             process_duration: process_duration,
                             ttfb_duration: ttfb_duration,
                             recv_total_bytes: accounting.recv_total,
                             sent_total_bytes: accounting.sent_total,
                             log: final_record.log.as_ser(),
                             backend_connection: backend_connection.as_ser(),
-                            request_header_index: request_header_index.as_ref().map(|v| v.as_ser()),
-                            backend_request_header_index: backend_request_header_index.as_ref().map(|v| v.as_ser()),
+                            request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
+                            backend_request_header_index: index_headers.as_some_from(|| backend_request_header_index.as_ref().unwrap().as_ser()),
                             log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
                         };
                         write(format, out, &pipe_session)
@@ -729,7 +828,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
     }
 
     for record_link in session_record.client_records.iter() {
-        try!(log_linked_client_access_record(format, out, session_record, record_link, "client_request", make_indices))
+        try!(log_linked_client_access_record(format, out, session_record, record_link, "client_request",
+                                             index_log_vars, index_headers, index_headers_inplace))
     }
     Ok(())
 }

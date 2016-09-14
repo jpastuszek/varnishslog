@@ -67,10 +67,18 @@ fn main() {
              .takes_value(true)
              .possible_values(&OutputFormat::variants())
              .default_value(OutputFormat::variants().last().unwrap()))
-        .arg(Arg::with_name("make-indices")
-             .long("make-indices")
+        .arg(Arg::with_name("index-log-vars")
+             .long("index-log-vars")
+             .short("l")
+             .help("Make indices of VSL log vars"))
+        .arg(Arg::with_name("index-headers")
+             .long("index-headers")
              .short("i")
-             .help("Make indices of request and response headers with normalized header names and VSL log vars"))
+             .help("Make indices of request and response headers with normalized header names"))
+        .arg(Arg::with_name("index-headers-inplace")
+             .long("index-headers-inplace")
+             .short("I")
+             .help("Make inplace indices of request and response headers with normalized header names"))
         .get_matches();
 
     stderrlog::new()
@@ -154,7 +162,10 @@ fn main() {
                 };
 
                 if let Some(session) = session_state.apply(&record) {
-                    match log_session_record(&session, &format, &mut out, arguments.is_present("make-indices")) {
+                    match log_session_record(&session, &format, &mut out,
+                                            arguments.is_present("index-log-vars"),
+                                            arguments.is_present("index-headers"),
+                                            arguments.is_present("index-headers-inplace")) {
                         Ok(()) => (),
                         Err(OutputError::Io(err)) |
                         Err(OutputError::JsonSerialization(JsonError::Io(err))) => match err.kind() {
