@@ -118,7 +118,7 @@
 
 use std::fmt::Debug;
 
-use vsl::*;
+pub use vsl::*;
 use vsl::VslRecordTag::*;
 
 pub type Address = (String, Port);

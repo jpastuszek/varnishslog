@@ -73,7 +73,6 @@
 
 use std::collections::HashMap;
 
-use vsl::{VslRecord, VslIdent};
 pub use super::record_state::*;
 
 #[derive(Debug)]

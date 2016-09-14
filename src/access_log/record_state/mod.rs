@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use vsl::{VslRecord, VslIdent};
-
 mod record_builder;
 pub use self::record_builder::*;
 use self::record_builder::BuilderResult::*;

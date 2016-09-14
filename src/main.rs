@@ -30,7 +30,6 @@ use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
 use access_log::*;
 
 mod vsl;
-use vsl::{binary_vsl_tag, vsl_record_v4};
 
 mod access_log;
 
