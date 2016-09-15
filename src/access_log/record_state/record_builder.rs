@@ -136,7 +136,7 @@ pub enum LogEntry {
     /// Problems with processing headers, log messages etc
     Warning(String),
     /// ACL match result, name and value
-    Acl(String, String, Option<String>),
+    Acl(AclResult, String, Option<String>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1124,7 +1124,7 @@ impl RecordBuilder {
                 let (result, name, addr) = try!(vsl.parse_data(slt_vcl_acl));
 
                 let mut log = self.log;
-                log.push(LogEntry::Acl(result.to_string(), name.to_string(), addr.map(|addr| addr.to_lossy_string())));
+                log.push(LogEntry::Acl(result, name.to_string(), addr.map(|addr| addr.to_lossy_string())));
 
                 RecordBuilder {
                     log: log,
@@ -1662,7 +1662,6 @@ impl RecordBuilder {
 mod tests {
     pub use super::*;
     pub use super::super::super::test_helpers::*;
-    use vsl::{VslRecord, VSL_BACKENDMARKER};
 
     macro_rules! apply {
         ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{
@@ -2669,8 +2668,8 @@ mod tests {
          assert_eq!(record.log, &[
                     LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
                     LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
-                    LogEntry::Acl("NO_MATCH".to_string(), "trusted_networks".to_string(), None),
-                    LogEntry::Acl("MATCH".to_string(), "external_proxies".to_string(), Some("\"127.0.0.1\"".to_string())),
+                    LogEntry::Acl(AclResult::NoMatch, "trusted_networks".to_string(), None),
+                    LogEntry::Acl(AclResult::Match, "external_proxies".to_string(), Some("\"127.0.0.1\"".to_string())),
                     LogEntry::Debug("XXXX HIT-FOR-PASS".to_string()),
                     LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
                     LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),

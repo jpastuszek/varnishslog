@@ -217,10 +217,9 @@ impl<'a> Serialize for Log<'a> {
                 &VslLogEntry::Error(ref msg) => ("Error", msg.as_str(), None),
                 &VslLogEntry::FetchError(ref msg) => ("Fetch Error", msg.as_str(), None),
                 &VslLogEntry::Warning(ref msg) => ("Warning", msg.as_str(), None),
-                &VslLogEntry::Acl(ref result, ref name, ref addr) => match result.as_str() {
-                    "MATCH" => ("ACL Match", name.as_str(), addr.as_ref().map(String::as_str)),
-                    "NO_MATCH" => ("ACL No Match", name.as_str(), addr.as_ref().map(String::as_str)),
-                    _ => ("ACL Other", result.as_str(), Some(name.as_str())),
+                &VslLogEntry::Acl(ref result, ref name, ref addr) => match result {
+                    &VslAclResult::Match => ("ACL Match", name.as_str(), addr.as_ref().map(String::as_str)),
+                    &VslAclResult::NoMatch => ("ACL No Match", name.as_str(), addr.as_ref().map(String::as_str)),
                 },
             };
 

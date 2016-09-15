@@ -26,6 +26,11 @@ pub type FetchMode = u32;
 pub type Status = u32;
 pub type Port = u16;
 pub type FileDescriptor = isize;
+#[derive(Debug, Clone, PartialEq)]
+pub enum AclResult {
+    Match,
+    NoMatch,
+}
 
 /// Wrap result in MaybeStr type
 macro_rules! maybe_str {
@@ -161,12 +166,17 @@ named!(pub slt_vcl_call<&[u8], &str>, call!(
 named!(pub slt_vcl_return<&[u8], &str>, call!(
         symbol));   // VCL method terminating statement
 
-named!(pub slt_vcl_acl<&[u8], (&str, &str, Option<&MaybeStr>)>, chain!(
-        mat: symbol ~   // ACL result (MATCH, NO_MATCH, NOT_MATCH, etc.
+named!(pub slt_vcl_acl<&[u8], (AclResult, &str, Option<&MaybeStr>)>, chain!(
+        // ACL result (MATCH, NO_MATCH)
+        mat: terminated!(alt_complete!(tag!(b"NO_MATCH") | tag!(b"MATCH")), space) ~
         name: symbol ~  // ACL name
         // matched address
         addr: opt!(maybe_str!(non_empty)),
-        || (mat, name, addr)));
+        || (match mat {
+                b"MATCH" => AclResult::Match,
+                b"NO_MATCH" => AclResult::NoMatch,
+                _ => unreachable!()
+            }, name, addr)));
 
 named!(pub slt_storage<&[u8], (&str, &str)>, tuple!(
         symbol,     // Type ("malloc", "file", "persistent" etc.)

@@ -74,6 +74,7 @@ use boolinator::Boolinator;
 
 mod ser {
     use super::LogEntry as VslLogEntry;
+    use super::AclResult as VslAclResult;
     include!(concat!(env!("OUT_DIR"), "/serde_types.rs"));
 }
 
@@ -386,11 +387,9 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                 &LogEntry::FetchError(ref message) => messages.push(message.as_str()),
                 &LogEntry::Warning(ref message) => messages.push(message.as_str()),
                 &LogEntry::Acl(ref result, ref name, _) => {
-                    match result.as_str() {
-                        //TODO: this should be constants or something!
-                        "MATCH" => acl_match.push(name.as_str()),
-                        "NO_MATCH" => acl_no_match.push(name.as_str()),
-                        _ => ()
+                    match result {
+                        &AclResult::Match => acl_match.push(name.as_str()),
+                        &AclResult::NoMatch => acl_no_match.push(name.as_str()),
                     }
                 }
             }
