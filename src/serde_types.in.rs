@@ -37,8 +37,10 @@ pub struct ClientAccess<'a: 'i, 'i> {
     pub sent_total_bytes: u64,
     pub esi_count: usize,
     pub restart_count: usize,
+    #[serde(skip_serializing_if="Option::is_none")]
     pub restart_log: Option<Log<'a>>,
-    pub log: Log<'a>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub log: Option<Log<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
@@ -97,7 +99,8 @@ pub struct BackendAccess<'a: 'i, 'i> {
     pub retry: usize,
     pub backend_connection: Option<BackendConnection<'a>>,
     pub cache_object: Option<CacheObject<'a, 'i>>,
-    pub log: Log<'a>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub log: Option<Log<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
@@ -123,7 +126,8 @@ pub struct PipeSession<'a: 'i, 'i> {
     pub ttfb_duration: f64,
     pub recv_total_bytes: u64,
     pub sent_total_bytes: u64,
-    pub log: Log<'a>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub log: Option<Log<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]

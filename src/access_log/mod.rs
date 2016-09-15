@@ -258,7 +258,7 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for CacheObject {
 }
 
 pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W,
-                             index_log_vars: bool, index_headers: bool, index_headers_inplace: bool)
+                             index_log_vars: bool, index_headers: bool, index_headers_inplace: bool, no_log: bool)
     -> Result<(), OutputError> where W: Write {
     fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: ser::EntryType {
         let write_entry = match format {
@@ -647,7 +647,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         session_record: &SessionRecord,
         record_link: &Link<ClientAccessRecord>,
         record_type: &'static str,
-        index_log_vars: bool, index_headers: bool, index_headers_inplace: bool
+        index_log_vars: bool, index_headers: bool, index_headers_inplace: bool, no_log: bool
         ) -> Result<(), OutputError> where W: Write {
         flatten_linked_client_log_record(session_record, record_link, |client_log_record| {
             if let Some(client_log_record) = client_log_record {
@@ -669,7 +669,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     } => {
                         for esi_record_link in esi_records {
                             try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "esi_subrequest",
-                                                                 index_log_vars, index_headers, index_headers_inplace));
+                                                                 index_log_vars, index_headers, index_headers_inplace, no_log));
                         }
 
                         try!(flatten_linked_backend_log_record(session_record, record, backend_record, 0, |backend_log_record| {
@@ -729,7 +729,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     retry: backend_log_record.retry,
                                     backend_connection: backend_log_record.backend_connection.map(|b| b.as_ser()),
                                     cache_object: indexed_cache_object,
-                                    log: backend_log_record.final_record.log.as_ser(),
+                                    log: (!no_log).as_some_from(|| backend_log_record.final_record.log.as_ser()),
                                     request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                     response_header_index: response_header_index.as_ref().and_then(|index| index_headers.as_some_from(|| index.as_ser())),
                                     cache_object_response_header_index: cache_object_response_header_index.as_ref().and_then(|index| index_headers.as_some_from(|| index.as_ser())),
@@ -786,8 +786,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 sent_total_bytes: accounting.sent_total,
                                 esi_count: esi_records.len(),
                                 restart_count: restart_count,
-                                restart_log: restart_log.map(|l| l.as_ser()),
-                                log: final_record.log.as_ser(),
+                                restart_log: restart_log.and_then(|restart_log| (!no_log).as_some_from(|| restart_log.as_ser())),
+                                log: (!no_log).as_some_from(|| final_record.log.as_ser()),
                                 request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                 response_header_index: index_headers.as_some_from(|| response_header_index.as_ref().unwrap().as_ser()),
                                 log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
@@ -843,7 +843,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             ttfb_duration: ttfb_duration,
                             recv_total_bytes: accounting.recv_total,
                             sent_total_bytes: accounting.sent_total,
-                            log: final_record.log.as_ser(),
+                            log: (!no_log).as_some_from(|| final_record.log.as_ser()),
                             backend_connection: backend_connection.as_ser(),
                             request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                             backend_request_header_index: index_headers.as_some_from(|| backend_request_header_index.as_ref().unwrap().as_ser()),
@@ -861,7 +861,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
 
     for record_link in session_record.client_records.iter() {
         try!(log_linked_client_access_record(format, out, session_record, record_link, "client_request",
-                                             index_log_vars, index_headers, index_headers_inplace))
+                                             index_log_vars, index_headers, index_headers_inplace, no_log))
     }
     Ok(())
 }

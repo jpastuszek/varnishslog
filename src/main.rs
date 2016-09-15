@@ -71,6 +71,10 @@ fn main() {
              .long("index-log-vars")
              .short("l")
              .help("Make indices of VSL log vars"))
+        .arg(Arg::with_name("no-log")
+             .long("no-log")
+             .short("n")
+             .help("Do not include log"))
         .arg(Arg::with_name("index-headers")
              .long("index-headers")
              .short("i")
@@ -165,7 +169,8 @@ fn main() {
                     match log_session_record(&session, &format, &mut out,
                                             arguments.is_present("index-log-vars"),
                                             arguments.is_present("index-headers"),
-                                            arguments.is_present("index-headers-inplace")) {
+                                            arguments.is_present("index-headers-inplace"),
+                                            arguments.is_present("no-log")) {
                         Ok(()) => (),
                         Err(OutputError::Io(err)) |
                         Err(OutputError::JsonSerialization(JsonError::Io(err))) => match err.kind() {
