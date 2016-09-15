@@ -14,7 +14,7 @@ pub trait EntryType: Serialize {
 }
 
 #[derive(Serialize, Debug)]
-pub struct ClientAccess<'a> {
+pub struct ClientAccess<'a: 'i, 'i> {
     pub record_type: &'a str,
     pub vxid: u32,
     pub remote_address: Address<'a>,
@@ -22,9 +22,9 @@ pub struct ClientAccess<'a> {
     pub start_timestamp: f64,
     pub end_timestamp: f64,
     pub handling: &'a str,
-    pub request: HttpRequest<'a>,
-    pub response: HttpResponse<'a>,
-    pub backend_access: Option<&'a BackendAccess<'a>>,
+    pub request: HttpRequest<'a, 'i>,
+    pub response: HttpResponse<'a, 'i>,
+    pub backend_access: Option<&'i BackendAccess<'a, 'i>>,
     pub process_duration: Option<f64>,
     pub fetch_duration: Option<f64>,
     pub ttfb_duration: f64,
@@ -40,14 +40,14 @@ pub struct ClientAccess<'a> {
     pub restart_log: Option<Log<'a>>,
     pub log: Log<'a>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub request_header_index: Option<Index<'a>>,
+    pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub response_header_index: Option<Index<'a>>,
+    pub response_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars_index: Option<Index<'a>>,
+    pub log_vars_index: Option<LogVarsIndex<'a, 'i>>,
 }
 
-impl<'a> EntryType for ClientAccess<'a> {
+impl<'a: 'i, 'i> EntryType for ClientAccess<'a, 'i> {
     fn type_name(&self) -> &str {
         self.record_type
     }
@@ -75,15 +75,15 @@ impl<'a> EntryType for ClientAccess<'a> {
 }
 
 #[derive(Serialize, Debug)]
-pub struct BackendAccess<'a> {
+pub struct BackendAccess<'a: 'i, 'i> {
     pub vxid: u32,
     pub remote_address: Address<'a>,
     pub session_timestamp: f64,
     pub start_timestamp: f64,
     pub end_timestamp: f64,
     pub handling: &'a str,
-    pub request: HttpRequest<'a>,
-    pub response: Option<HttpResponse<'a>>,
+    pub request: HttpRequest<'a, 'i>,
+    pub response: Option<HttpResponse<'a, 'i>>,
     pub send_duration: f64,
     pub wait_duration: Option<f64>,
     pub ttfb_duration: Option<f64>,
@@ -96,20 +96,20 @@ pub struct BackendAccess<'a> {
     pub recv_total_bytes: Option<u64>,
     pub retry: usize,
     pub backend_connection: Option<BackendConnection<'a>>,
-    pub cache_object: Option<CacheObject<'a>>,
+    pub cache_object: Option<CacheObject<'a, 'i>>,
     pub log: Log<'a>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub request_header_index: Option<Index<'a>>,
+    pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub response_header_index: Option<Index<'a>>,
+    pub response_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub cache_object_response_header_index: Option<Index<'a>>,
+    pub cache_object_response_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars_index: Option<Index<'a>>,
+    pub log_vars_index: Option<LogVarsIndex<'a, 'i>>,
 }
 
 #[derive(Serialize, Debug)]
-pub struct PipeSession<'a> {
+pub struct PipeSession<'a: 'i, 'i> {
     pub record_type: &'a str,
     pub vxid: u32,
     pub remote_address: Address<'a>,
@@ -117,22 +117,22 @@ pub struct PipeSession<'a> {
     pub start_timestamp: f64,
     pub end_timestamp: f64,
     pub backend_connection: BackendConnection<'a>,
-    pub request: HttpRequest<'a>,
-    pub backend_request: HttpRequest<'a>,
+    pub request: HttpRequest<'a, 'i>,
+    pub backend_request: HttpRequest<'a, 'i>,
     pub process_duration: Option<f64>,
     pub ttfb_duration: f64,
     pub recv_total_bytes: u64,
     pub sent_total_bytes: u64,
     pub log: Log<'a>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub request_header_index: Option<Index<'a>>,
+    pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub backend_request_header_index: Option<Index<'a>>,
+    pub backend_request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars_index: Option<Index<'a>>,
+    pub log_vars_index: Option<LogVarsIndex<'a, 'i>>,
 }
 
-impl<'a> EntryType for PipeSession<'a> {
+impl<'a: 'i, 'i> EntryType for PipeSession<'a, 'i> {
     fn type_name(&self) -> &str {
         self.record_type
     }
@@ -166,12 +166,12 @@ pub struct Address<'a> {
 }
 
 #[derive(Debug)]
-pub enum Headers<'a> {
+pub enum Headers<'a: 'i, 'i> {
     Raw(&'a [(String, String)]),
-    Indexed(Index<'a>)
+    Indexed(Index<'a, 'i>)
 }
 
-impl<'a> Serialize for Headers<'a> {
+impl<'a: 'i, 'i> Serialize for Headers<'a, 'i> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
         match self {
             &Headers::Raw(slice) => slice.serialize(serializer),
@@ -181,19 +181,19 @@ impl<'a> Serialize for Headers<'a> {
 }
 
 #[derive(Serialize, Debug)]
-pub struct HttpRequest<'a> {
+pub struct HttpRequest<'a: 'i, 'i> {
     pub protocol: &'a str,
     pub method: &'a str,
     pub url: &'a str,
-    pub headers: Headers<'a>,
+    pub headers: Headers<'a, 'i>,
 }
 
 #[derive(Serialize, Debug)]
-pub struct HttpResponse<'a> {
+pub struct HttpResponse<'a: 'i, 'i> {
     pub status: u32,
     pub reason: &'a str,
     pub protocol: &'a str,
-    pub headers: Headers<'a>,
+    pub headers: Headers<'a, 'i>,
 }
 
 #[derive(Debug)]
@@ -236,9 +236,9 @@ impl<'a> Serialize for Log<'a> {
 }
 
 #[derive(Debug)]
-pub struct Index<'a>(pub &'a LinkedHashMap<String, Vec<String>>);
+pub struct Index<'a: 'i, 'i>(pub &'i LinkedHashMap<String, Vec<&'a str>>);
 
-impl<'a> Serialize for Index<'a> {
+impl<'a: 'i, 'i> Serialize for Index<'a, 'i> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
         let mut state = try!(serializer.serialize_map(Some(self.0.len())));
         for (ref key, ref values) in self.0 {
@@ -250,8 +250,23 @@ impl<'a> Serialize for Index<'a> {
     }
 }
 
+#[derive(Debug)]
+pub struct LogVarsIndex<'a: 'i, 'i>(pub &'i LinkedHashMap<&'a str, Vec<&'a str>>);
+
+impl<'a: 'i, 'i> Serialize for LogVarsIndex<'a, 'i> {
+    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
+        let mut state = try!(serializer.serialize_map(Some(self.0.len())));
+        for (key, values) in self.0 {
+            try!(serializer.serialize_map_key(&mut state, key));
+            try!(serializer.serialize_map_value(&mut state, values));
+        }
+        try!(serializer.serialize_map_end(state));
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Debug)]
-pub struct CacheObject<'a> {
+pub struct CacheObject<'a: 'i, 'i> {
     pub storage_type: &'a str,
     pub storage_name: &'a str,
     pub ttl_duration: Option<f64>,
@@ -261,7 +276,7 @@ pub struct CacheObject<'a> {
     pub origin_timestamp: f64,
     pub fetch_mode: &'a str,
     pub fetch_streamed: bool,
-    pub response: HttpResponse<'a>,
+    pub response: HttpResponse<'a, 'i>,
 }
 
 #[derive(Serialize, Debug)]

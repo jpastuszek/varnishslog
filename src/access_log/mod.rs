@@ -102,9 +102,9 @@ trait AsSer<'a> {
     fn as_ser(&'a self) -> Self::Out;
 }
 
-trait AsSerIndexed<'a> {
+trait AsSerIndexed<'a: 'i, 'i> {
     type Out;
-    fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out;
+    fn as_ser_indexed(&'a self, index: &'i LinkedHashMap<String, Vec<&'a str>>) -> Self::Out;
 }
 
 impl<'a> AsSer<'a> for Address {
@@ -139,7 +139,7 @@ impl<'a> AsSer<'a> for Vec<(String, String)> {
 }
 
 impl<'a> AsSer<'a> for HttpRequest {
-    type Out = ser::HttpRequest<'a>;
+    type Out = ser::HttpRequest<'a, 'a>;
     fn as_ser(&'a self) -> Self::Out {
         ser::HttpRequest {
             protocol: self.protocol.as_str(),
@@ -150,9 +150,9 @@ impl<'a> AsSer<'a> for HttpRequest {
     }
 }
 
-impl<'a> AsSerIndexed<'a> for HttpRequest {
-    type Out = ser::HttpRequest<'a>;
-    fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
+impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for HttpRequest {
+    type Out = ser::HttpRequest<'a, 'i>;
+    fn as_ser_indexed(&'a self, index: &'i LinkedHashMap<String, Vec<&'a str>>) -> Self::Out {
         ser::HttpRequest {
             protocol: self.protocol.as_str(),
             method: self.method.as_str(),
@@ -163,7 +163,7 @@ impl<'a> AsSerIndexed<'a> for HttpRequest {
 }
 
 impl<'a> AsSer<'a> for HttpResponse {
-    type Out = ser::HttpResponse<'a>;
+    type Out = ser::HttpResponse<'a, 'a>;
     fn as_ser(&'a self) -> Self::Out {
         ser::HttpResponse {
             status: self.status,
@@ -174,9 +174,9 @@ impl<'a> AsSer<'a> for HttpResponse {
     }
 }
 
-impl<'a> AsSerIndexed<'a> for HttpResponse {
-    type Out = ser::HttpResponse<'a>;
-    fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
+impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for HttpResponse {
+    type Out = ser::HttpResponse<'a, 'i>;
+    fn as_ser_indexed(&'a self, index: &'i LinkedHashMap<String, Vec<&'a str>>) -> Self::Out {
         ser::HttpResponse {
             status: self.status,
             reason: self.reason.as_str(),
@@ -194,10 +194,17 @@ impl<'a> AsSer<'a> for Vec<LogEntry> {
     }
 }
 
-impl<'a> AsSer<'a> for LinkedHashMap<String, Vec<String>> {
-    type Out = ser::Index<'a>;
-    fn as_ser(&'a self) -> Self::Out {
+impl<'a: 'i, 'i> AsSer<'i> for LinkedHashMap<String, Vec<&'a str>> {
+    type Out = ser::Index<'a, 'i>;
+    fn as_ser(&'i self) -> Self::Out {
         ser::Index(self)
+    }
+}
+
+impl<'a: 'i, 'i> AsSer<'i> for LinkedHashMap<&'a str, Vec<&'a str>> {
+    type Out = ser::LogVarsIndex<'a, 'i>;
+    fn as_ser(&'i self) -> Self::Out {
+        ser::LogVarsIndex(self)
     }
 }
 
@@ -214,7 +221,7 @@ impl<'a> AsSer<'a> for BackendConnection {
 }
 
 impl<'a> AsSer<'a> for CacheObject {
-    type Out = ser::CacheObject<'a>;
+    type Out = ser::CacheObject<'a, 'a>;
     fn as_ser(&'a self) -> Self::Out {
         ser::CacheObject {
             storage_type: self.storage_type.as_str(),
@@ -231,9 +238,9 @@ impl<'a> AsSer<'a> for CacheObject {
     }
 }
 
-impl<'a> AsSerIndexed<'a> for CacheObject {
-    type Out = ser::CacheObject<'a>;
-    fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
+impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for CacheObject {
+    type Out = ser::CacheObject<'a, 'i>;
+    fn as_ser_indexed(&'a self, index: &'i LinkedHashMap<String, Vec<&'a str>>) -> Self::Out {
         ser::CacheObject {
             storage_type: self.storage_type.as_str(),
             storage_name: self.storage_name.as_str(),
@@ -327,7 +334,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         }
     }
 
-    fn make_header_index(headers: &[(String, String)]) -> LinkedHashMap<String, Vec<String>> {
+    fn make_header_index(headers: &[(String, String)]) -> LinkedHashMap<String, Vec<&str>> {
         fn title_case(s: &str) -> String {
             let mut c = s.chars();
             match c.next() {
@@ -338,6 +345,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
 
         fn normalize_header_name(name: &str) -> String {
             //TODO: benchmark with itertools join
+            //TODO: what about Cow?
             name.split('-').map(|part| title_case(part)).collect::<Vec<_>>().join("-")
         }
 
@@ -346,31 +354,52 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
 
             // Note: this will put the header at the end of the index
             let mut values = index.remove(&name).unwrap_or(Vec::new());
-            values.push(value.to_owned());
+            values.push(value);
             index.insert(name, values);
 
             index
         })
     }
 
-    fn make_log_vars_index(logs: &[LogEntry]) -> LinkedHashMap<String, Vec<String>> {
+    fn make_log_vars_index(logs: &[LogEntry]) -> LinkedHashMap<&str, Vec<&str>> {
         let mut index = LinkedHashMap::new();
+        let mut messages = Vec::new();
+        let mut acl_match = Vec::new();
+        let mut acl_no_match = Vec::new();
 
         for log_entry in logs {
-            if let &LogEntry::Vcl(ref message) = log_entry {
-                let mut s = message.splitn(2, ": ");
-                if let Some(name) = s.next() {
-                    if name.contains(' ') {
-                        continue
+            match log_entry {
+                &LogEntry::Vcl(ref message) => {
+                    let mut s = message.splitn(2, ": ").fuse();
+                    if let (Some(name), Some(value)) = (s.next(), s.next()) {
+                        if !name.contains(' ') {
+                            let mut values = index.remove(name).unwrap_or(Vec::new());
+                            values.push(value);
+                            index.insert(name, values);
+                            continue;
+                        }
                     }
-                    if let Some(value) = s.next() {
-                        let mut values = index.remove(name).unwrap_or(Vec::new());
-                        values.push(value.to_owned());
-                        index.insert(name.to_owned(), values);
+                    messages.push(message.as_str());
+                }
+                &LogEntry::Debug(ref message) => messages.push(message.as_str()),
+                &LogEntry::Error(ref message) => messages.push(message.as_str()),
+                &LogEntry::FetchError(ref message) => messages.push(message.as_str()),
+                &LogEntry::Warning(ref message) => messages.push(message.as_str()),
+                &LogEntry::Acl(ref result, ref name, _) => {
+                    match result.as_str() {
+                        //TODO: this should be constants or something!
+                        "MATCH" => acl_match.push(name.as_str()),
+                        "NO_MATCH" => acl_no_match.push(name.as_str()),
+                        _ => ()
                     }
                 }
             }
         }
+
+        index.insert("messages", messages);
+        index.insert("acl_match", acl_match);
+        index.insert("acl_no_match", acl_no_match);
+
         index
     }
 
