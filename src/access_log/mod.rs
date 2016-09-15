@@ -374,7 +374,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         index
     }
 
-    struct BackendLogRecord<'a> {
+    struct FlatBackendAccessRecord<'a> {
         final_record: &'a BackendAccessRecord,
         handling: &'static str,
         request: &'a HttpRequest,
@@ -389,7 +389,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         cache_object: Option<&'a CacheObject>,
     }
 
-    enum ClientLogRecord<'a> {
+    enum FlatClientAccessRecord<'a> {
         ClientAccess {
             record: &'a ClientAccessRecord,
             final_record: &'a ClientAccessRecord,
@@ -422,7 +422,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         client_record: &ClientAccessRecord,
         maybe_record_link: &Option<Link<BackendAccessRecord>>,
         retry: usize,
-        block: F) -> R where F: FnOnce(Option<&BackendLogRecord>) -> R {
+        block: F) -> R where F: FnOnce(Option<&FlatBackendAccessRecord>) -> R {
         if let &Some(ref record_link) = maybe_record_link {
             if let Some(ref record) = record_link.get_resolved() {
                 match record.transaction {
@@ -437,7 +437,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         fetch,
                         ref accounting,
                         ..
-                    } => return block(Some(&BackendLogRecord {
+                    } => return block(Some(&FlatBackendAccessRecord {
                         final_record: record,
                         handling: "fetch",
                         request: request,
@@ -459,7 +459,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         synth,
                         ref accounting,
                         ..
-                    } => return block(Some(&BackendLogRecord {
+                    } => return block(Some(&FlatBackendAccessRecord {
                         final_record: record,
                         handling: "fail",
                         request: request,
@@ -483,7 +483,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         ttfb,
                         fetch,
                         ..
-                    } => return block(Some(&BackendLogRecord {
+                    } => return block(Some(&FlatBackendAccessRecord {
                         final_record: record,
                         handling: if retry_record.is_some() { "retry" } else { "abandon" },
                         request: request,
@@ -510,7 +510,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
     fn flatten_linked_client_log_record<F, R>(
         session_record: &SessionRecord,
         record_link: &Link<ClientAccessRecord>,
-        block: F) -> R where F: FnOnce(Option<&ClientLogRecord>) -> R {
+        block: F) -> R where F: FnOnce(Option<&FlatClientAccessRecord>) -> R {
         if let Some(record) = record_link.get_resolved() {
             if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
                 // Note: we skip all the intermediate restart records
@@ -528,7 +528,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         serve,
                         ref accounting,
                         ..
-                    }) => return block(Some(&ClientLogRecord::ClientAccess {
+                    }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
                         record: record,
                         final_record: final_record,
                         request: request,
@@ -554,7 +554,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         serve,
                         ref accounting,
                         ..
-                    }) => return block(Some(&ClientLogRecord::ClientAccess {
+                    }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
                         record: record,
                         final_record: final_record,
                         request: request,
@@ -584,7 +584,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 ..
                             } = backend_record.transaction {
 
-                                return block(Some(&ClientLogRecord::PipeSession {
+                                return block(Some(&FlatClientAccessRecord::PipeSession {
                                     record: record,
                                     final_record: final_record,
                                     request: request,
@@ -624,7 +624,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         flatten_linked_client_log_record(session_record, record_link, |client_log_record| {
             if let Some(client_log_record) = client_log_record {
                 match client_log_record {
-                    &ClientLogRecord::ClientAccess {
+                    &FlatClientAccessRecord::ClientAccess {
                         record,
                         final_record,
                         request,
@@ -768,7 +768,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         }));
                         Ok(())
                     },
-                    &ClientLogRecord::PipeSession {
+                    &FlatClientAccessRecord::PipeSession {
                         record,
                         final_record,
                         request,
