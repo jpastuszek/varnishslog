@@ -1,9 +1,8 @@
 use serde::ser::Serialize;
 use serde::ser::Serializer;
+use linked_hash_map::LinkedHashMap;
 
-//TODO: get ird of LogEntry postfix
-
-trait EntryType: Serialize {
+pub trait EntryType: Serialize {
     fn type_name(&self) -> &str;
     fn remote_ip(&self) -> &str;
     fn timestamp(&self) -> f64;
@@ -15,40 +14,40 @@ trait EntryType: Serialize {
 }
 
 #[derive(Serialize, Debug)]
-struct ClientAccessLogEntry<'a> {
-    record_type: &'a str,
-    vxid: u32,
-    remote_address: AddressLogEntry<'a>,
-    session_timestamp: f64,
-    start_timestamp: f64,
-    end_timestamp: f64,
-    handling: &'a str,
-    request: HttpRequestLogEntry<'a>,
-    response: HttpResponseLogEntry<'a>,
-    backend_access: Option<&'a BackendAccessLogEntry<'a>>,
-    process_duration: Option<f64>,
-    fetch_duration: Option<f64>,
-    ttfb_duration: f64,
-    serve_duration: f64,
-    recv_header_bytes: u64,
-    recv_body_bytes: u64,
-    recv_total_bytes: u64,
-    sent_header_bytes: u64,
-    sent_body_bytes: u64,
-    sent_total_bytes: u64,
-    esi_count: usize,
-    restart_count: usize,
-    restart_log: Option<LogBook<'a>>,
-    log: LogBook<'a>,
+pub struct ClientAccess<'a> {
+    pub record_type: &'a str,
+    pub vxid: u32,
+    pub remote_address: Address<'a>,
+    pub session_timestamp: f64,
+    pub start_timestamp: f64,
+    pub end_timestamp: f64,
+    pub handling: &'a str,
+    pub request: HttpRequest<'a>,
+    pub response: HttpResponse<'a>,
+    pub backend_access: Option<&'a BackendAccess<'a>>,
+    pub process_duration: Option<f64>,
+    pub fetch_duration: Option<f64>,
+    pub ttfb_duration: f64,
+    pub serve_duration: f64,
+    pub recv_header_bytes: u64,
+    pub recv_body_bytes: u64,
+    pub recv_total_bytes: u64,
+    pub sent_header_bytes: u64,
+    pub sent_body_bytes: u64,
+    pub sent_total_bytes: u64,
+    pub esi_count: usize,
+    pub restart_count: usize,
+    pub restart_log: Option<Log<'a>>,
+    pub log: Log<'a>,
     #[serde(skip_serializing_if="Option::is_none")]
-    request_header_index: Option<Index<'a>>,
+    pub request_header_index: Option<Index<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    response_header_index: Option<Index<'a>>,
+    pub response_header_index: Option<Index<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    log_vars_index: Option<Index<'a>>,
+    pub log_vars_index: Option<Index<'a>>,
 }
 
-impl<'a> EntryType for ClientAccessLogEntry<'a> {
+impl<'a> EntryType for ClientAccess<'a> {
     fn type_name(&self) -> &str {
         self.record_type
     }
@@ -76,64 +75,64 @@ impl<'a> EntryType for ClientAccessLogEntry<'a> {
 }
 
 #[derive(Serialize, Debug)]
-struct BackendAccessLogEntry<'a> {
-    vxid: u32,
-    remote_address: AddressLogEntry<'a>,
-    session_timestamp: f64,
-    start_timestamp: f64,
-    end_timestamp: f64,
-    handling: &'a str,
-    request: HttpRequestLogEntry<'a>,
-    response: Option<HttpResponseLogEntry<'a>>,
-    send_duration: f64,
-    wait_duration: Option<f64>,
-    ttfb_duration: Option<f64>,
-    fetch_duration: Option<f64>,
-    sent_header_bytes: Option<u64>,
-    sent_body_bytes: Option<u64>,
-    sent_total_bytes: Option<u64>,
-    recv_header_bytes: Option<u64>,
-    recv_body_bytes: Option<u64>,
-    recv_total_bytes: Option<u64>,
-    retry: usize,
-    backend_connection: Option<BackendConnectionLogEntry<'a>>,
-    cache_object: Option<CacheObjectLogEntry<'a>>,
-    log: LogBook<'a>,
+pub struct BackendAccess<'a> {
+    pub vxid: u32,
+    pub remote_address: Address<'a>,
+    pub session_timestamp: f64,
+    pub start_timestamp: f64,
+    pub end_timestamp: f64,
+    pub handling: &'a str,
+    pub request: HttpRequest<'a>,
+    pub response: Option<HttpResponse<'a>>,
+    pub send_duration: f64,
+    pub wait_duration: Option<f64>,
+    pub ttfb_duration: Option<f64>,
+    pub fetch_duration: Option<f64>,
+    pub sent_header_bytes: Option<u64>,
+    pub sent_body_bytes: Option<u64>,
+    pub sent_total_bytes: Option<u64>,
+    pub recv_header_bytes: Option<u64>,
+    pub recv_body_bytes: Option<u64>,
+    pub recv_total_bytes: Option<u64>,
+    pub retry: usize,
+    pub backend_connection: Option<BackendConnection<'a>>,
+    pub cache_object: Option<CacheObject<'a>>,
+    pub log: Log<'a>,
     #[serde(skip_serializing_if="Option::is_none")]
-    request_header_index: Option<Index<'a>>,
+    pub request_header_index: Option<Index<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    response_header_index: Option<Index<'a>>,
+    pub response_header_index: Option<Index<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    cache_object_response_header_index: Option<Index<'a>>,
+    pub cache_object_response_header_index: Option<Index<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    log_vars_index: Option<Index<'a>>,
+    pub log_vars_index: Option<Index<'a>>,
 }
 
 #[derive(Serialize, Debug)]
-struct PipeSessionLogEntry<'a> {
-    record_type: &'a str,
-    vxid: u32,
-    remote_address: AddressLogEntry<'a>,
-    session_timestamp: f64,
-    start_timestamp: f64,
-    end_timestamp: f64,
-    backend_connection: BackendConnectionLogEntry<'a>,
-    request: HttpRequestLogEntry<'a>,
-    backend_request: HttpRequestLogEntry<'a>,
-    process_duration: Option<f64>,
-    ttfb_duration: f64,
-    recv_total_bytes: u64,
-    sent_total_bytes: u64,
-    log: LogBook<'a>,
+pub struct PipeSession<'a> {
+    pub record_type: &'a str,
+    pub vxid: u32,
+    pub remote_address: Address<'a>,
+    pub session_timestamp: f64,
+    pub start_timestamp: f64,
+    pub end_timestamp: f64,
+    pub backend_connection: BackendConnection<'a>,
+    pub request: HttpRequest<'a>,
+    pub backend_request: HttpRequest<'a>,
+    pub process_duration: Option<f64>,
+    pub ttfb_duration: f64,
+    pub recv_total_bytes: u64,
+    pub sent_total_bytes: u64,
+    pub log: Log<'a>,
     #[serde(skip_serializing_if="Option::is_none")]
-    request_header_index: Option<Index<'a>>,
+    pub request_header_index: Option<Index<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    backend_request_header_index: Option<Index<'a>>,
+    pub backend_request_header_index: Option<Index<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    log_vars_index: Option<Index<'a>>,
+    pub log_vars_index: Option<Index<'a>>,
 }
 
-impl<'a> EntryType for PipeSessionLogEntry<'a> {
+impl<'a> EntryType for PipeSession<'a> {
     fn type_name(&self) -> &str {
         self.record_type
     }
@@ -161,13 +160,13 @@ impl<'a> EntryType for PipeSessionLogEntry<'a> {
 }
 
 #[derive(Serialize, Debug)]
-struct AddressLogEntry<'a> {
-    ip: &'a str,
-    port: u16,
+pub struct Address<'a> {
+    pub ip: &'a str,
+    pub port: u16,
 }
 
 #[derive(Debug)]
-enum Headers<'a> {
+pub enum Headers<'a> {
     Raw(&'a [(String, String)]),
     Indexed(Index<'a>)
 }
@@ -182,50 +181,50 @@ impl<'a> Serialize for Headers<'a> {
 }
 
 #[derive(Serialize, Debug)]
-struct HttpRequestLogEntry<'a> {
-    protocol: &'a str,
-    method: &'a str,
-    url: &'a str,
-    headers: Headers<'a>,
+pub struct HttpRequest<'a> {
+    pub protocol: &'a str,
+    pub method: &'a str,
+    pub url: &'a str,
+    pub headers: Headers<'a>,
 }
 
 #[derive(Serialize, Debug)]
-struct HttpResponseLogEntry<'a> {
-    status: u32,
-    reason: &'a str,
-    protocol: &'a str,
-    headers: Headers<'a>,
+pub struct HttpResponse<'a> {
+    pub status: u32,
+    pub reason: &'a str,
+    pub protocol: &'a str,
+    pub headers: Headers<'a>,
 }
 
 #[derive(Debug)]
-struct LogBook<'a>(&'a [LogEntry]);
+pub struct Log<'a>(pub &'a [VslLogEntry]);
 
 #[derive(Serialize, Debug)]
-struct LogBookEntry<'a> {
-    entry_type: &'a str,
-    message: &'a str,
+pub struct LogEntry<'a> {
+    pub entry_type: &'a str,
+    pub message: &'a str,
     #[serde(skip_serializing_if="Option::is_none")]
-    detail: Option<&'a str>,
+    pub detail: Option<&'a str>,
 }
 
-impl<'a> Serialize for LogBook<'a> {
+impl<'a> Serialize for Log<'a> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
         let mut state = try!(serializer.serialize_seq(Some(self.0.len())));
         for log_entry in self.0 {
             let (entry_type, message, detail) = match log_entry {
-                &LogEntry::Vcl(ref msg) => ("VCL", msg.as_str(), None),
-                &LogEntry::Debug(ref msg) => ("Debug", msg.as_str(), None),
-                &LogEntry::Error(ref msg) => ("Error", msg.as_str(), None),
-                &LogEntry::FetchError(ref msg) => ("Fetch Error", msg.as_str(), None),
-                &LogEntry::Warning(ref msg) => ("Warning", msg.as_str(), None),
-                &LogEntry::Acl(ref result, ref name, ref addr) => match result.as_str() {
+                &VslLogEntry::Vcl(ref msg) => ("VCL", msg.as_str(), None),
+                &VslLogEntry::Debug(ref msg) => ("Debug", msg.as_str(), None),
+                &VslLogEntry::Error(ref msg) => ("Error", msg.as_str(), None),
+                &VslLogEntry::FetchError(ref msg) => ("Fetch Error", msg.as_str(), None),
+                &VslLogEntry::Warning(ref msg) => ("Warning", msg.as_str(), None),
+                &VslLogEntry::Acl(ref result, ref name, ref addr) => match result.as_str() {
                     "MATCH" => ("ACL Match", name.as_str(), addr.as_ref().map(String::as_str)),
                     "NO_MATCH" => ("ACL No Match", name.as_str(), addr.as_ref().map(String::as_str)),
                     _ => ("ACL Other", result.as_str(), Some(name.as_str())),
                 },
             };
 
-            try!(serializer.serialize_seq_elt(&mut state, &LogBookEntry {
+            try!(serializer.serialize_seq_elt(&mut state, &LogEntry {
                 entry_type: entry_type,
                 message: message,
                 detail: detail,
@@ -237,7 +236,7 @@ impl<'a> Serialize for LogBook<'a> {
 }
 
 #[derive(Debug)]
-struct Index<'a>(&'a LinkedHashMap<String, Vec<String>>);
+pub struct Index<'a>(pub &'a LinkedHashMap<String, Vec<String>>);
 
 impl<'a> Serialize for Index<'a> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
@@ -252,23 +251,23 @@ impl<'a> Serialize for Index<'a> {
 }
 
 #[derive(Serialize, Debug)]
-struct CacheObjectLogEntry<'a> {
-    storage_type: &'a str,
-    storage_name: &'a str,
-    ttl_duration: Option<f64>,
-    grace_duration: Option<f64>,
-    keep_duration: Option<f64>,
-    since_timestamp: f64,
-    origin_timestamp: f64,
-    fetch_mode: &'a str,
-    fetch_streamed: bool,
-    response: HttpResponseLogEntry<'a>,
+pub struct CacheObject<'a> {
+    pub storage_type: &'a str,
+    pub storage_name: &'a str,
+    pub ttl_duration: Option<f64>,
+    pub grace_duration: Option<f64>,
+    pub keep_duration: Option<f64>,
+    pub since_timestamp: f64,
+    pub origin_timestamp: f64,
+    pub fetch_mode: &'a str,
+    pub fetch_streamed: bool,
+    pub response: HttpResponse<'a>,
 }
 
 #[derive(Serialize, Debug)]
-struct BackendConnectionLogEntry<'a> {
-    fd: isize,
-    name: &'a str,
-    remote_address: AddressLogEntry<'a>,
-    local_address: AddressLogEntry<'a>,
+pub struct BackendConnection<'a> {
+    pub fd: isize,
+    pub name: &'a str,
+    pub remote_address: Address<'a>,
+    pub local_address: Address<'a>,
 }

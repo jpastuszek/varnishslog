@@ -61,8 +61,6 @@ mod record_state;
 pub use self::record_state::*;
 pub use self::session_state::SessionState;
 
-include!(concat!(env!("OUT_DIR"), "/serde_types.rs"));
-
 pub use std::io::Error as IoError;
 
 pub use serde_json::error::Error as JsonError;
@@ -73,6 +71,11 @@ use std::io::Write;
 use chrono::NaiveDateTime;
 use linked_hash_map::LinkedHashMap;
 use boolinator::Boolinator;
+
+mod ser {
+    use super::LogEntry as VslLogEntry;
+    include!(concat!(env!("OUT_DIR"), "/serde_types.rs"));
+}
 
 quick_error! {
     #[derive(Debug)]
@@ -105,9 +108,9 @@ trait AsSerIndexed<'a> {
 }
 
 impl<'a> AsSer<'a> for Address {
-    type Out = AddressLogEntry<'a>;
+    type Out = ser::Address<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        AddressLogEntry {
+        ser::Address {
             ip: self.0.as_str(),
             port: self.1,
         }
@@ -136,71 +139,72 @@ impl<'a> AsSer<'a> for Vec<(String, String)> {
 }
 
 impl<'a> AsSer<'a> for HttpRequest {
-    type Out = HttpRequestLogEntry<'a>;
+    type Out = ser::HttpRequest<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        HttpRequestLogEntry {
+        ser::HttpRequest {
             protocol: self.protocol.as_str(),
             method: self.method.as_str(),
             url: self.url.as_str(),
-            headers: Headers::Raw(self.headers.as_ser()),
+            headers: ser::Headers::Raw(self.headers.as_ser()),
         }
     }
 }
 
 impl<'a> AsSerIndexed<'a> for HttpRequest {
-    type Out = HttpRequestLogEntry<'a>;
+    type Out = ser::HttpRequest<'a>;
     fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
-        HttpRequestLogEntry {
+        ser::HttpRequest {
             protocol: self.protocol.as_str(),
             method: self.method.as_str(),
             url: self.url.as_str(),
-            headers: Headers::Indexed(index.as_ser()),
+            headers: ser::Headers::Indexed(index.as_ser()),
         }
     }
 }
 
 impl<'a> AsSer<'a> for HttpResponse {
-    type Out = HttpResponseLogEntry<'a>;
+    type Out = ser::HttpResponse<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        HttpResponseLogEntry {
+        ser::HttpResponse {
             status: self.status,
             reason: self.reason.as_str(),
             protocol: self.protocol.as_str(),
-            headers: Headers::Raw(self.headers.as_ser()),
+            headers: ser::Headers::Raw(self.headers.as_ser()),
         }
     }
 }
 
 impl<'a> AsSerIndexed<'a> for HttpResponse {
-    type Out = HttpResponseLogEntry<'a>;
+    type Out = ser::HttpResponse<'a>;
     fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
-        HttpResponseLogEntry {
+        ser::HttpResponse {
             status: self.status,
             reason: self.reason.as_str(),
             protocol: self.protocol.as_str(),
-            headers: Headers::Indexed(index.as_ser()),
+            headers: ser::Headers::Indexed(index.as_ser()),
         }
     }
 }
 
 impl<'a> AsSer<'a> for Vec<LogEntry> {
-    type Out = LogBook<'a>;
+    type Out = ser::Log<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        LogBook(self)
+        //TODO: map LogEntry when impl Iterator is stable
+        ser::Log(self)
     }
 }
 
 impl<'a> AsSer<'a> for LinkedHashMap<String, Vec<String>> {
-    type Out = Index<'a>;
+    type Out = ser::Index<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        Index(self)
+        ser::Index(self)
     }
 }
 
 impl<'a> AsSer<'a> for BackendConnection {
-    type Out = BackendConnectionLogEntry<'a>;
+    type Out = ser::BackendConnection<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        BackendConnectionLogEntry {
+        ser::BackendConnection {
             fd: self.fd,
             name: self.name.as_str(),
             remote_address: self.remote.as_ser(),
@@ -210,9 +214,9 @@ impl<'a> AsSer<'a> for BackendConnection {
 }
 
 impl<'a> AsSer<'a> for CacheObject {
-    type Out = CacheObjectLogEntry<'a>;
+    type Out = ser::CacheObject<'a>;
     fn as_ser(&'a self) -> Self::Out {
-        CacheObjectLogEntry {
+        ser::CacheObject {
             storage_type: self.storage_type.as_str(),
             storage_name: self.storage_name.as_str(),
             ttl_duration: self.ttl,
@@ -228,9 +232,9 @@ impl<'a> AsSer<'a> for CacheObject {
 }
 
 impl<'a> AsSerIndexed<'a> for CacheObject {
-    type Out = CacheObjectLogEntry<'a>;
+    type Out = ser::CacheObject<'a>;
     fn as_ser_indexed(&'a self, index: &'a LinkedHashMap<String, Vec<String>>) -> Self::Out {
-        CacheObjectLogEntry {
+        ser::CacheObject {
             storage_type: self.storage_type.as_str(),
             storage_name: self.storage_name.as_str(),
             ttl_duration: self.ttl,
@@ -248,7 +252,7 @@ impl<'a> AsSerIndexed<'a> for CacheObject {
 pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W,
                              index_log_vars: bool, index_headers: bool, index_headers_inplace: bool)
     -> Result<(), OutputError> where W: Write {
-    fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: EntryType {
+    fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: ser::EntryType {
         let write_entry = match format {
             &Format::Json => write_json,
             &Format::JsonPretty => write_json_pretty,
@@ -675,7 +679,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     indexed_cache_object = backend_log_record.cache_object.map(|cache_object| cache_object.as_ser());
                                 }
 
-                                BackendAccessLogEntry {
+                                ser::BackendAccess {
                                     vxid: record.ident,
                                     remote_address: session_record.remote.as_ser(),
                                     session_timestamp: session_record.open,
@@ -731,7 +735,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 indexed_response = response.as_ser();
                             }
 
-                            let client_access = ClientAccessLogEntry {
+                            let client_access = ser::ClientAccess {
                                 record_type: record_type,
                                 vxid: record.ident,
                                 remote_address: session_record.remote.as_ser(),
@@ -798,7 +802,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             indexed_backend_request = backend_request.as_ser();
                         }
 
-                        let pipe_session = PipeSessionLogEntry {
+                        let pipe_session = ser::PipeSession {
                             record_type: "pipe_session",
                             vxid: record.ident,
                             remote_address: session_record.remote.as_ser(),
