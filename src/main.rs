@@ -46,6 +46,13 @@ arg_enum! {
     }
 }
 
+pub struct Config {
+    no_log_processing: bool,
+    keep_raw_log: bool,
+    no_header_indexing: bool,
+    keep_raw_headers: bool,
+}
+
 fn main() {
     let arguments = App::new("Varnish VSL log to syslog logger")
         .version(crate_version!())
@@ -67,22 +74,22 @@ fn main() {
              .takes_value(true)
              .possible_values(&OutputFormat::variants())
              .default_value(OutputFormat::variants().last().unwrap()))
-        .arg(Arg::with_name("index-log-vars")
-             .long("index-log-vars")
+        .arg(Arg::with_name("no-log-processing")
+             .long("no-log-processing")
              .short("l")
-             .help("Make indices of VSL log vars, messages and ACL"))
-        .arg(Arg::with_name("no-log")
-             .long("no-log")
-             .short("n")
-             .help("Do not include log"))
-        .arg(Arg::with_name("index-headers")
-             .long("index-headers")
+             .help("Do not process VSL log into vars, messages and ACL matches"))
+        .arg(Arg::with_name("keep-raw-log")
+             .long("keep-raw-log")
+             .short("L")
+             .help("Include raw log messages"))
+        .arg(Arg::with_name("no-header-indexing")
+             .long("no-header-indexing")
              .short("i")
-             .help("Make indices of request and response headers with normalized header names"))
-        .arg(Arg::with_name("index-headers-inplace")
-             .long("index-headers-inplace")
+             .help("Do not make indices of request and response headers with normalized header names"))
+        .arg(Arg::with_name("keep-raw-headers")
+             .long("keep-raw-headers")
              .short("I")
-             .help("Make inplace indices of request and response headers with normalized header names"))
+             .help("Keep raw header name/value pairs; any indices are moved to top level"))
         .get_matches();
 
     stderrlog::new()
@@ -166,11 +173,14 @@ fn main() {
                 };
 
                 if let Some(session) = session_state.apply(&record) {
-                    match log_session_record(&session, &format, &mut out,
-                                            arguments.is_present("index-log-vars"),
-                                            arguments.is_present("index-headers"),
-                                            arguments.is_present("index-headers-inplace"),
-                                            arguments.is_present("no-log")) {
+                    let config = Config {
+                        no_log_processing: arguments.is_present("no-log-processing"),
+                        keep_raw_log: arguments.is_present("keep-raw-log"),
+                        no_header_indexing: arguments.is_present("no-header-indexing"),
+                        keep_raw_headers: arguments.is_present("keep-raw-headers"),
+                    };
+
+                    match log_session_record(&session, &format, &mut out, &config) {
                         Ok(()) => (),
                         Err(OutputError::Io(err)) |
                         Err(OutputError::JsonSerialization(JsonError::Io(err))) => match err.kind() {
