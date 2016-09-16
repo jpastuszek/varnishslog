@@ -218,10 +218,10 @@ pub enum ClientAccessTransaction {
     RestartedLate {
         request: HttpRequest,
         response: HttpResponse,
+        backend_record: Option<Link<BackendAccessRecord>>,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         restart_record: Link<ClientAccessRecord>,
-        backend_record: Option<Link<BackendAccessRecord>>,
     },
     Piped {
         request: HttpRequest,
@@ -2066,7 +2066,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_client_access_restarted() {
+    fn apply_client_access_restarted_early() {
         let builder = RecordBuilder::new(123);
 
         // logs-new/varnish20160816-4093-c0f5tz5609f5ab778e4a4eb.vsl
@@ -2104,6 +2104,64 @@ mod tests {
             process: Some(0.0),
             restart_record: Link::Unresolved(5),
         } if url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
+    }
+
+    #[test]
+    fn apply_client_access_restarted_late() {
+        let builder = RecordBuilder::new(123);
+
+        // logs-new/varnish20160816-4093-c0f5tz5609f5ab778e4a4eb.vsl
+        let builder = apply_all!(builder,
+                                 4, SLT_Begin,          "req 3 rxreq";
+                                 4, SLT_Timestamp,      "Start: 1471355414.450311 0.000000 0.000000";
+                                 4, SLT_Timestamp,      "Req: 1471355414.450311 0.000000 0.000000";
+                                 4, SLT_ReqStart,       "127.0.0.1 47912";
+                                 4, SLT_ReqMethod,      "GET";
+                                 4, SLT_ReqURL,         "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure";
+                                 4, SLT_ReqProtocol,    "HTTP/1.1";
+                                 4, SLT_ReqHeader,      "Host: 127.0.0.1:1245";
+                                 4, SLT_VCL_call,       "RECV ";
+                                 4, SLT_VCL_return,     "hash";
+                                 4, SLT_VCL_call,       "HASH";
+                                 4, SLT_VCL_return,     "lookup";
+                                 4, SLT_VCL_call,       "MISS";
+                                 4, SLT_VCL_return,     "fetch";
+                                 4, SLT_Link,           "bereq 3 fetch";
+                                 4, SLT_Timestamp,      "Fetch: 1474021794.489401 0.002282 0.002282";
+                                 4, SLT_RespProtocol,   "HTTP/1.1";
+                                 4, SLT_RespStatus,     "301";
+                                 4, SLT_RespReason,     "Moved Permanently";
+                                 4, SLT_RespHeader,     "Date: Fri, 16 Sep 2016 10:29:53 GMT";
+                                 4, SLT_RespHeader,     "Server: Microsoft-IIS/7.5";
+                                 4, SLT_VCL_call,       "DELIVER";
+                                 4, SLT_VCL_return,     "restart";
+                                 4, SLT_Timestamp,      "Process: 1474021794.489489 0.002371 0.000088";
+                                 4, SLT_Timestamp,      "Restart: 1471355414.450428 0.000117 0.000117";
+                                 4, SLT_Link,           "req 5 restart";
+                                );
+
+        let record = apply_last!(builder, 4, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.start, 1471355414.450311);
+        assert_eq!(record.end, 1471355414.450428);
+
+        assert_matches!(record.transaction, ClientAccessTransaction::RestartedLate {
+            request: HttpRequest {
+                ref url,
+                ..
+            },
+            response: HttpResponse {
+                status,
+                ..
+            },
+            backend_record: Some(Link::Unresolved(3)),
+            process: Some(0.0),
+            restart_record: Link::Unresolved(5),
+        } if
+            url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure" &&
+            status == 301
+        );
     }
 
     #[test]
