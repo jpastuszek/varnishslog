@@ -46,7 +46,13 @@ pub struct ClientAccess<'a: 'i, 'i> {
     #[serde(skip_serializing_if="Option::is_none")]
     pub response_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars_index: Option<LogVarsIndex<'a, 'i>>,
+    pub log_vars: Option<LogVarsIndex<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub log_messages: Option<LogMessages<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub acl_matched: Option<LogMessages<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub acl_not_matched: Option<LogMessages<'a, 'i>>,
 }
 
 impl<'a: 'i, 'i> EntryType for ClientAccess<'a, 'i> {
@@ -108,7 +114,13 @@ pub struct BackendAccess<'a: 'i, 'i> {
     #[serde(skip_serializing_if="Option::is_none")]
     pub cache_object_response_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars_index: Option<LogVarsIndex<'a, 'i>>,
+    pub log_vars: Option<LogVarsIndex<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub log_messages: Option<LogMessages<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub acl_matched: Option<LogMessages<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub acl_not_matched: Option<LogMessages<'a, 'i>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -133,7 +145,13 @@ pub struct PipeSession<'a: 'i, 'i> {
     #[serde(skip_serializing_if="Option::is_none")]
     pub backend_request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars_index: Option<LogVarsIndex<'a, 'i>>,
+    pub log_vars: Option<LogVarsIndex<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub log_messages: Option<LogMessages<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub acl_matched: Option<LogMessages<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub acl_not_matched: Option<LogMessages<'a, 'i>>,
 }
 
 impl<'a: 'i, 'i> EntryType for PipeSession<'a, 'i> {
@@ -267,6 +285,8 @@ impl<'a: 'i, 'i> Serialize for LogVarsIndex<'a, 'i> {
         Ok(())
     }
 }
+
+pub type LogMessages<'a: 'i, 'i> = &'i [&'a str];
 
 #[derive(Serialize, Debug)]
 pub struct CacheObject<'a: 'i, 'i> {

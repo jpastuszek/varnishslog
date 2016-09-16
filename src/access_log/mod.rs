@@ -209,6 +209,13 @@ impl<'a: 'i, 'i> AsSer<'i> for LinkedHashMap<&'a str, Vec<&'a str>> {
     }
 }
 
+impl<'a: 'i, 'i> AsSer<'i> for Vec<&'a str> {
+    type Out = ser::LogMessages<'a, 'i>;
+    fn as_ser(&'i self) -> Self::Out {
+        self.as_slice()
+    }
+}
+
 impl<'a> AsSer<'a> for BackendConnection {
     type Out = ser::BackendConnection<'a>;
     fn as_ser(&'a self) -> Self::Out {
@@ -362,11 +369,18 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         })
     }
 
-    fn make_log_vars_index(logs: &[LogEntry]) -> LinkedHashMap<&str, Vec<&str>> {
-        let mut index = LinkedHashMap::new();
+    struct LogIndex<'a> {
+        vars: LinkedHashMap<&'a str, Vec<&'a str>>,
+        messages: Vec<&'a str>,
+        acl_matched: Vec<&'a str>,
+        acl_not_matched: Vec<&'a str>,
+    }
+
+    fn index_log<'a>(logs: &'a [LogEntry]) -> LogIndex<'a> {
+        let mut vars = LinkedHashMap::new();
         let mut messages = Vec::new();
-        let mut acl_match = Vec::new();
-        let mut acl_no_match = Vec::new();
+        let mut acl_matched = Vec::new();
+        let mut acl_not_matched = Vec::new();
 
         for log_entry in logs {
             match log_entry {
@@ -374,9 +388,9 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     let mut s = message.splitn(2, ": ").fuse();
                     if let (Some(name), Some(value)) = (s.next(), s.next()) {
                         if !name.contains(' ') {
-                            let mut values = index.remove(name).unwrap_or(Vec::new());
+                            let mut values = vars.remove(name).unwrap_or(Vec::new());
                             values.push(value);
-                            index.insert(name, values);
+                            vars.insert(name, values);
                             continue;
                         }
                     }
@@ -388,18 +402,19 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                 &LogEntry::Warning(ref message) => messages.push(message.as_str()),
                 &LogEntry::Acl(ref result, ref name, _) => {
                     match result {
-                        &AclResult::Match => acl_match.push(name.as_str()),
-                        &AclResult::NoMatch => acl_no_match.push(name.as_str()),
+                        &AclResult::Match => acl_matched.push(name.as_str()),
+                        &AclResult::NoMatch => acl_not_matched.push(name.as_str()),
                     }
                 }
             }
         }
 
-        index.insert("messages", messages);
-        index.insert("acl_match", acl_match);
-        index.insert("acl_no_match", acl_no_match);
-
-        index
+        LogIndex {
+            vars: vars,
+            messages: messages,
+            acl_matched: acl_matched,
+            acl_not_matched: acl_not_matched,
+        }
     }
 
     struct FlatBackendAccessRecord<'a> {
@@ -675,7 +690,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         try!(flatten_linked_backend_log_record(session_record, record, backend_record, 0, |backend_log_record| {
                             // backend record
                             // Need to live up to write()
-                            let mut log_vars_index = None;
+                            let mut log_index = None;
 
                             let mut request_header_index = None;
                             let mut response_header_index = None;
@@ -688,7 +703,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 let indexed_cache_object;
 
                                 if index_log_vars {
-                                    log_vars_index = Some(make_log_vars_index(backend_log_record.final_record.log.as_slice()));
+                                    log_index = Some(index_log(backend_log_record.final_record.log.as_slice()));
                                 }
 
                                 if index_headers | index_headers_inplace {
@@ -733,12 +748,15 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                     response_header_index: response_header_index.as_ref().and_then(|index| index_headers.as_some_from(|| index.as_ser())),
                                     cache_object_response_header_index: cache_object_response_header_index.as_ref().and_then(|index| index_headers.as_some_from(|| index.as_ser())),
-                                    log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
+                                    log_vars: log_index.as_ref().map(|v| v.vars.as_ser()),
+                                    log_messages: log_index.as_ref().map(|v| v.messages.as_ser()),
+                                    acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
+                                    acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
                                 }
                             });
 
                             // client record
-                            let mut log_vars_index = None;
+                            let mut log_index = None;
 
                             let mut request_header_index = None;
                             let mut response_header_index = None;
@@ -747,7 +765,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             let indexed_response;
 
                             if index_log_vars {
-                                log_vars_index = Some(make_log_vars_index(final_record.log.as_slice()));
+                                log_index = Some(index_log(final_record.log.as_slice()));
                             }
 
                             if index_headers | index_headers_inplace {
@@ -790,7 +808,10 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 log: (!no_log).as_some_from(|| final_record.log.as_ser()),
                                 request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                 response_header_index: index_headers.as_some_from(|| response_header_index.as_ref().unwrap().as_ser()),
-                                log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
+                                log_vars: log_index.as_ref().map(|v| v.vars.as_ser()),
+                                log_messages: log_index.as_ref().map(|v| v.messages.as_ser()),
+                                acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
+                                acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
                             };
                             write(format, out, &client_access)
                         }));
@@ -806,7 +827,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         accounting,
                         backend_connection,
                     } => {
-                        let mut log_vars_index = None;
+                        let mut log_index = None;
                         let mut request_header_index = None;
                         let mut backend_request_header_index = None;
 
@@ -814,7 +835,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         let indexed_backend_request;
 
                         if index_log_vars {
-                            log_vars_index = Some(make_log_vars_index(final_record.log.as_slice()));
+                            log_index = Some(index_log(final_record.log.as_slice()));
                         }
 
                         if index_headers || index_headers_inplace {
@@ -847,7 +868,10 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             backend_connection: backend_connection.as_ser(),
                             request_header_index: index_headers.as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                             backend_request_header_index: index_headers.as_some_from(|| backend_request_header_index.as_ref().unwrap().as_ser()),
-                            log_vars_index: log_vars_index.as_ref().map(|v| v.as_ser()),
+                            log_vars: log_index.as_ref().map(|v| v.vars.as_ser()),
+                            log_messages: log_index.as_ref().map(|v| v.messages.as_ser()),
+                            acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
+                            acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
                         };
                         write(format, out, &pipe_session)
                     }

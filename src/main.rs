@@ -70,7 +70,7 @@ fn main() {
         .arg(Arg::with_name("index-log-vars")
              .long("index-log-vars")
              .short("l")
-             .help("Make indices of VSL log vars"))
+             .help("Make indices of VSL log vars, messages and ACL"))
         .arg(Arg::with_name("no-log")
              .long("no-log")
              .short("n")
