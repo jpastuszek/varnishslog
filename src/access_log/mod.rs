@@ -331,7 +331,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         match record.transaction {
             ClientAccessTransaction::Full { .. } |
             ClientAccessTransaction::Piped { .. } => Some((record, restart_count)),
-            ClientAccessTransaction::Restarted { ref restart_record, .. } => {
+            ClientAccessTransaction::RestartedEarly { ref restart_record, .. } |
+            ClientAccessTransaction::RestartedLate { ref restart_record, .. }  => {
                 if let Some(record) = restart_record.get_resolved() {
                     follow_restarts(record, restart_count + 1)
                 } else {
@@ -556,7 +557,35 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
             if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
                 // Note: we skip all the intermediate restart records
                 match (&record.transaction, &final_record.transaction) {
-                    (&ClientAccessTransaction::Restarted {
+                    (&ClientAccessTransaction::RestartedEarly {
+                        ref request,
+                        process,
+                        ..
+                    }, &ClientAccessTransaction::Full {
+                        ref esi_records,
+                        ref response,
+                        ref backend_record,
+                        fetch,
+                        ttfb,
+                        serve,
+                        ref accounting,
+                        ..
+                    }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
+                        record: record,
+                        final_record: final_record,
+                        request: request,
+                        response: response,
+                        backend_record: backend_record,
+                        process_duration: process,
+                        fetch_duration: fetch,
+                        ttfb_duration: ttfb,
+                        serve_duration: serve,
+                        accounting: accounting,
+                        esi_records: esi_records,
+                        restart_count: restart_count,
+                        restart_log: Some(&record.log),
+                    })),
+                    (&ClientAccessTransaction::RestartedLate {
                         ref request,
                         process,
                         ..
@@ -643,7 +672,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             warn!("Found unresolved link {:?} in: {:?}", backend_record, final_record);
                         }
                     },
-                    (_, &ClientAccessTransaction::Restarted { .. }) => panic!("got ClientAccessTransaction::Restarted as final final_record"),
+                    (_, &ClientAccessTransaction::RestartedEarly { .. }) => panic!("got ClientAccessTransaction::RestartedEarly as final final_record"),
+                    (_, &ClientAccessTransaction::RestartedLate { .. }) => panic!("got ClientAccessTransaction::RestartedLate as final final_record"),
                 }
             } else {
                 warn!("Failed to find final record for: {:?}", record);

@@ -209,11 +209,19 @@ pub enum ClientAccessTransaction {
         serve: Duration,
         accounting: Accounting,
     },
-    Restarted {
+    RestartedEarly {
         request: HttpRequest,
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         restart_record: Link<ClientAccessRecord>,
+    },
+    RestartedLate {
+        request: HttpRequest,
+        response: HttpResponse,
+        /// Time it took to process request; None for ESI subrequests as they have this done already
+        process: Option<Duration>,
+        restart_record: Link<ClientAccessRecord>,
+        backend_record: Option<Link<BackendAccessRecord>>,
     },
     Piped {
         request: HttpRequest,
@@ -772,7 +780,8 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
 #[derive(Debug)]
 enum ClientAccessTransactionType {
     Full,
-    Restarted,
+    RestartedEarly,
+    RestartedLate,
     Piped,
 }
 
@@ -858,6 +867,8 @@ pub struct RecordBuilder {
     restart_record: Option<Link<ClientAccessRecord>>,
     retry_record: Option<Link<BackendAccessRecord>>,
     handling: Option<Handling>,
+    // ture when we are in client processing after bereq (dliver, synth)
+    late: bool,
     log: Vec<LogEntry>,
 }
 
@@ -891,6 +902,7 @@ impl RecordBuilder {
             restart_record: None,
             retry_record: None,
             handling: None,
+            late: false,
             log: Vec::new(),
         }
     }
@@ -1319,6 +1331,7 @@ impl RecordBuilder {
                     },
                     "SYNTH" => RecordBuilder {
                         handling: Some(Handling::Synth),
+                        late: true,
                         .. self
                     },
                     "BACKEND_RESPONSE" => RecordBuilder {
@@ -1346,6 +1359,10 @@ impl RecordBuilder {
                             _ => return Err(RecordBuilderError::UnexpectedTransition("call BACKEND_ERROR", self.record_type.into_debug()))
                         }
                     },
+                    "DELIVER" => RecordBuilder {
+                        late: true,
+                        .. self
+                    },
                     _ => {
                         debug!("Ignoring unknown {:?} method: {}", vsl.tag, method);
                         self
@@ -1363,13 +1380,24 @@ impl RecordBuilder {
                             reason,
                             transaction: ClientAccessTransactionType::Full,
                         } = self.record_type {
-                            RecordBuilder {
-                                record_type: RecordType::ClientAccess {
-                                    parent: parent,
-                                    reason: reason,
-                                    transaction: ClientAccessTransactionType::Restarted,
-                                },
-                                .. self
+                            if self.late {
+                                RecordBuilder {
+                                    record_type: RecordType::ClientAccess {
+                                        parent: parent,
+                                        reason: reason,
+                                        transaction: ClientAccessTransactionType::RestartedLate,
+                                    },
+                                    .. self
+                                }
+                            } else {
+                                RecordBuilder {
+                                    record_type: RecordType::ClientAccess {
+                                        parent: parent,
+                                        reason: reason,
+                                        transaction: ClientAccessTransactionType::RestartedEarly,
+                                    },
+                                    .. self
+                                }
                             }
                         } else {
                             return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return restart", self.record_type.into_debug()))
@@ -1525,9 +1553,21 @@ impl RecordBuilder {
                                             accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
                                         }
                                     },
-                                    ClientAccessTransactionType::Restarted => {
-                                        ClientAccessTransaction::Restarted {
+                                    ClientAccessTransactionType::RestartedEarly => {
+                                        ClientAccessTransaction::RestartedEarly {
                                             request: request,
+                                            process: self.req_process,
+                                            restart_record: try!(self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))),
+                                        }
+                                    },
+                                    ClientAccessTransactionType::RestartedLate => {
+                                        // SLT_End tag is completing the client response
+                                        let http_response = try!(self.http_response.complete());
+
+                                        ClientAccessTransaction::RestartedLate {
+                                            request: request,
+                                            response: try!(http_response.get_complete()),
+                                            backend_record: self.backend_record,
                                             process: self.req_process,
                                             restart_record: try!(self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))),
                                         }
@@ -2057,7 +2097,7 @@ mod tests {
         assert_eq!(record.start, 1471355414.450311);
         assert_eq!(record.end, 1471355414.450428);
 
-        assert_matches!(record.transaction, ClientAccessTransaction::Restarted {
+        assert_matches!(record.transaction, ClientAccessTransaction::RestartedEarly {
             request: HttpRequest {
                 ref url,
                 ..

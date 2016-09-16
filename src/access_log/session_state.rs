@@ -161,6 +161,10 @@ impl SessionState {
                     backend_record: Some(ref mut link),
                     ..
                 } |
+                ClientAccessTransaction::RestartedLate {
+                    backend_record: Some(ref mut link),
+                    ..
+                } |
                 ClientAccessTransaction::Piped {
                     backend_record: ref mut link,
                     ..
@@ -168,7 +172,8 @@ impl SessionState {
                     try_resolve_backend_link(link, backend_records)
                 }
                 ClientAccessTransaction::Full { backend_record: None, ..  } => true,
-                ClientAccessTransaction::Restarted { .. } => true,
+                ClientAccessTransaction::RestartedLate { backend_record: None, .. } => true,
+                ClientAccessTransaction::RestartedEarly { .. } => true,
             };
 
             let esi_records_resolved = match client_record.transaction {
@@ -180,12 +185,17 @@ impl SessionState {
                         try_resolve_client_link(link, client_records, backend_records)
                     )
                 }
-                ClientAccessTransaction::Restarted { .. } => true,
+                ClientAccessTransaction::RestartedEarly { .. } => true,
+                ClientAccessTransaction::RestartedLate { .. } => true,
                 ClientAccessTransaction::Piped { .. } => true,
             };
 
             let restart_record_resolved = match client_record.transaction {
-                ClientAccessTransaction::Restarted {
+                ClientAccessTransaction::RestartedEarly {
+                    restart_record: ref mut link,
+                    ..
+                } |
+                ClientAccessTransaction::RestartedLate {
                     restart_record: ref mut link,
                     ..
                 } => {
@@ -809,7 +819,7 @@ mod tests {
         let session_record = apply_final!(state, 32769, SLT_End, "");
 
         // We should have restarted transaction
-        if let ClientAccessTransaction::Restarted { ref restart_record, .. } =
+        if let ClientAccessTransaction::RestartedEarly { ref restart_record, .. } =
             session_record.client_records[0].get_resolved().unwrap().transaction {
             // It should have a full transaction
             assert_matches!(restart_record.get_resolved().unwrap().transaction, ClientAccessTransaction::Full { .. });
