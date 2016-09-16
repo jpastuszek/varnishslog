@@ -898,33 +898,37 @@ impl RecordBuilder {
     pub fn apply<'r>(self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
         let builder = match vsl.tag {
             SLT_Begin => {
-                let (record_type, parent_ident, reason) = try!(vsl.parse_data(slt_begin));
-                if let RecordType::Undefined = self.record_type {
-                    match record_type {
-                        "bereq" => RecordBuilder {
-                            record_type: RecordType::BackendAccess {
-                                parent: parent_ident,
-                                reason: reason.to_owned(),
-                                transaction: BackendAccessTransactionType::Full,
+                match self.record_type {
+                    RecordType::Undefined => {
+                        let (record_type, parent_ident, reason) = try!(vsl.parse_data(slt_begin));
+                        match record_type {
+                            "bereq" => RecordBuilder {
+                                record_type: RecordType::BackendAccess {
+                                    parent: parent_ident,
+                                    reason: reason.to_owned(),
+                                    transaction: BackendAccessTransactionType::Full,
+                                },
+                                .. self
                             },
-                            .. self
-                        },
-                        "req" => RecordBuilder {
-                            record_type: RecordType::ClientAccess {
-                                parent: parent_ident,
-                                reason: reason.to_owned(),
-                                transaction: ClientAccessTransactionType::Full,
+                            "req" => RecordBuilder {
+                                record_type: RecordType::ClientAccess {
+                                    parent: parent_ident,
+                                    reason: reason.to_owned(),
+                                    transaction: ClientAccessTransactionType::Full,
+                                },
+                                .. self
                             },
-                            .. self
-                        },
-                        "sess" => RecordBuilder {
-                            record_type: RecordType::Session,
-                            .. self
-                        },
-                        _ => return Err(RecordBuilderError::UnimplementedTransactionType(record_type.to_string()))
+                            "sess" => RecordBuilder {
+                                record_type: RecordType::Session,
+                                .. self
+                            },
+                            _ => return Err(RecordBuilderError::UnimplementedTransactionType(record_type.to_string()))
+                        }
+                    },
+                    _ => {
+                        warn!("Got SLT_Begin while in process of building {:?}; restarting build", self.record_type);
+                        return RecordBuilder::new(self.ident).apply(vsl);
                     }
-                } else {
-                    return Err(RecordBuilderError::UnexpectedTransition("SLT_Begin", self.record_type.into_debug()))
                 }
             }
             SLT_Timestamp => {
