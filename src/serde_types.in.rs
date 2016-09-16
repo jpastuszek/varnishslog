@@ -272,14 +272,14 @@ impl<'a: 'i, 'i> Serialize for Index<'a, 'i> {
 }
 
 #[derive(Debug)]
-pub struct LogVarsIndex<'a: 'i, 'i>(pub &'i LinkedHashMap<&'a str, Vec<&'a str>>);
+pub struct LogVarsIndex<'a: 'i, 'i>(pub &'i LinkedHashMap<&'a str, &'a str>);
 
 impl<'a: 'i, 'i> Serialize for LogVarsIndex<'a, 'i> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
         let mut state = try!(serializer.serialize_map(Some(self.0.len())));
-        for (key, values) in self.0 {
+        for (key, value) in self.0 {
             try!(serializer.serialize_map_key(&mut state, key));
-            try!(serializer.serialize_map_value(&mut state, values));
+            try!(serializer.serialize_map_value(&mut state, value));
         }
         try!(serializer.serialize_map_end(state));
         Ok(())

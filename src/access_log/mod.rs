@@ -202,7 +202,7 @@ impl<'a: 'i, 'i> AsSer<'i> for LinkedHashMap<String, Vec<&'a str>> {
     }
 }
 
-impl<'a: 'i, 'i> AsSer<'i> for LinkedHashMap<&'a str, Vec<&'a str>> {
+impl<'a: 'i, 'i> AsSer<'i> for LinkedHashMap<&'a str, &'a str> {
     type Out = ser::LogVarsIndex<'a, 'i>;
     fn as_ser(&'i self) -> Self::Out {
         ser::LogVarsIndex(self)
@@ -370,7 +370,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
     }
 
     struct LogIndex<'a> {
-        vars: LinkedHashMap<&'a str, Vec<&'a str>>,
+        vars: LinkedHashMap<&'a str, &'a str>,
         messages: Vec<&'a str>,
         acl_matched: Vec<&'a str>,
         acl_not_matched: Vec<&'a str>,
@@ -388,9 +388,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     let mut s = message.splitn(2, ": ").fuse();
                     if let (Some(name), Some(value)) = (s.next(), s.next()) {
                         if !name.contains(' ') {
-                            let mut values = vars.remove(name).unwrap_or(Vec::new());
-                            values.push(value);
-                            vars.insert(name, values);
+                            vars.insert(name, value);
                             continue;
                         }
                     }
