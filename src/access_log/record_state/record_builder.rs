@@ -1775,15 +1775,14 @@ mod tests {
     }
 
     #[test]
-    fn apply_begin_unexpected_transition() {
+    fn apply_begin_restart_build() {
+        use super::RecordType;
         let builder = RecordBuilder::new(123);
 
         let builder = builder.apply(&vsl(SLT_Begin, 123, "bereq 231 fetch")).unwrap().unwrap_building();
-        let err = builder.apply(&vsl(SLT_Begin, 123, "req 231 fetch")).unwrap_err();
+        let builder = builder.apply(&vsl(SLT_Begin, 123, "req 231 fetch")).unwrap().unwrap_building();
 
-        //println!("{}", &err);
-        assert_matches!(err,
-            RecordBuilderError::UnexpectedTransition("SLT_Begin", _));
+        assert_matches!(builder.record_type, RecordType::ClientAccess { .. });
     }
 
     #[test]
