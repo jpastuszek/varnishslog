@@ -85,8 +85,6 @@ impl<'a: 'i, 'i> EntryType for ClientAccess<'a, 'i> {
 #[derive(Serialize, Debug)]
 pub struct BackendAccess<'a: 'i, 'i> {
     pub vxid: u32,
-    pub remote_address: Address<'a>,
-    pub session_timestamp: f64,
     pub start_timestamp: f64,
     pub end_timestamp: f64,
     pub handling: &'a str,

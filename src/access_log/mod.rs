@@ -721,9 +721,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 }
 
                                 ser::BackendAccess {
-                                    vxid: record.ident,
-                                    remote_address: session_record.remote.as_ser(),
-                                    session_timestamp: session_record.open,
+                                    vxid: backend_log_record.final_record.ident,
                                     start_timestamp: backend_log_record.final_record.start,
                                     end_timestamp: backend_log_record.final_record.end.unwrap_or(backend_log_record.final_record.start),
                                     handling: backend_log_record.handling,
