@@ -189,10 +189,10 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for HttpResponse {
 }
 
 impl<'a> AsSer<'a> for Vec<LogEntry> {
-    type Out = ser::Log<'a>;
+    type Out = ser::RawLog<'a>;
     fn as_ser(&'a self) -> Self::Out {
         //TODO: map LogEntry when impl Iterator is stable
-        ser::Log(self)
+        ser::RawLog(self)
     }
 }
 
@@ -730,7 +730,6 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             let mut response_header_index = None;
                             let mut cache_object_response_header_index = None;
 
-
                             let backend_access_log_entry = backend_log_record.map(|backend_log_record| {
                                 let indexed_request;
                                 let indexed_response;
@@ -756,6 +755,14 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     indexed_cache_object = backend_log_record.cache_object.map(|cache_object| cache_object.as_ser_indexed(cache_object_response_header_index.as_ref().unwrap()));
                                 }
 
+                                let log = ser::Log {
+                                    raw_log: (config.no_log_processing | config.keep_raw_log).as_some_from(|| backend_log_record.final_record.log.as_ser()),
+                                    vars: log_index.as_ref().map(|v| v.vars.as_ser()),
+                                    messages: log_index.as_ref().map(|v| v.messages.as_ser()),
+                                    acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
+                                    acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
+                                };
+
                                 ser::BackendAccess {
                                     vxid: backend_log_record.final_record.ident,
                                     start_timestamp: backend_log_record.final_record.start,
@@ -776,19 +783,16 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     retry: backend_log_record.retry,
                                     backend_connection: backend_log_record.backend_connection.map(|b| b.as_ser()),
                                     cache_object: indexed_cache_object,
-                                    log: (config.no_log_processing | config.keep_raw_log).as_some_from(|| backend_log_record.final_record.log.as_ser()),
+                                    log: log,
                                     request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                     response_header_index: response_header_index.as_ref().and_then(|index| (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| index.as_ser())),
                                     cache_object_response_header_index: cache_object_response_header_index.as_ref().and_then(|index| (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| index.as_ser())),
-                                    log_vars: log_index.as_ref().map(|v| v.vars.as_ser()),
-                                    log_messages: log_index.as_ref().map(|v| v.messages.as_ser()),
-                                    acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
-                                    acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
                                 }
                             });
 
                             // client record
                             let mut log_index = None;
+                            let mut restart_log_index = None;
 
                             let mut request_header_index = None;
                             let mut response_header_index = None;
@@ -796,8 +800,11 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             let indexed_request;
                             let indexed_response;
 
+                            // TODO: can this be refactored somehow so that we don't need to unwarp
+                            // and it is more clear? match?
                             if !config.no_log_processing {
                                 log_index = Some(index_log(final_record.log.as_slice()));
+                                restart_log_index = restart_log.map(|restart_log| index_log(restart_log.as_slice()));
                             }
 
                             if !config.no_header_indexing {
@@ -812,6 +819,22 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 indexed_request = request.as_ser_indexed(request_header_index.as_ref().unwrap());
                                 indexed_response = response.as_ser_indexed(response_header_index.as_ref().unwrap());
                             }
+
+                            let restart_log = restart_log.map(|_| ser::Log {
+                                raw_log: (config.no_log_processing | config.keep_raw_log).as_some_from(|| restart_log.unwrap().as_ser()),
+                                vars: restart_log_index.as_ref().map(|v| v.vars.as_ser()),
+                                messages: restart_log_index.as_ref().map(|v| v.messages.as_ser()),
+                                acl_matched: restart_log_index.as_ref().map(|v| v.acl_matched.as_ser()),
+                                acl_not_matched: restart_log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
+                            });
+
+                            let log = ser::Log {
+                                raw_log: (config.no_log_processing | config.keep_raw_log).as_some_from(|| final_record.log.as_ser()),
+                                vars: log_index.as_ref().map(|v| v.vars.as_ser()),
+                                messages: log_index.as_ref().map(|v| v.messages.as_ser()),
+                                acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
+                                acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
+                            };
 
                             let client_access = ser::ClientAccess {
                                 record_type: record_type,
@@ -836,14 +859,10 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 sent_total_bytes: accounting.sent_total,
                                 esi_count: esi_records.len(),
                                 restart_count: restart_count,
-                                restart_log: restart_log.and_then(|restart_log| (config.no_log_processing | config.keep_raw_log).as_some_from(|| restart_log.as_ser())),
-                                log: (config.no_log_processing | config.keep_raw_log).as_some_from(|| final_record.log.as_ser()),
+                                restart_log: restart_log,
+                                log: log,
                                 request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                 response_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| response_header_index.as_ref().unwrap().as_ser()),
-                                log_vars: log_index.as_ref().map(|v| v.vars.as_ser()),
-                                log_messages: log_index.as_ref().map(|v| v.messages.as_ser()),
-                                acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
-                                acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
                             };
                             write(format, out, &client_access)
                         }));

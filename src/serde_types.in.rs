@@ -38,21 +38,12 @@ pub struct ClientAccess<'a: 'i, 'i> {
     pub esi_count: usize,
     pub restart_count: usize,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub restart_log: Option<Log<'a>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log: Option<Log<'a>>,
+    pub restart_log: Option<Log<'a, 'i>>,
+    pub log: Log<'a, 'i>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub response_header_index: Option<Index<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars: Option<LogVarsIndex<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log_messages: Option<LogMessages<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub acl_matched: Option<LogMessages<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub acl_not_matched: Option<LogMessages<'a, 'i>>,
 }
 
 impl<'a: 'i, 'i> EntryType for ClientAccess<'a, 'i> {
@@ -103,22 +94,13 @@ pub struct BackendAccess<'a: 'i, 'i> {
     pub retry: usize,
     pub backend_connection: Option<BackendConnection<'a>>,
     pub cache_object: Option<CacheObject<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log: Option<Log<'a>>,
+    pub log: Log<'a, 'i>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub response_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub cache_object_response_header_index: Option<Index<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars: Option<LogVarsIndex<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log_messages: Option<LogMessages<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub acl_matched: Option<LogMessages<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub acl_not_matched: Option<LogMessages<'a, 'i>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -137,7 +119,7 @@ pub struct PipeSession<'a: 'i, 'i> {
     pub recv_total_bytes: u64,
     pub sent_total_bytes: u64,
     #[serde(skip_serializing_if="Option::is_none")]
-    pub log: Option<Log<'a>>,
+    pub log: Option<RawLog<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
@@ -216,18 +198,32 @@ pub struct HttpResponse<'a: 'i, 'i> {
     pub headers: Headers<'a, 'i>,
 }
 
+#[derive(Serialize, Debug)]
+pub struct Log<'a: 'i, 'i> {
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub raw_log: Option<RawLog<'a>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub vars: Option<LogVarsIndex<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub messages: Option<LogMessages<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub acl_matched: Option<LogMessages<'a, 'i>>,
+    #[serde(skip_serializing_if="Option::is_none")]
+    pub acl_not_matched: Option<LogMessages<'a, 'i>>,
+}
+
 #[derive(Debug)]
-pub struct Log<'a>(pub &'a [VslLogEntry]);
+pub struct RawLog<'a>(pub &'a [VslLogEntry]);
 
 #[derive(Serialize, Debug)]
-pub struct LogEntry<'a> {
+pub struct RawLogEntry<'a> {
     pub entry_type: &'a str,
     pub message: &'a str,
     #[serde(skip_serializing_if="Option::is_none")]
     pub detail: Option<&'a str>,
 }
 
-impl<'a> Serialize for Log<'a> {
+impl<'a> Serialize for RawLog<'a> {
     fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
         let mut state = try!(serializer.serialize_seq(Some(self.0.len())));
         for log_entry in self.0 {
@@ -243,7 +239,7 @@ impl<'a> Serialize for Log<'a> {
                 },
             };
 
-            try!(serializer.serialize_seq_elt(&mut state, &LogEntry {
+            try!(serializer.serialize_seq_elt(&mut state, &RawLogEntry {
                 entry_type: entry_type,
                 message: message,
                 detail: detail,
