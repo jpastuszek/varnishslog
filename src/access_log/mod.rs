@@ -71,7 +71,6 @@ use std::io::Write;
 use chrono::NaiveDateTime;
 use linked_hash_map::LinkedHashMap;
 use boolinator::Boolinator;
-use super::Config;
 
 mod ser {
     use super::LogEntry as VslLogEntry;
@@ -91,6 +90,13 @@ quick_error! {
             from()
         }
     }
+}
+
+pub struct Config {
+    pub no_log_processing: bool,
+    pub keep_raw_log: bool,
+    pub no_header_indexing: bool,
+    pub keep_raw_headers: bool,
 }
 
 pub enum Format {

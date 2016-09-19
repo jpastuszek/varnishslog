@@ -1,37 +1,18 @@
 #[macro_use]
-extern crate nom;
-#[macro_use]
-extern crate bitflags;
+extern crate varnishslog;
+
 #[macro_use]
 extern crate log;
 extern crate stderrlog;
+
 #[macro_use]
 extern crate clap;
-#[macro_use]
-extern crate quick_error;
-#[macro_use]
-extern crate assert_matches;
-
-extern crate serde;
-extern crate serde_json;
-
-extern crate chrono;
-#[cfg(test)]
-extern crate env_logger;
-extern crate linked_hash_map;
-extern crate boolinator;
 
 use std::io::{self, stdin};
 use clap::{Arg, App};
 
-#[macro_use]
-mod stream_buf;
-use stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
-use access_log::*;
-
-mod vsl;
-
-mod access_log;
+use varnishslog::stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
+use varnishslog::access_log::*;
 
 arg_enum! {
     #[derive(Debug)]
@@ -44,13 +25,6 @@ arg_enum! {
         JsonPretty,
         NcsaJson
     }
-}
-
-pub struct Config {
-    no_log_processing: bool,
-    keep_raw_log: bool,
-    no_header_indexing: bool,
-    keep_raw_headers: bool,
 }
 
 fn main() {

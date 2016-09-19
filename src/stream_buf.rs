@@ -134,6 +134,11 @@ impl<R: Read> ReadStreamBuf<R> {
             offset: Cell::new(0),
         }
     }
+
+    #[allow(dead_code)]
+    pub fn into_inner(self) -> R {
+        self.reader
+    }
 }
 
 impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {

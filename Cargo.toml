@@ -4,6 +4,10 @@ build = "build.rs"
 name = "varnishslog"
 version = "0.1.0"
 
+[[bench]]
+harness = false
+name = "stream_buf"
+
 [build-dependencies]
 serde_codegen = "0.8.4"
 
@@ -21,3 +25,6 @@ quick-error = "1.1.0"
 serde = "0.8.4"
 serde_json = "0.8.1"
 stderrlog = "0.2.1"
+
+[dev-dependencies]
+bencher = "0.1.1"
