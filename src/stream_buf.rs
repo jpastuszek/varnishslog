@@ -4,7 +4,9 @@ use std::any::Any;
 use std::cell::Cell;
 use std::io::Read;
 use std::io;
+use std::ptr::copy;
 use nom;
+
 
 #[allow(dead_code)]
 pub const DEFAULT_BUF_SIZE: usize = 256 * 1024;
@@ -188,12 +190,23 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
     }
 
     fn recycle(&mut self) {
-        if self.offset.get() == 0 {
+        let offset = self.offset.get();
+        if offset == 0 {
             return
         }
-        self.buf = self.buf.split_off(self.offset.get());
+
+        let len = self.buf.len();
+        let have = len - offset;
+
+        // This does same thing as:
+        // self.buf = self.buf.split_off(self.offset.get());
+        // but avoids alloation by moving the memory instead of slicing + freeing + allocating
+        unsafe {
+            copy(self.buf[offset..len].as_ptr(), self.buf.as_mut_ptr(), have);
+        }
+
+        self.buf.resize(have, 0);
         self.offset.set(0);
-        //TODO: expand buffer OR use memcpy - bench test it
     }
 
     fn consume(&mut self, bytes: usize) {
