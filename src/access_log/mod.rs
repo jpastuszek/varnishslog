@@ -437,7 +437,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
             final_record: &'a ClientAccessRecord,
             request: &'a HttpRequest,
             response: &'a HttpResponse,
-            backend_record: &'a Option<Link<BackendAccessRecord>>,
+            restarted_backend_record: Option<&'a Link<BackendAccessRecord>>,
+            backend_record: Option<&'a Link<BackendAccessRecord>>,
             process_duration: Option<Duration>,
             fetch_duration: Option<Duration>,
             ttfb_duration: Duration,
@@ -462,10 +463,10 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
     fn flatten_linked_backend_log_record<F, R>(
         session_record: &SessionRecord,
         client_record: &ClientAccessRecord,
-        maybe_record_link: &Option<Link<BackendAccessRecord>>,
+        maybe_record_link: Option<&Link<BackendAccessRecord>>,
         retry: usize,
         block: F) -> R where F: FnOnce(Option<&FlatBackendAccessRecord>) -> R {
-        if let &Some(ref record_link) = maybe_record_link {
+        if let Some(ref record_link) = maybe_record_link {
             if let Some(ref record) = record_link.get_resolved() {
                 match record.transaction {
                     BackendAccessTransaction::Full {
@@ -493,9 +494,9 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         backend_connection: Some(backend_connection),
                         cache_object: Some(cache_object),
                     })),
-                    BackendAccessTransaction::Failed { retry_record: ref record_link @ Some(_), .. } |
-                    BackendAccessTransaction::Abandoned { retry_record: ref record_link @ Some(_), .. } =>
-                        return flatten_linked_backend_log_record(session_record, client_record, record_link, retry + 1, block),
+                    BackendAccessTransaction::Failed { retry_record: Some(ref record_link), .. } |
+                    BackendAccessTransaction::Abandoned { retry_record: Some(ref record_link), .. } =>
+                        return flatten_linked_backend_log_record(session_record, client_record, Some(record_link), retry + 1, block),
                     BackendAccessTransaction::Failed {
                         ref request,
                         synth,
@@ -575,7 +576,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         final_record: final_record,
                         request: request,
                         response: response,
-                        backend_record: backend_record,
+                        restarted_backend_record: None,
+                        backend_record: backend_record.as_ref().map(|s| s),
                         process_duration: process,
                         fetch_duration: fetch,
                         ttfb_duration: ttfb,
@@ -587,6 +589,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     })),
                     (&ClientAccessTransaction::RestartedLate {
                         ref request,
+                        backend_record: ref restarted_backend_record,
                         process,
                         ..
                     }, &ClientAccessTransaction::Full {
@@ -603,7 +606,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         final_record: final_record,
                         request: request,
                         response: response,
-                        backend_record: backend_record,
+                        restarted_backend_record: restarted_backend_record.as_ref().map(|s| s),
+                        backend_record: backend_record.as_ref().map(|s| s),
                         process_duration: process,
                         fetch_duration: fetch,
                         ttfb_duration: ttfb,
@@ -629,7 +633,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         final_record: final_record,
                         request: request,
                         response: response,
-                        backend_record: backend_record,
+                        backend_record: backend_record.as_ref().map(|s| s),
+                        restarted_backend_record: None,
                         process_duration: process,
                         fetch_duration: fetch,
                         ttfb_duration: ttfb,
@@ -699,6 +704,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         final_record,
                         request,
                         response,
+                        restarted_backend_record,
                         backend_record,
                         process_duration,
                         fetch_duration,
@@ -713,7 +719,9 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "esi_subrequest", config));
                         }
 
-                        try!(flatten_linked_backend_log_record(session_record, record, backend_record, 0, |backend_log_record| {
+                        let ber = backend_record.or(restarted_backend_record);
+
+                        try!(flatten_linked_backend_log_record(session_record, record, ber, 0, |backend_log_record| {
                             // backend record
                             // Need to live up to write()
                             let mut log_index = None;
