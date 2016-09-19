@@ -943,6 +943,13 @@ impl RecordBuilder {
                     }
                 }
             }
+            SLT_ReqStart => RecordBuilder {
+                // Reset http_request on ReqStar
+                // TODO: We get client IP/port form session but should it be this tag? (PROXY
+                // protocol etc?)
+                http_request: Building(HttpRequestBuilder::new()),
+                .. self
+            },
             SLT_Timestamp => {
                 let (label, timestamp, since_work_start, since_last_timestamp) =
                     try!(vsl.parse_data(slt_timestamp));
@@ -1495,12 +1502,10 @@ impl RecordBuilder {
                             _ => return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return pipe", self.record_type.into_debug()))
                         }
                     },
-                    "synth" => {
-                        RecordBuilder {
+                    "synth" => RecordBuilder {
                             http_response: Building(HttpResponseBuilder::new()),
                             .. self
-                        }
-                    }
+                    },
                     _ => {
                         debug!("Ignoring unknown {:?} return: {}", vsl.tag, action);
                         self
@@ -1902,6 +1907,35 @@ mod tests {
                    ("X-Varnish-Original-URL".to_string(), "/test_page/abc".to_string()),
                    ("X-Varnish-Result".to_string(), "hit_for_pass".to_string()),
                    ("X-Varnish-Decision".to_string(), "Uncacheable-NoCacheClass".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn apply_client_request_record_reset_esi() {
+        let builder = RecordBuilder::new(123);
+
+        // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
+        let builder = apply_all!(builder,
+                                 15, SLT_ReqMethod,     "POST";
+                                 15, SLT_ReqURL,        "/foo/bar";
+                                 15, SLT_ReqProtocol,   "HTTP/1.0";
+                                 15, SLT_ReqHeader,     "Host: 127.0.0.1:666";
+                                 15, SLT_ReqHeader,     "Test: 42";
+                                 15, SLT_ReqStart,      "127.0.0.1 39792";
+                                 15, SLT_ReqMethod,     "GET";
+                                 15, SLT_ReqURL,        "/test_page/abc";
+                                 15, SLT_ReqProtocol,   "HTTP/1.1";
+                                 15, SLT_ReqHeader,     "Host: 127.0.0.1:1209";
+                                 15, SLT_ReqHeader,     "Test: 1";
+                                 );
+
+        let request = builder.http_request.complete().unwrap().unwrap();
+        assert_eq!(request.method, "GET".to_string());
+        assert_eq!(request.url, "/test_page/abc".to_string());
+        assert_eq!(request.protocol, "HTTP/1.1".to_string());
+        assert_eq!(request.headers, &[
+                   ("Host".to_string(), "127.0.0.1:1209".to_string()),
+                   ("Test".to_string(), "1".to_string()),
         ]);
     }
 
