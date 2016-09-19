@@ -1495,6 +1495,12 @@ impl RecordBuilder {
                             _ => return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return pipe", self.record_type.into_debug()))
                         }
                     },
+                    "synth" => {
+                        RecordBuilder {
+                            http_response: Building(HttpResponseBuilder::new()),
+                            .. self
+                        }
+                    }
                     _ => {
                         debug!("Ignoring unknown {:?} return: {}", vsl.tag, action);
                         self
@@ -1905,6 +1911,49 @@ mod tests {
 
         // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
         let builder = apply_all!(builder,
+                                 15, SLT_RespProtocol,   "HTTP/1.1";
+                                 15, SLT_RespStatus,     "200";
+                                 15, SLT_RespReason,     "OK";
+                                 15, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
+                                 15, SLT_RespHeader,     "Test: 1";
+                                 15, SLT_RespHeader,     "Test: 2";
+                                 15, SLT_RespHeader,     "Test: 3";
+                                 15, SLT_RespUnset,      "Test: 2";
+                                 15, SLT_RespHeader,     "Age: 0";
+                                 15, SLT_RespHeader,     "Via: 1.1 varnish-v4";
+                                 15, SLT_RespUnset,      "x-url: /test_page/abc";
+                                 15, SLT_RespUnset,      "Via: 1.1 varnish-v4";
+                                 15, SLT_RespHeader,     "Via: 1.1 test-varnish (Varnish)";
+                                 15, SLT_RespHeader,     "X-Request-ID: rid-15";
+                                 15, SLT_RespUnset,      "X-Varnish: 15";
+                                );
+
+        let response = builder.http_response.complete().unwrap().unwrap();
+        assert_eq!(response.headers, &[
+                   ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
+                   ("Test".to_string(), "1".to_string()),
+                   ("Test".to_string(), "3".to_string()),
+                   ("Age".to_string(), "0".to_string()),
+                   ("Via".to_string(), "1.1 test-varnish (Varnish)".to_string()),
+                   ("X-Request-ID".to_string(), "rid-15".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn apply_response_header_reset_synth() {
+        let builder = RecordBuilder::new(123);
+
+        // synth from deliver
+        let builder = apply_all!(builder,
+                                 15, SLT_RespProtocol,   "HTTP/1.1";
+                                 15, SLT_RespStatus,     "500";
+                                 15, SLT_RespReason,     "Error";
+                                 15, SLT_RespHeader,     "Content-Type: text/html; charset=utf-8";
+                                 15, SLT_RespHeader,     "Test: 9";
+                                 15, SLT_RespHeader,     "Test: 8";
+                                 15, SLT_RespHeader,     "Test: 7";
+                                 15, SLT_RespUnset,      "Test: 6";
+                                 15, SLT_VCL_return,     "synth";
                                  15, SLT_RespProtocol,   "HTTP/1.1";
                                  15, SLT_RespStatus,     "200";
                                  15, SLT_RespReason,     "OK";
