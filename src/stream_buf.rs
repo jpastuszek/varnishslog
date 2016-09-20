@@ -7,7 +7,6 @@ use std::io;
 use std::ptr::copy;
 use nom;
 
-
 #[allow(dead_code)]
 pub const DEFAULT_BUF_SIZE: usize = 256 * 1024;
 

@@ -1,75 +1,75 @@
-/// Session Linking
-/// ===
-///
-/// ESI (logs/varnish20160804-3752-1lr56fj56c2d5925f217f012.vsl):
-/// ---
-/// 65539 SLT_Begin          req 65538 esi
-///
-/// 65541 SLT_Begin          req 65538 esi
-///
-/// 65542 SLT_Begin          bereq 65541 fetch
-///
-/// 65538 SLT_Begin          req 65537 rxreq
-/// 65538 SLT_Link           req 65539 esi
-/// 65538 SLT_Link           req 65541 esi
-///
-/// 65537 SLT_Begin          sess 0 HTTP/1
-/// 65537 SLT_SessOpen       127.0.0.1 57408 127.0.0.1:1221 127.0.0.1 1221 1470304807.389646 20
-/// 65537 SLT_Link           req 65538 rxreq
-/// 65537 SLT_SessClose      REM_CLOSE 3.228
-/// 65537 SLT_End
-///
-/// Grace (logs/varnish20160804-3752-zmjq309e3d02a67cea67299.vsl)
-/// ---
-///     4 SLT_Begin          req 3 rxreq
-///     4 SLT_Link           bereq 5 bgfetch
-///
-///     5 SLT_Begin          bereq 4 bgfetch
-///
-///     3 SLT_Begin          sess 0 HTTP/1
-///     3 SLT_SessOpen       127.0.0.1 59686 127.0.0.1:1230 127.0.0.1 1230 1470304835.029314 19
-///     3 SLT_Link           req 4 rxreq
-///     3 SLT_SessClose      RX_TIMEOUT 10.011
-///     3 SLT_End
-///
-/// Restarts (logs/varnish20160804-3752-1h9gf4h5609f5ab778e4a4eb.vsl)
-/// ---
-/// This can happen at any state of client requests/response handling
-///
-/// 32770 SLT_Begin          req 32769 rxreq
-/// 32770 SLT_ReqHeader      X-Varnish-Decision: Refresh-NotBuildNumber
-/// 32770 SLT_VCL_return     restart
-/// // No response info
-/// 32770 SLT_Link           req 32771 restart
-/// 32770 SLT_Timestamp      Restart: 1470304882.576600 0.000136 0.000136
-/// 32770 SLT_End
-///
-/// 32771 SLT_Begin          req 32770 restart
-///
-/// 32769 SLT_Begin          sess 0 HTTP/1
-/// 32769 SLT_SessOpen       127.0.0.1 34560 127.0.0.1:1244 127.0.0.1 1244 1470304882.576266 14
-/// 32769 SLT_Link           req 32770 rxreq
-/// 32769 SLT_SessClose      REM_CLOSE 0.347
-///
-/// Retry (logs/varnish20160805-3559-f6sifo45103025c06abad14.vsl)
-/// ---
-/// Can be used to restart backend fetch in backend thread
-///
-///     8 SLT_Begin          bereq 7 fetch
-///     8 SLT_BereqURL       /retry
-///     8 SLT_Link           bereq 32769 retry
-///
-/// 32769 SLT_Begin          bereq 8 retry
-/// 32769 SLT_BereqURL       /iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg
-///
-///     7 SLT_Begin          req 6 rxreq
-///     7 SLT_Link           bereq 8 fetch
-///
-///     6 SLT_Begin          sess 0 HTTP/1
-///     6 SLT_SessOpen       127.0.0.1 39798 127.0.0.1:1200 127.0.0.1 1200 1470403414.664642 17
-///     6 SLT_Link           req 7 rxreq
-///     6 SLT_SessClose      REM_CLOSE 0.008
-///     6 SLT_End
+// Session Linking
+// ===
+//
+// ESI (logs/varnish20160804-3752-1lr56fj56c2d5925f217f012.vsl):
+// ---
+// 65539 SLT_Begin          req 65538 esi
+//
+// 65541 SLT_Begin          req 65538 esi
+//
+// 65542 SLT_Begin          bereq 65541 fetch
+//
+// 65538 SLT_Begin          req 65537 rxreq
+// 65538 SLT_Link           req 65539 esi
+// 65538 SLT_Link           req 65541 esi
+//
+// 65537 SLT_Begin          sess 0 HTTP/1
+// 65537 SLT_SessOpen       127.0.0.1 57408 127.0.0.1:1221 127.0.0.1 1221 1470304807.389646 20
+// 65537 SLT_Link           req 65538 rxreq
+// 65537 SLT_SessClose      REM_CLOSE 3.228
+// 65537 SLT_End
+//
+// Grace (logs/varnish20160804-3752-zmjq309e3d02a67cea67299.vsl)
+// ---
+//     4 SLT_Begin          req 3 rxreq
+//     4 SLT_Link           bereq 5 bgfetch
+//
+//     5 SLT_Begin          bereq 4 bgfetch
+//
+//     3 SLT_Begin          sess 0 HTTP/1
+//     3 SLT_SessOpen       127.0.0.1 59686 127.0.0.1:1230 127.0.0.1 1230 1470304835.029314 19
+//     3 SLT_Link           req 4 rxreq
+//     3 SLT_SessClose      RX_TIMEOUT 10.011
+//     3 SLT_End
+//
+// Restarts (logs/varnish20160804-3752-1h9gf4h5609f5ab778e4a4eb.vsl)
+// ---
+// This can happen at any state of client requests/response handling
+//
+// 32770 SLT_Begin          req 32769 rxreq
+// 32770 SLT_ReqHeader      X-Varnish-Decision: Refresh-NotBuildNumber
+// 32770 SLT_VCL_return     restart
+// // No response info
+// 32770 SLT_Link           req 32771 restart
+// 32770 SLT_Timestamp      Restart: 1470304882.576600 0.000136 0.000136
+// 32770 SLT_End
+//
+// 32771 SLT_Begin          req 32770 restart
+//
+// 32769 SLT_Begin          sess 0 HTTP/1
+// 32769 SLT_SessOpen       127.0.0.1 34560 127.0.0.1:1244 127.0.0.1 1244 1470304882.576266 14
+// 32769 SLT_Link           req 32770 rxreq
+// 32769 SLT_SessClose      REM_CLOSE 0.347
+//
+// Retry (logs/varnish20160805-3559-f6sifo45103025c06abad14.vsl)
+// ---
+// Can be used to restart backend fetch in backend thread
+//
+//     8 SLT_Begin          bereq 7 fetch
+//     8 SLT_BereqURL       /retry
+//     8 SLT_Link           bereq 32769 retry
+//
+// 32769 SLT_Begin          bereq 8 retry
+// 32769 SLT_BereqURL       /iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg
+//
+//     7 SLT_Begin          req 6 rxreq
+//     7 SLT_Link           bereq 8 fetch
+//
+//     6 SLT_Begin          sess 0 HTTP/1
+//     6 SLT_SessOpen       127.0.0.1 39798 127.0.0.1:1200 127.0.0.1 1200 1470403414.664642 17
+//     6 SLT_Link           req 7 rxreq
+//     6 SLT_SessClose      REM_CLOSE 0.008
+//     6 SLT_End
 
 use std::collections::HashMap;
 

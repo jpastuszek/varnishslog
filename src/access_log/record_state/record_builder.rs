@@ -1,120 +1,118 @@
-/// TODO:
-/// * more tests
-/// * SLT_Gzip
-/// * use SLT_Length value when SLT_BereqAcct body size is 0 (ESI)
-///
-/// Client headers:
-/// ---
-///
-/// Req:
-/// * What client set us (SLT_VCL_call RECV)
-///
-/// Resp:
-/// * What we sent to the client (SLT_End)
-///
-/// Backend headers:
-/// ---
-///
-/// Bereq:
-/// * What we sent to the backend (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
-/// * Note that (SLT_VCL_return fetch) is also used by req
-///
-/// Beresp:
-/// * What backend sent us (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
-///
-/// Record types:
-/// ---
-/// * Client access transaction
-///   * full
-///   * restarted (logs-new/varnish20160816-4093-c0f5tz5609f5ab778e4a4eb.vsl)
-///     * has SLT_VCL_return with restart [trigger]
-///     * has SLT_Link with restart
-///     * has SLT_Timestamp with Restart
-///     * won't have response
-///     * won't have certain timing info
-///     * won't have accounting
-///   * piped (logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl)
-///     * won't have response
-///     * will have special timing info (Pipe, PipeSess)
-///     * will have special accounting (SLT_PipeAcct)
-///   * ESI
-///     * no processing time
-///     * otherwise quite normal but linked
-///
-/// * Backend access transaction
-///   * full
-///   * aborted
-///     * won't have response
-///     * won't have end timestamp
-///   * retried
-///   * piped (logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl)
-///     * won't have response
-///     * will have special timing info
-///     * won't have end timestamp
-///
-/// Timestamps
-/// ===
-///
-/// Req (logs/varnish20160805-3559-f6sifo45103025c06abad14.vsl):
-/// ---
-/// * process (req_process) - Start to Req
-/// * fetch (resp_fetch) - Req to Fetch
-/// * ttfb (resp_ttfb) - Start to Process
-/// * serve (req_took)- Start to Resp
-///
-/// Note that we may have no process time for ESI requests as they don't get Req: record
-///
-///     2 SLT_Timestamp      Start: 1470403414.647192 0.000000 0.000000
-///     2 SLT_Timestamp      Req: 1470403414.647192 0.000000 0.000000
-///     2 SLT_ReqStart       127.0.0.1 39792
-///     2 SLT_VCL_call       RECV
-///     2 SLT_VCL_call       HASH
-///     2 SLT_VCL_return     lookup
-///     2 SLT_VCL_call       SYNTH
-///     2 SLT_Timestamp      Process: 1470403414.647272 0.000081 0.000081
-///     2 SLT_VCL_return     deliver
-///     2 SLT_RespHeader     Connection: keep-alive
-///     2 SLT_Timestamp      Resp: 1470403414.647359 0.000167 0.000086
-///     2 SLT_ReqAcct        148 0 148 185 25 210
-///     2 SLT_End
-///
-///     4 SLT_Timestamp      Start: 1470403414.653332 0.000000 0.000000
-///     4 SLT_Timestamp      Req: 1470403414.653332 0.000000 0.000000
-///     4 SLT_ReqStart       127.0.0.1 39794
-///     4 SLT_VCL_call       MISS
-///     4 SLT_ReqHeader      X-Varnish-Result: miss
-///     4 SLT_VCL_return     fetch
-///     4 SLT_Link           bereq 5 fetch
-///     4 SLT_Timestamp      Fetch: 1470403414.658863 0.005531 0.005531
-///     4 SLT_VCL_call       DELIVER
-///     4 SLT_VCL_return     deliver
-///     4 SLT_Timestamp      Process: 1470403414.658956 0.005624 0.000093
-///     4 SLT_Debug          RES_MODE 2
-///     4 SLT_RespHeader     Connection: keep-alive
-///     4 SLT_Timestamp      Resp: 1470403414.658984 0.005652 0.000028
-///     4 SLT_ReqAcct 90 0 90 369 9 378 4 SLT_End
-///
-/// Bereq:
-/// ---
-/// Note that we may not have process time as backend request can be aborted in vcl_backend_fetch.
-///
-/// * send (req_process) - Start to Bereq
-/// * ttfb (resp_ttfb) - Start to Beresp
-/// * wait (resp_fetch) - Bereq to Beresp
-/// * fetch (req_took) - Start to BerespBody
-///
-///     5 SLT_Begin          bereq 4 fetch
-///     5 SLT_Timestamp      Start: 1470403414.653455 0.000000 0.000000
-///     5 SLT_VCL_return     fetch
-///     5 SLT_BackendOpen    19 boot.default 127.0.0.1 42001 127.0.0.1 37606
-///     5 SLT_BackendStart   127.0.0.1 42001
-///     5 SLT_Timestamp      Bereq: 1470403414.653592 0.000137 0.000137
-///     5 SLT_Timestamp      Beresp: 1470403414.658717 0.005262 0.005124
-///     5 SLT_Timestamp      BerespBody: 1470403414.658833 0.005378 0.000116
-///     5 SLT_Length         9
-///     5 SLT_BereqAcct      504 0 504 351 9 360
-///     5 SLT_End
-///
+//TODO: SLT_Gzip
+//TODO: use SLT_Length value when SLT_BereqAcct body size is 0 (ESI)
+//
+// Client headers:
+// ---
+//
+// Req:
+// * What client set us (SLT_VCL_call RECV)
+//
+// Resp:
+// * What we sent to the client (SLT_End)
+//
+// Backend headers:
+// ---
+//
+// Bereq:
+// * What we sent to the backend (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
+// * Note that (SLT_VCL_return fetch) is also used by req
+//
+// Beresp:
+// * What backend sent us (SLT_VCL_call BACKEND_RESPONSE or BACKEND_ERROR)
+//
+// Record types:
+// ---
+// * Client access transaction
+//   * full
+//   * restarted (logs-new/varnish20160816-4093-c0f5tz5609f5ab778e4a4eb.vsl)
+//     * has SLT_VCL_return with restart [trigger]
+//     * has SLT_Link with restart
+//     * has SLT_Timestamp with Restart
+//     * won't have response
+//     * won't have certain timing info
+//     * won't have accounting
+//   * piped (logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl)
+//     * won't have response
+//     * will have special timing info (Pipe, PipeSess)
+//     * will have special accounting (SLT_PipeAcct)
+//   * ESI
+//     * no processing time
+//     * otherwise quite normal but linked
+//
+// * Backend access transaction
+//   * full
+//   * aborted
+//     * won't have response
+//     * won't have end timestamp
+//   * retried
+//   * piped (logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl)
+//     * won't have response
+//     * will have special timing info
+//     * won't have end timestamp
+//
+// Timestamps
+// ===
+//
+// Req (logs/varnish20160805-3559-f6sifo45103025c06abad14.vsl):
+// ---
+// * process (req_process) - Start to Req
+// * fetch (resp_fetch) - Req to Fetch
+// * ttfb (resp_ttfb) - Start to Process
+// * serve (req_took)- Start to Resp
+//
+// Note that we may have no process time for ESI requests as they don't get Req: record
+//
+//     2 SLT_Timestamp      Start: 1470403414.647192 0.000000 0.000000
+//     2 SLT_Timestamp      Req: 1470403414.647192 0.000000 0.000000
+//     2 SLT_ReqStart       127.0.0.1 39792
+//     2 SLT_VCL_call       RECV
+//     2 SLT_VCL_call       HASH
+//     2 SLT_VCL_return     lookup
+//     2 SLT_VCL_call       SYNTH
+//     2 SLT_Timestamp      Process: 1470403414.647272 0.000081 0.000081
+//     2 SLT_VCL_return     deliver
+//     2 SLT_RespHeader     Connection: keep-alive
+//     2 SLT_Timestamp      Resp: 1470403414.647359 0.000167 0.000086
+//     2 SLT_ReqAcct        148 0 148 185 25 210
+//     2 SLT_End
+//
+//     4 SLT_Timestamp      Start: 1470403414.653332 0.000000 0.000000
+//     4 SLT_Timestamp      Req: 1470403414.653332 0.000000 0.000000
+//     4 SLT_ReqStart       127.0.0.1 39794
+//     4 SLT_VCL_call       MISS
+//     4 SLT_ReqHeader      X-Varnish-Result: miss
+//     4 SLT_VCL_return     fetch
+//     4 SLT_Link           bereq 5 fetch
+//     4 SLT_Timestamp      Fetch: 1470403414.658863 0.005531 0.005531
+//     4 SLT_VCL_call       DELIVER
+//     4 SLT_VCL_return     deliver
+//     4 SLT_Timestamp      Process: 1470403414.658956 0.005624 0.000093
+//     4 SLT_Debug          RES_MODE 2
+//     4 SLT_RespHeader     Connection: keep-alive
+//     4 SLT_Timestamp      Resp: 1470403414.658984 0.005652 0.000028
+//     4 SLT_ReqAcct 90 0 90 369 9 378 4 SLT_End
+//
+// Bereq:
+// ---
+// Note that we may not have process time as backend request can be aborted in vcl_backend_fetch.
+//
+// * send (req_process) - Start to Bereq
+// * ttfb (resp_ttfb) - Start to Beresp
+// * wait (resp_fetch) - Bereq to Beresp
+// * fetch (req_took) - Start to BerespBody
+//
+//     5 SLT_Begin          bereq 4 fetch
+//     5 SLT_Timestamp      Start: 1470403414.653455 0.000000 0.000000
+//     5 SLT_VCL_return     fetch
+//     5 SLT_BackendOpen    19 boot.default 127.0.0.1 42001 127.0.0.1 37606
+//     5 SLT_BackendStart   127.0.0.1 42001
+//     5 SLT_Timestamp      Bereq: 1470403414.653592 0.000137 0.000137
+//     5 SLT_Timestamp      Beresp: 1470403414.658717 0.005262 0.005124
+//     5 SLT_Timestamp      BerespBody: 1470403414.658833 0.005378 0.000116
+//     5 SLT_Length         9
+//     5 SLT_BereqAcct      504 0 504 351 9 360
+//     5 SLT_End
+//
 
 use std::fmt::Debug;
 
@@ -2407,7 +2405,7 @@ mod tests {
         });
     }
 
-    //TODO: backend access record: Full, Failed, Aborted, Abandoned, Piped
+    //TODO: test backend access record: Full, Failed, Aborted, Abandoned, Piped
 
     #[test]
     fn apply_backend_access_record_abandoned() {

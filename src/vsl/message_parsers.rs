@@ -42,7 +42,7 @@ macro_rules! maybe_str {
     };
 }
 
-//TODO: benchmark symbol unsafe conversion
+//TODO: benchmark symbol unsafe conversion (from_utf8_unchecked)
 named!(token<&[u8], &[u8]>, terminated!(is_not!(b" "), alt_complete!(space | eof)));
 named!(label<&[u8], &str>, map_res!(terminated!(take_until!(b": "), tag!(b": ")), from_utf8));
 named!(symbol<&[u8], &str>, map_res!(token, from_utf8));
