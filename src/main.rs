@@ -96,8 +96,6 @@ fn main() {
         }
     }
 
-    rfb.recycle(); // TODO: VSL should benefit from alignment - bench test it
-
     let mut record_state = RecordState::new();
     let mut session_state = SessionState::new();
 

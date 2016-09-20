@@ -13,8 +13,7 @@ pub const DEFAULT_BUF_SIZE: usize = 256 * 1024;
 
 pub trait StreamBuf<O> {
     fn fill(&mut self, min_count: usize) -> Result<(), FillError>;
-    //TODO: rename to relocate
-    fn recycle(&mut self);
+    fn relocate(&mut self);
     fn consume(&mut self, count: usize);
     fn data<'b>(&'b self) -> &'b[O];
     fn needed(&self) -> Option<nom::Needed>;
@@ -158,7 +157,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
             return Err(FillError::BufferOverflow(min_bytes, self.cap))
         }
         if len + needed > self.cap {
-            self.recycle();
+            self.relocate();
             assert_eq!(self.offset.get(), 0);
             assert_eq!(self.buf.len(), have);
             return self.fill(min_bytes)
@@ -189,7 +188,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         Ok(())
     }
 
-    fn recycle(&mut self) {
+    fn relocate(&mut self) {
         let offset = self.offset.get();
         if offset == 0 {
             return
@@ -205,7 +204,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
             copy(self.buf[offset..len].as_ptr(), self.buf.as_mut_ptr(), have);
         }
 
-        self.buf.resize(have, 0);
+        self.buf.truncate(have);
         self.offset.set(0);
     }
 
@@ -280,12 +279,12 @@ mod resd_stream_buf_tests {
     }
 
     #[test]
-    fn recycle() {
+    fn relocate() {
         let mut rsb = subject_with_default_data();
 
         //TODO: this test does nothing...
         rsb.fill(10).unwrap();
-        rsb.recycle();
+        rsb.relocate();
         assert_eq!(rsb.data(), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].as_ref());
     }
 
