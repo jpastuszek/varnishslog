@@ -57,11 +57,11 @@ impl RecordState {
     }
 
     pub fn building_count(&self) -> usize {
-        self.builders.values().flat_map(|v| if let &Builder(_) = v { Some(true) } else { None}).count()
+        self.builders.values().filter(|&v| if let &Builder(_) = v { true } else { false }).count()
     }
 
     pub fn tombstone_count(&self) -> usize {
-        self.builders.values().flat_map(|v| if let &Tombstone(_) = v { Some(true) } else { None}).count()
+        self.builders.values().filter(|&v| if let &Tombstone(_) = v { true } else { false }).count()
     }
 
     #[cfg(test)]

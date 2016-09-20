@@ -51,44 +51,33 @@ fn load_data() -> Vec<u8> {
     data
 }
 
-fn access_record_parsing(bench: &mut Bencher) {
+fn record_state(bench: &mut Bencher) {
     let mut cursor = Cursor::new(load_data());
     bench.iter(|| {
         let mut rs = RecordState::new();
-        // use larger data sample
-        for _ in 0..4 {
-            {
-                parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
-                    bencher::black_box(rs.apply(vsl_record));
-                });
-            }
-            cursor.set_position(0);
+        {
+            parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
+                bencher::black_box(rs.apply(vsl_record));
+            });
         }
-        assert_eq!(rs.building_count(), 0);
-        assert_eq!(rs.tombstone_count(), 0);
+        cursor.set_position(0);
     });
 }
 
-fn access_session_parsing(bench: &mut Bencher) {
+fn session_state(bench: &mut Bencher) {
     let mut cursor = Cursor::new(load_data());
     bench.iter(|| {
         let mut ss = SessionState::new();
-        // use larger data sample
-        for _ in 0..4 {
-            {
-                parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
-                    bencher::black_box(ss.apply(vsl_record));
-                });
-            }
-            cursor.set_position(0);
+        {
+            parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
+                bencher::black_box(ss.apply(vsl_record));
+            });
         }
-        assert_eq!(ss.unmatched_client_access_records().len(), 0);
-        assert_eq!(ss.unmatched_backend_access_records().len(), 0);
-        assert_eq!(ss.unresolved_sessions().len(), 0);
+        cursor.set_position(0);
     });
 }
 
-fn access_record_ncsa_json(bench: &mut Bencher) {
+fn log_session_record_ncsa_json(bench: &mut Bencher) {
     let mut cursor = Cursor::new(load_data());
     let config = Config {
         no_log_processing: false,
@@ -99,26 +88,21 @@ fn access_record_ncsa_json(bench: &mut Bencher) {
     let format = Format::NcsaJson;
 
     bench.iter(|| {
-        let mut ss = SessionState::new();
         let mut out = Cursor::new(Vec::new());
-
-        // use larger data sample
-        for _ in 0..4 {
-            {
-                parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
-                    if let Some(session) = ss.apply(vsl_record) {
-                        log_session_record(&session, &format, &mut out, &config).unwrap()
-                    }
-                });
-            }
-            cursor.set_position(0);
+        let mut ss = SessionState::new();
+        {
+            parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
+                if let Some(session) = ss.apply(vsl_record) {
+                    log_session_record(&session, &format, &mut out, &config).unwrap()
+                }
+            });
         }
-        //println!("written {} bytes of output", out.into_inner().len());
-        //println!("written {} records", out.into_inner().into_iter().filter(|b| *b == b'\n').count());
+        cursor.set_position(0);
+        assert!(out.into_inner().len() > 100_000);
     });
 }
 
-fn access_record_json(bench: &mut Bencher) {
+fn log_session_record_json(bench: &mut Bencher) {
     let mut cursor = Cursor::new(load_data());
     let config = Config {
         no_log_processing: false,
@@ -129,24 +113,20 @@ fn access_record_json(bench: &mut Bencher) {
     let format = Format::NcsaJson;
 
     bench.iter(|| {
-        let mut ss = SessionState::new();
         let mut out = Cursor::new(Vec::new());
-
-        // use larger data sample
-        for _ in 0..4 {
-            {
-                parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
-                    if let Some(session) = ss.apply(vsl_record) {
-                        log_session_record(&session, &format, &mut out, &config).unwrap()
-                    }
-                });
-            }
-            cursor.set_position(0);
+        let mut ss = SessionState::new();
+        {
+            parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
+                if let Some(session) = ss.apply(vsl_record) {
+                    log_session_record(&session, &format, &mut out, &config).unwrap()
+                }
+            });
         }
+        cursor.set_position(0);
     });
 }
 
-fn access_record_json_raw(bench: &mut Bencher) {
+fn log_session_record_json_raw(bench: &mut Bencher) {
     let mut cursor = Cursor::new(load_data());
     let config = Config {
         no_log_processing: true,
@@ -157,27 +137,23 @@ fn access_record_json_raw(bench: &mut Bencher) {
     let format = Format::NcsaJson;
 
     bench.iter(|| {
-        let mut ss = SessionState::new();
         let mut out = Cursor::new(Vec::new());
-
-        // use larger data sample
-        for _ in 0..4 {
-            {
-                parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
-                    if let Some(session) = ss.apply(vsl_record) {
-                        log_session_record(&session, &format, &mut out, &config).unwrap()
-                    }
-                });
-            }
-            cursor.set_position(0);
+        let mut ss = SessionState::new();
+        {
+            parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
+                if let Some(session) = ss.apply(vsl_record) {
+                    log_session_record(&session, &format, &mut out, &config).unwrap()
+                }
+            });
         }
+        cursor.set_position(0);
     });
 }
 
 benchmark_group!(benches,
-                 access_record_parsing,
-                 access_session_parsing,
-                 access_record_ncsa_json,
-                 access_record_json,
-                 access_record_json_raw);
+                 record_state,
+                 session_state,
+                 log_session_record_ncsa_json,
+                 log_session_record_json,
+                 log_session_record_json_raw);
 benchmark_main!(benches);

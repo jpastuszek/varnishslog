@@ -10,7 +10,7 @@ name = "stream_buf"
 
 [[bench]]
 harness = false
-name = "record_state"
+name = "access_log"
 
 [build-dependencies]
 serde_codegen = "0.8.4"
