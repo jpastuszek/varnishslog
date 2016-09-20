@@ -113,11 +113,10 @@ impl<I, E> Error for FillApplyError<I, E> where I: Debug + Display + Any, E: Err
 
 pub struct ReadStreamBuf<R: Read> {
     reader: R,
-    //TODO: alignment?
     buf: Vec<u8>,
-    cap: usize,
     needed: Cell<Option<nom::Needed>>,
     offset: Cell<usize>,
+    prefetch: bool,
 }
 
 impl<R: Read> ReadStreamBuf<R> {
@@ -130,10 +129,15 @@ impl<R: Read> ReadStreamBuf<R> {
         ReadStreamBuf {
             reader: reader,
             buf: Vec::with_capacity(cap),
-            cap: cap,
             needed: Cell::new(Some(nom::Needed::Unknown)),
             offset: Cell::new(0),
+            prefetch: true,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn disable_prefetch(&mut self) {
+        self.prefetch = false
     }
 
     #[allow(dead_code)]
@@ -152,39 +156,48 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         }
 
         let needed = min_bytes - have;
+        let cap = self.buf.capacity();
 
-        if min_bytes > self.cap {
-            return Err(FillError::BufferOverflow(min_bytes, self.cap))
+        if min_bytes > cap {
+            return Err(FillError::BufferOverflow(min_bytes, cap))
         }
-        if len + needed > self.cap {
+
+        if len + needed > cap {
             self.relocate();
-            assert_eq!(self.offset.get(), 0);
-            assert_eq!(self.buf.len(), have);
+            debug_assert_eq!(self.offset.get(), 0);
+            debug_assert_eq!(self.buf.len(), have);
+            debug_assert_eq!(self.buf.capacity(), cap);
             return self.fill(min_bytes)
         }
 
-        self.buf.resize(self.cap, 0);
+        // using set_len instead of resize as we will initialize the extra space in the vec with
+        // read; this yields 100% improvement in stream_buf bench
+        // this depends on the buf to be of size cap; also note unsafe in relocate
+        unsafe { self.buf.set_len(cap) };
         trace!("reading exactly {} bytes into buf blocking: {}..{} ({}); have: {} will have: {}", needed, len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
         if let Err(err) = self.reader.read_exact(&mut self.buf[len..len + needed]) {
-            self.buf.resize(len, 0);
+            unsafe { self.buf.set_len(len) };
             return Err(From::from(err));
         }
 
         // Try to read to the end of the buffer if we can
-        trace!("reading up to {} extra bytes into buf non blocking", self.cap - (len + needed));
-        match self.reader.read(&mut self.buf[len + needed..self.cap]) {
-            Err(err) => {
-                self.buf.resize(len + needed, 0);
-                return Err(From::from(err));
-            },
-            Ok(bytes_read) => {
-                trace!("got extra {} bytes", bytes_read);
-                self.buf.resize(len + needed + bytes_read, 0);
+        if self.prefetch && len + needed < cap {
+            trace!("reading up to {} extra bytes into buf non blocking", cap - (len + needed));
+            match self.reader.read(&mut self.buf[len + needed..cap]) {
+                Err(err) => {
+                    unsafe { self.buf.set_len(len + needed) };
+                    return Err(From::from(err));
+                },
+                Ok(bytes_read) => {
+                    trace!("got extra {} bytes", bytes_read);
+                    unsafe { self.buf.set_len(len + needed + bytes_read) };
+                }
             }
         }
 
         //trace!("buf has: {:?}", self.data());
         trace!("buf has {} bytes", self.data().len());
+        debug_assert!(self.buf.len() - self.offset.get() >= min_bytes);
         Ok(())
     }
 

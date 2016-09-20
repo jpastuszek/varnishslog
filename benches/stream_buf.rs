@@ -54,6 +54,19 @@ fn default_buffer(bench: &mut Bencher) {
     })
 }
 
+fn default_buffer_no_prefetch(bench: &mut Bencher) {
+    let mut cursor = Cursor::new(load_data());
+
+    bench.iter(|| {
+        {
+            let mut rsb = ReadStreamBuf::new(&mut cursor);
+            rsb.disable_prefetch();
+            parse_vsl(rsb);
+        }
+        cursor.set_position(0);
+    })
+}
+
 fn tiny_buffer(bench: &mut Bencher) {
     let mut cursor = Cursor::new(load_data());
 
@@ -72,5 +85,9 @@ fn large_buffer(bench: &mut Bencher) {
     })
 }
 
-benchmark_group!(benches, default_buffer, tiny_buffer, large_buffer);
+benchmark_group!(benches,
+                 default_buffer,
+                 default_buffer_no_prefetch,
+                 tiny_buffer,
+                 large_buffer);
 benchmark_main!(benches);
