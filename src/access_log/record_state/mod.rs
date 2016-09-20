@@ -56,6 +56,14 @@ impl RecordState {
         }
     }
 
+    pub fn building_count(&self) -> usize {
+        self.builders.values().flat_map(|v| if let &Builder(_) = v { Some(true) } else { None}).count()
+    }
+
+    pub fn tombstone_count(&self) -> usize {
+        self.builders.values().flat_map(|v| if let &Tombstone(_) = v { Some(true) } else { None}).count()
+    }
+
     #[cfg(test)]
     fn get(&self, ident: VslIdent) -> Option<&RecordBuilder> {
         match self.builders.get(&ident) {

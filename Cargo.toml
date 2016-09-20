@@ -8,6 +8,10 @@ version = "0.1.0"
 harness = false
 name = "stream_buf"
 
+[[bench]]
+harness = false
+name = "record_state"
+
 [build-dependencies]
 serde_codegen = "0.8.4"
 
