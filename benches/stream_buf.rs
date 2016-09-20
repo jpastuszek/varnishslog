@@ -3,9 +3,9 @@ extern crate bencher;
 use bencher::Bencher;
 
 use std::fs::File;
-use std::io::Read;
 use std::io::Cursor;
-use std::io::ErrorKind;
+use std::io::{Seek, SeekFrom};
+use std::io::{Read, ErrorKind};
 
 extern crate varnishslog;
 
@@ -39,9 +39,13 @@ fn parse_vsl<R: Read>(mut rfb: ReadStreamBuf<R>) {
     }
 }
 
+fn open_data() -> File {
+    File::open("benches/varnish20160816-4093-1xh1jbx808a493d5e74216e5.vsl").unwrap()
+}
+
 fn load_data() -> Vec<u8> {
     let mut data = Vec::new();
-    File::open("benches/varnish20160816-4093-1xh1jbx808a493d5e74216e5.vsl").unwrap().read_to_end(&mut data).unwrap();
+    open_data().read_to_end(&mut data).unwrap();
     data
 }
 
@@ -51,6 +55,33 @@ fn default_buffer(bench: &mut Bencher) {
     bench.iter(|| {
         parse_vsl(ReadStreamBuf::new(&mut cursor));
         cursor.set_position(0);
+    })
+}
+
+fn default_buffer_from_file(bench: &mut Bencher) {
+    let mut file = open_data();
+
+    bench.iter(|| {
+        parse_vsl(ReadStreamBuf::new(&mut file));
+        file.seek(SeekFrom::Start(0)).unwrap();
+    })
+}
+
+fn custom_buffer_from_file_303b(bench: &mut Bencher) {
+    let mut file = open_data();
+
+    bench.iter(|| {
+        parse_vsl(ReadStreamBuf::with_capacity(&mut file, 303));
+        file.seek(SeekFrom::Start(0)).unwrap();
+    })
+}
+
+fn custom_buffer_from_file_1mib(bench: &mut Bencher) {
+    let mut file = open_data();
+
+    bench.iter(|| {
+        parse_vsl(ReadStreamBuf::with_capacity(&mut file, 1024 * 1024));
+        file.seek(SeekFrom::Start(0)).unwrap();
     })
 }
 
@@ -67,27 +98,10 @@ fn default_buffer_no_prefetch(bench: &mut Bencher) {
     })
 }
 
-fn tiny_buffer(bench: &mut Bencher) {
-    let mut cursor = Cursor::new(load_data());
-
-    bench.iter(|| {
-        parse_vsl(ReadStreamBuf::with_capacity(&mut cursor, 303));
-        cursor.set_position(0);
-    })
-}
-
-fn large_buffer(bench: &mut Bencher) {
-    let mut cursor = Cursor::new(load_data());
-
-    bench.iter(|| {
-        parse_vsl(ReadStreamBuf::with_capacity(&mut cursor, 1024 * 1024));
-        cursor.set_position(0);
-    })
-}
-
 benchmark_group!(benches,
                  default_buffer,
-                 default_buffer_no_prefetch,
-                 tiny_buffer,
-                 large_buffer);
+                 default_buffer_from_file,
+                 custom_buffer_from_file_303b,
+                 custom_buffer_from_file_1mib,
+                 default_buffer_no_prefetch);
 benchmark_main!(benches);
