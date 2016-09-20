@@ -101,6 +101,13 @@ fn main() {
 
     let mut out = std::io::stdout();
 
+    let config = Config {
+        no_log_processing: arguments.is_present("no-log-processing"),
+        keep_raw_log: arguments.is_present("keep-raw-log"),
+        no_header_indexing: arguments.is_present("no-header-indexing"),
+        keep_raw_headers: arguments.is_present("keep-raw-headers"),
+    };
+
     loop {
         let record = match rfb.fill_apply(vsl_record_v4) {
             Err(FillApplyError::FillError(FillError::Io(err))) => {
@@ -145,14 +152,6 @@ fn main() {
                 };
 
                 if let Some(session) = session_state.apply(&record) {
-                    //TODO: move up
-                    let config = Config {
-                        no_log_processing: arguments.is_present("no-log-processing"),
-                        keep_raw_log: arguments.is_present("keep-raw-log"),
-                        no_header_indexing: arguments.is_present("no-header-indexing"),
-                        keep_raw_headers: arguments.is_present("keep-raw-headers"),
-                    };
-
                     match log_session_record(&session, &format, &mut out, &config) {
                         Ok(()) => (),
                         Err(OutputError::Io(err)) |
