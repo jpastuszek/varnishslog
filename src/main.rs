@@ -145,6 +145,7 @@ fn main() {
                 };
 
                 if let Some(session) = session_state.apply(&record) {
+                    //TODO: move up
                     let config = Config {
                         no_log_processing: arguments.is_present("no-log-processing"),
                         keep_raw_log: arguments.is_present("keep-raw-log"),
