@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 mod record_builder;
 pub use self::record_builder::*;
 use self::record_builder::BuilderResult::*;
@@ -13,14 +11,20 @@ use self::RecordBuilderSlot::*;
 
 #[derive(Debug)]
 pub struct RecordState {
-    builders: HashMap<VslIdent, RecordBuilderSlot>
+    builders: VslStore<RecordBuilderSlot>
 }
 
 impl RecordState {
     pub fn new() -> RecordState {
         //TODO: some sort of expirity mechanism like LRU
         //Note: tombstones will accumulate over time
-        RecordState { builders: HashMap::new() }
+        // We need to remove Tombstone and RecordBuilder records after a while so they dont
+        // accumulate in memory. We need to store them long enought so that the will recive all the
+        // VSL records that are for them. The VslIdent may recycle after a while though so we need
+        // to make sure that old records that could potentially have same VslIdent are gone log
+        // beofore.
+        //
+        RecordState { builders: VslStore::new() }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {

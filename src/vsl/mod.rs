@@ -17,6 +17,9 @@ pub use self::message_parsers::*;
 mod maybe_string;
 pub use self::maybe_string::{MaybeStr, MaybeString};
 
+mod store;
+pub use self::store::VslStore;
+
 /*
  * Shared memory log format
  *
