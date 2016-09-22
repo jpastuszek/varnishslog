@@ -15,17 +15,23 @@
 
 use linked_hash_map::{self, LinkedHashMap};
 use std::num::Wrapping;
+use std::fmt::Debug;
 use super::VslIdent;
 
 pub type Epoch = u32;
 
+// How many VslIdent recorts to keep in the map
 const MAX_SLOTS: u32 = 16_000;
+// How many inserts old a record can be before we drop it on remove
 const MAX_EPOCH_DIFF: Epoch = 1_000_000;
+// How many objects to nuke when we need to nuke as factor of MAX_SLOTS
+const NUKE_FACTOR: f32 = 0.01;
 
 #[derive(Debug)]
 pub struct VslStore<T> {
     map: LinkedHashMap<VslIdent, (Wrapping<Epoch>, T)>,
     slots_free: u32,
+    nuke_count: u32,
     epoch: Wrapping<Epoch>,
     max_epoch_diff: Wrapping<Epoch>,
 }
@@ -39,6 +45,7 @@ impl<T> VslStore<T> {
         VslStore {
             map: LinkedHashMap::new(),
             slots_free: max_slots,
+            nuke_count: (max_slots as f32 * NUKE_FACTOR).ceil() as u32,
             epoch: Wrapping(0),
             max_epoch_diff: Wrapping(max_epoch_diff),
         }
@@ -57,11 +64,12 @@ impl<T> VslStore<T> {
         }
     }
 
-    pub fn remove(&mut self, ident: &VslIdent) -> Option<T> {
+    pub fn remove(&mut self, ident: &VslIdent) -> Option<T> where T: Debug {
         let opt = self.map.remove(ident);
         if let Some((epoch, t)) = opt {
             self.slots_free = self.slots_free + 1;
             if self.epoch - epoch > self.max_epoch_diff {
+                warn!("Dropping old record; current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, t);
                 return None
             }
             return Some(t)
@@ -74,7 +82,12 @@ impl<T> VslStore<T> {
     }
 
     fn nuke(&mut self) {
-        if self.map.pop_front().is_some() {
+        warn!("Nuking up to {} oldest records", self.nuke_count);
+
+        for _ in 0..self.nuke_count {
+            if self.map.pop_front().is_none() {
+                break;
+            }
             self.slots_free = self.slots_free + 1;
         }
     }
