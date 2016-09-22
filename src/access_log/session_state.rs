@@ -71,15 +71,13 @@
 //     6 SLT_SessClose      REM_CLOSE 0.008
 //     6 SLT_End
 
-use std::collections::HashMap;
-
 pub use super::record_state::*;
 
 #[derive(Debug)]
 pub struct SessionState {
     record_state: RecordState,
-    client: HashMap<VslIdent, ClientAccessRecord>,
-    backend: HashMap<VslIdent, BackendAccessRecord>,
+    client: VslStore<ClientAccessRecord>,
+    backend: VslStore<BackendAccessRecord>,
     sessions: Vec<SessionRecord>,
 }
 
@@ -88,16 +86,16 @@ impl SessionState {
         //TODO: some sort of expirity mechanism like LRU
         SessionState {
             record_state: RecordState::new(),
-            client: HashMap::new(),
-            backend: HashMap::new(),
+            client: VslStore::new(),
+            backend: VslStore::new(),
             sessions: Vec::new(),
         }
     }
 
     fn try_resolve_sessions(&mut self) -> Option<SessionRecord> {
         fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
-                              client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
-                              backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
+                              client_records: &mut VslStore<ClientAccessRecord>,
+                              backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
             if let Some(client_record) = if let &mut Link::Unresolved(ref ident) = link {
                 client_records.remove(ident)
             } else {
@@ -114,7 +112,7 @@ impl SessionState {
         }
 
         fn try_resolve_backend_link(link: &mut Link<BackendAccessRecord>,
-                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
+                               backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
             if let Some(backend_record) = if let &mut Link::Unresolved(ref ident) = link {
                 backend_records.remove(ident)
             } else {
@@ -131,7 +129,7 @@ impl SessionState {
         }
 
         fn try_resolve_backend_record(backend_record: &mut BackendAccessRecord,
-                              backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
+                              backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
             match backend_record.transaction {
                 BackendAccessTransaction::Failed {
                     ref mut retry_record,
@@ -154,8 +152,8 @@ impl SessionState {
         }
 
         fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
-                              client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
-                              backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
+                              client_records: &mut VslStore<ClientAccessRecord>,
+                              backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
             let backend_record_resolved = match client_record.transaction {
                 ClientAccessTransaction::Full {
                     backend_record: Some(ref mut link),
@@ -209,8 +207,8 @@ impl SessionState {
         }
 
         fn try_resolve_session_record(session_record: &mut SessionRecord,
-                               client_records: &mut HashMap<VslIdent, ClientAccessRecord>,
-                               backend_records: &mut HashMap<VslIdent, BackendAccessRecord>) -> bool {
+                               client_records: &mut VslStore<ClientAccessRecord>,
+                               backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
             session_record.client_records.iter_mut().all(|link|
                 try_resolve_client_link(link, client_records, backend_records)
             )
@@ -257,6 +255,7 @@ impl SessionState {
         }
     }
 
+    /*
     pub fn unmatched_client_access_records(&self) -> Vec<&ClientAccessRecord> {
         self.client.iter().map(|(_, record)| record).collect()
     }
@@ -268,6 +267,7 @@ impl SessionState {
     pub fn unresolved_sessions(&self) -> &[SessionRecord] {
         self.sessions.as_slice()
     }
+    */
 }
 
 #[cfg(test)]

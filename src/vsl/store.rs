@@ -14,29 +14,35 @@
 // so we can tell if two VslIdent's are from two different times.
 
 use linked_hash_map::LinkedHashMap;
-use linked_hash_map::Values;
+//use linked_hash_map::Values;
+//use std::iter::Map;
 use std::num::Wrapping;
 use super::VslIdent;
 
-const MAX_SLOTS: u32 = 1024 * 16;
+pub type Epoch = u32;
+
+const MAX_SLOTS: u32 = 16_000;
+const MAX_EPOCH_DIFF: Epoch = 1_000_000;
 
 #[derive(Debug)]
 pub struct VslStore<T> {
-    map: LinkedHashMap<VslIdent, T>,
-    vsl_epoch: Wrapping<u8>, // use u32?
+    map: LinkedHashMap<VslIdent, (Wrapping<Epoch>, T)>,
     slots_free: u32,
+    epoch: Wrapping<Epoch>,
+    max_epoch_diff: Wrapping<Epoch>,
 }
 
 impl<T> VslStore<T> {
     pub fn new() -> VslStore<T> {
-        VslStore::with_max_slots(MAX_SLOTS)
+        VslStore::with_max_slots_and_epoch_diff(MAX_SLOTS, MAX_EPOCH_DIFF)
     }
 
-    pub fn with_max_slots(max_slots: u32) -> VslStore<T> {
+    pub fn with_max_slots_and_epoch_diff(max_slots: u32, max_epoch_diff: Epoch) -> VslStore<T> {
         VslStore {
             map: LinkedHashMap::new(),
-            vsl_epoch: Wrapping(0),
             slots_free: max_slots,
+            epoch: Wrapping(0),
+            max_epoch_diff: Wrapping(max_epoch_diff),
         }
     }
 
@@ -46,27 +52,30 @@ impl<T> VslStore<T> {
         }
         assert!(self.slots_free >= 1);
 
-        self.vsl_epoch = self.vsl_epoch + Wrapping(1);
-        if self.map.insert(ident, value).is_none() {
+        self.epoch = self.epoch + Wrapping(1);
+
+        if self.map.insert(ident, (self.epoch, value)).is_none() {
             self.slots_free = self.slots_free - 1;
         }
     }
 
     pub fn remove(&mut self, ident: &VslIdent) -> Option<T> {
         let opt = self.map.remove(ident);
-        if opt.is_some() {
+        if let Some((epoch, t)) = opt {
             self.slots_free = self.slots_free + 1;
+            if self.epoch - epoch > self.max_epoch_diff {
+                return None
+            }
+            return Some(t)
         }
-        opt
+        None
     }
 
-    pub fn get(&self, ident: &VslIdent) -> Option<&T> {
-        self.map.get(ident)
+    /*
+    pub fn values(&self) -> Box<&Iterator<Item=&T>> {
+        Box::new(&self.map.values().map(t))
     }
-
-    pub fn values(&self) -> Values<VslIdent, T> {
-        self.map.values()
-    }
+    */
 
     fn nuke(&mut self) {
         if self.map.pop_front().is_some() {
@@ -74,9 +83,20 @@ impl<T> VslStore<T> {
         }
     }
 
-    pub fn oldest(&self) -> Option<(&VslIdent, &T)> {
-        self.map.front()
+    #[cfg(test)]
+    pub fn get(&self, ident: &VslIdent) -> Option<&T> {
+        self.map.get(ident).map(t)
     }
+
+    #[cfg(test)]
+    pub fn oldest(&self) -> Option<(&VslIdent, &T)> {
+        self.map.front().map(|(i, v)| (i, t(v)))
+    }
+}
+
+#[cfg(test)]
+fn t<T>(v: &(Wrapping<Epoch>, T)) -> &T {
+    &v.1
 }
 
 #[cfg(test)]
@@ -84,8 +104,8 @@ mod tests {
     pub use super::*;
 
     #[test]
-    fn overflow_slots() {
-        let mut s = VslStore::with_max_slots(10);
+    fn old_elements_should_be_removed_on_overflow() {
+        let mut s = VslStore::with_max_slots_and_epoch_diff(10, 100);
 
         for i in 0..1024 {
             s.insert(i, i);
@@ -95,8 +115,8 @@ mod tests {
     }
 
     #[test]
-    fn overflow_slots_with_remove() {
-        let mut s = VslStore::with_max_slots(10);
+    fn old_elements_should_be_removed_on_overflow_with_remove() {
+        let mut s = VslStore::with_max_slots_and_epoch_diff(10, 100);
 
         for i in 0..1024 {
             s.insert(i, i);
@@ -106,5 +126,19 @@ mod tests {
         }
 
         assert_eq!(*s.oldest().unwrap().0, 1024 - 10 - 2);
+    }
+
+    #[test]
+    fn old_elements_should_not_be_retruned_by_remove() {
+        let mut s = VslStore::with_max_slots_and_epoch_diff(1024, 100);
+
+        for i in 0..1024 {
+            s.insert(i, i);
+        }
+
+        assert!(s.remove(&0).is_none());
+        assert!(s.remove(&100).is_none());
+        assert!(s.remove(&(1023 - 101)).is_none());
+        assert!(s.remove(&(1023 - 100)).is_some());
     }
 }

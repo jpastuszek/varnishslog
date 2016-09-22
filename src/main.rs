@@ -169,6 +169,7 @@ fn main() {
         }
     }
 
+    /*
     for client in session_state.unmatched_client_access_records() {
         warn!("ClientAccessRecord without matching session left: {:?}", client)
     }
@@ -180,6 +181,7 @@ fn main() {
     for session in session_state.unresolved_sessions() {
         warn!("SessionRecord with unresolved links to other objects left: {:?}", session)
     }
+    */
 
     info!("Done");
 }
