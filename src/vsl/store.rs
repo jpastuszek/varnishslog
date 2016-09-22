@@ -13,9 +13,7 @@
 // time. To constraint time we can count VSL records in u64 or smaller wrapping integer
 // so we can tell if two VslIdent's are from two different times.
 
-use linked_hash_map::LinkedHashMap;
-//use linked_hash_map::Values;
-//use std::iter::Map;
+use linked_hash_map::{self, LinkedHashMap};
 use std::num::Wrapping;
 use super::VslIdent;
 
@@ -71,11 +69,9 @@ impl<T> VslStore<T> {
         None
     }
 
-    /*
-    pub fn values(&self) -> Box<&Iterator<Item=&T>> {
-        Box::new(&self.map.values().map(t))
+    pub fn values(&self) -> Values<T> {
+        Values(self.map.values())
     }
-    */
 
     fn nuke(&mut self) {
         if self.map.pop_front().is_some() {
@@ -94,9 +90,17 @@ impl<T> VslStore<T> {
     }
 }
 
-#[cfg(test)]
 fn t<T>(v: &(Wrapping<Epoch>, T)) -> &T {
     &v.1
+}
+
+pub struct Values<'a, T: 'a>(linked_hash_map::Values<'a, VslIdent, (Wrapping<Epoch>, T)>);
+
+impl<'a, T> Iterator for Values<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(t)
+    }
 }
 
 #[cfg(test)]

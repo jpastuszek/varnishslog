@@ -60,15 +60,13 @@ impl RecordState {
         }
     }
 
-    /*
     pub fn building_count(&self) -> usize {
-        self.builders.values().filter(|v| if let &Builder(_) = v { true } else { false }).count()
+        self.builders.values().filter(|&v| if let &Builder(_) = v { true } else { false }).count()
     }
 
     pub fn tombstone_count(&self) -> usize {
-        self.builders.values().filter(|v| if let &Tombstone(_) = v { true } else { false }).count()
+        self.builders.values().filter(|&v| if let &Tombstone(_) = v { true } else { false }).count()
     }
-    */
 
     #[cfg(test)]
     fn get(&self, ident: VslIdent) -> Option<&RecordBuilder> {

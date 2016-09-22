@@ -255,19 +255,17 @@ impl SessionState {
         }
     }
 
-    /*
     pub fn unmatched_client_access_records(&self) -> Vec<&ClientAccessRecord> {
-        self.client.iter().map(|(_, record)| record).collect()
+        self.client.values().collect()
     }
 
     pub fn unmatched_backend_access_records(&self) -> Vec<&BackendAccessRecord> {
-        self.backend.iter().map(|(_, record)| record).collect()
+        self.backend.values().collect()
     }
 
     pub fn unresolved_sessions(&self) -> &[SessionRecord] {
         self.sessions.as_slice()
     }
-    */
 }
 
 #[cfg(test)]
