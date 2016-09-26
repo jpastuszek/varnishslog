@@ -8,6 +8,7 @@ extern crate log;
 extern crate quick_error;
 #[macro_use]
 extern crate assert_matches;
+extern crate fnv;
 
 extern crate serde;
 extern crate serde_json;

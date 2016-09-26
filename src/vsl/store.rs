@@ -17,6 +17,8 @@ use linked_hash_map::{self, LinkedHashMap};
 use std::num::Wrapping;
 use std::fmt::Debug;
 use super::VslIdent;
+use fnv::FnvHasher;
+use std::hash::BuildHasherDefault;
 
 pub type Epoch = u32;
 
@@ -29,7 +31,7 @@ const NUKE_FACTOR: f32 = 0.01;
 
 #[derive(Debug)]
 pub struct VslStore<T> {
-    map: LinkedHashMap<VslIdent, (Wrapping<Epoch>, T)>,
+    map: LinkedHashMap<VslIdent, (Wrapping<Epoch>, T), BuildHasherDefault<FnvHasher>>,
     slots_free: u32,
     nuke_count: u32,
     epoch: Wrapping<Epoch>,
@@ -43,7 +45,7 @@ impl<T> VslStore<T> {
 
     pub fn with_max_slots_and_epoch_diff(max_slots: u32, max_epoch_diff: Epoch) -> VslStore<T> {
         VslStore {
-            map: LinkedHashMap::new(),
+            map: LinkedHashMap::default(),
             slots_free: max_slots,
             nuke_count: (max_slots as f32 * NUKE_FACTOR).ceil() as u32,
             epoch: Wrapping(0),
