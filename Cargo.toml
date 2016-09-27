@@ -12,6 +12,18 @@ name = "stream_buf"
 harness = false
 name = "access_log"
 
+[profile.bench]
+opt-level = 3
+#debug = true # for profiling
+debug-assertions = false
+codegen-units = 1
+
+[profile.release]
+opt-level = 3
+#debug = true # for profiling
+debug-assertions = false
+codegen-units = 1
+
 [build-dependencies]
 serde_codegen = "0.8.4"
 
