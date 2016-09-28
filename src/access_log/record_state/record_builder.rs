@@ -523,8 +523,9 @@ impl<B, C> BuilderResult<B, C> {
 
     fn apply(self, vsl: &VslRecord) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C>
     {
-        let builder_result = if let Building(builder) = self {
-            Building(try!(builder.apply(vsl)))
+        let builder_result = if let Building(mut builder) = self {
+            try!(builder.mutate(vsl));
+            Building(builder)
         } else {
             debug!("Ignoring {} as we have finished building {}", vsl, B::result_name());
             self
@@ -536,7 +537,7 @@ impl<B, C> BuilderResult<B, C> {
     fn complete(self) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C> {
         match self {
             Complete(_) => Err(RecordBuilderError::DetailAlreadyBuilt(B::result_name())),
-            Building(builder) => Ok(Complete(try!(builder.complete()))),
+            Building(builder) => Ok(Complete(try!(builder.unwrap()))),
         }
     }
 
@@ -548,10 +549,19 @@ impl<B, C> BuilderResult<B, C> {
     }
 }
 
-trait DetailBuilder<C>: Sized {
+trait Mutate {
+    type C;
+    type E;
+
+    // returns Ok(true) if complete
+    fn mutate<'r>(&mut self, mutagen: &VslRecord<'r>) -> Result<bool, Self::E>;
+
+    // returns new value based on current
+    fn unwrap(self) -> Result<Self::C, Self::E>;
+}
+
+trait DetailBuilder<C>: Mutate<C=C, E=RecordBuilderError> + Sized {
     fn result_name() -> &'static str;
-    fn apply(self, vsl: &VslRecord) -> Result<Self, RecordBuilderError>;
-    fn complete(self) -> Result<C, RecordBuilderError>;
 }
 
 // Note: we need to use bytes here since we need to be 1 to 1 comparable with original byte value
@@ -567,27 +577,15 @@ impl HeadersBuilder {
         }
     }
 
-    fn set(self, name: MaybeString, value: MaybeString) -> HeadersBuilder {
-        let mut headers = self.headers;
-        headers.push((name, value));
-
-        HeadersBuilder {
-            headers: headers,
-            .. self
-        }
+    fn set(&mut self, name: MaybeString, value: MaybeString) {
+        self.headers.push((name, value));
     }
 
-    fn unset(self, name: &MaybeStr, value: &MaybeStr) -> HeadersBuilder {
-        let mut headers = self.headers;
-        headers.retain(|header| {
+    fn unset(&mut self, name: &MaybeStr, value: &MaybeStr) {
+        self.headers.retain(|header| {
             let &(ref t_name, ref t_value) = header;
             (t_name.as_maybe_str(), t_value.as_maybe_str()) != (name, value)
         });
-
-        HeadersBuilder {
-            headers: headers,
-            .. self
-        }
     }
 
     fn unwrap(self) -> Vec<(MaybeString, MaybeString)> {
@@ -618,62 +616,47 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
     fn result_name() -> &'static str {
         "HTTP Request"
     }
+}
 
-    fn apply(self, vsl: &VslRecord) -> Result<HttpRequestBuilder, RecordBuilderError> {
+impl Mutate for HttpRequestBuilder {
+    type C = HttpRequest;
+    type E = RecordBuilderError;
+
+    fn mutate<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
         let builder = match vsl.tag {
             SLT_BereqProtocol | SLT_ReqProtocol => {
                 let protocol = try!(vsl.parse_data(slt_protocol));
-
-                HttpRequestBuilder {
-                    protocol: Some(protocol.to_lossy_string()),
-                    .. self
-                }
+                self.protocol = Some(protocol.to_lossy_string());
             }
             SLT_BereqMethod | SLT_ReqMethod => {
                 let method = try!(vsl.parse_data(slt_method));
-
-                HttpRequestBuilder {
-                    method: Some(method.to_lossy_string()),
-                    .. self
-                }
+                self.method = Some(method.to_lossy_string());
             }
             SLT_BereqURL | SLT_ReqURL => {
                 let url = try!(vsl.parse_data(slt_url));
-
-                HttpRequestBuilder {
-                    url: Some(url.to_lossy_string()),
-                    .. self
-                }
+                self.url = Some(url.to_lossy_string());
             }
             SLT_BereqHeader | SLT_ReqHeader => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    HttpRequestBuilder {
-                        headers: self.headers.set(name.to_maybe_string(), value.to_maybe_string()),
-                        .. self
-                    }
+                    self.headers.set(name.to_maybe_string(), value.to_maybe_string());
                 } else {
                     debug!("Not setting empty request header: {:?}", vsl);
-                    self
                 }
             }
             SLT_BereqUnset | SLT_ReqUnset => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    HttpRequestBuilder {
-                        headers: self.headers.unset(&name, &value),
-                        .. self
-                    }
+                    self.headers.unset(&name, &value);
                 } else {
                     debug!("Not unsetting empty request header: {:?}", vsl);
-                    self
                 }
             }
             _ => panic!("Got unexpected VSL record in request builder: {:?}", vsl)
         };
 
-        Ok(builder)
+        Ok(false)
     }
 
-    fn complete(self) -> Result<HttpRequest, RecordBuilderError> {
+    fn unwrap(self) -> Result<HttpRequest, RecordBuilderError> {
         Ok(HttpRequest {
             protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Request.protocol"))),
             method: try!(self.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))),
@@ -708,62 +691,47 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
     fn result_name() -> &'static str {
         "HTTP Response"
     }
+}
 
-    fn apply(self, vsl: &VslRecord) -> Result<HttpResponseBuilder, RecordBuilderError> {
+impl Mutate for HttpResponseBuilder {
+    type C = HttpResponse;
+    type E = RecordBuilderError;
+
+    fn mutate<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
         let builder = match vsl.tag {
             SLT_BerespProtocol | SLT_RespProtocol | SLT_ObjProtocol => {
                 let protocol = try!(vsl.parse_data(slt_protocol));
-
-                HttpResponseBuilder {
-                    protocol: Some(protocol.to_lossy_string()),
-                    .. self
-                }
+                self.protocol= Some(protocol.to_lossy_string());
             }
             SLT_BerespStatus | SLT_RespStatus | SLT_ObjStatus => {
                 let status = try!(vsl.parse_data(slt_status));
-
-                HttpResponseBuilder {
-                    status: Some(status),
-                    .. self
-                }
+                self.status = Some(status);
             }
             SLT_BerespReason | SLT_RespReason | SLT_ObjReason => {
                 let reason = try!(vsl.parse_data(slt_reason));
-
-                HttpResponseBuilder {
-                    reason: Some(reason.to_lossy_string()),
-                    .. self
-                }
+                self.reason = Some(reason.to_lossy_string());
             }
             SLT_BerespHeader | SLT_RespHeader | SLT_ObjHeader => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    HttpResponseBuilder {
-                        headers: self.headers.set(name.to_maybe_string(), value.to_maybe_string()),
-                        .. self
-                    }
+                    self.headers.set(name.to_maybe_string(), value.to_maybe_string());
                 } else {
                     debug!("Not setting empty response header: {:?}", vsl);
-                    self
                 }
             }
             SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    HttpResponseBuilder {
-                        headers: self.headers.unset(&name, &value),
-                        .. self
-                    }
+                    self.headers.unset(&name, &value);
                 } else {
                     debug!("Not unsetting empty response header: {:?}", vsl);
-                    self
                 }
             }
             _ => panic!("Got unexpected VSL record in request builder: {:?}", vsl)
         };
 
-        Ok(builder)
+        Ok(false)
     }
 
-    fn complete(self) -> Result<HttpResponse, RecordBuilderError> {
+    fn unwrap(self) -> Result<HttpResponse, RecordBuilderError> {
         Ok(HttpResponse {
             protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Response.protocol"))),
             status: try!(self.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))),
@@ -906,6 +874,7 @@ impl RecordBuilder {
     }
 
     pub fn apply<'r>(self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
+        //TODO: CEst: 1.96
         let builder = match vsl.tag {
             SLT_Begin => {
                 match self.record_type {

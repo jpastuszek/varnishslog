@@ -34,9 +34,9 @@ impl RecordState {
             return None
         }
 
-        let builder = match self.builders.remove(&vsl.ident) {
+        let builder = match self.builders.remove(&vsl.ident) { //TODO: CEst: 1.30
             None => RecordBuilder::new(vsl.ident),
-            Some(Builder(builder)) => builder,
+            Some(Builder(builder)) => builder, // TODO: CEst: 3.23
             Some(Tombstone(err)) => {
                 debug!("Found tombstone for record with ident {}: ignoring {}; inscription: {}",
                        &vsl.ident, &vsl, &err);
