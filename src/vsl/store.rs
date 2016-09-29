@@ -32,6 +32,7 @@ const NUKE_FACTOR: f32 = 0.01;
 #[derive(Debug)]
 pub struct VslStore<T> {
     map: LinkedHashMap<VslIdent, (Wrapping<Epoch>, T), BuildHasherDefault<FnvHasher>>,
+    expired: Vec<VslIdent>,
     slots_free: u32,
     nuke_count: u32,
     epoch: Wrapping<Epoch>,
@@ -46,6 +47,7 @@ impl<T> VslStore<T> {
     pub fn with_max_slots_and_epoch_diff(max_slots: u32, max_epoch_diff: Epoch) -> VslStore<T> {
         VslStore {
             map: LinkedHashMap::default(),
+            expired: Vec::new(),
             slots_free: max_slots,
             nuke_count: (max_slots as f32 * NUKE_FACTOR).ceil() as u32,
             epoch: Wrapping(0),
@@ -54,6 +56,8 @@ impl<T> VslStore<T> {
     }
 
     pub fn insert(&mut self, ident: VslIdent, value: T) {
+        self.expire();
+
         if self.slots_free < 1 {
             self.nuke();
         }
@@ -68,8 +72,16 @@ impl<T> VslStore<T> {
     }
 
     pub fn get_mut(&mut self, ident: &VslIdent) -> Option<&mut T> where T: Debug {
-        //TODO: need to check expiration somehow
-        self.map.get_refresh(ident).map(|&mut (_, ref mut t)| t)
+        let opt = self.map.get_refresh(ident);
+        if let Some(&mut (epoch, ref mut t)) = opt {
+            if self.epoch - epoch > self.max_epoch_diff {
+                warn!("Adding old record to expirity list; current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, t);
+                self.expired.push(ident.clone());
+                return None
+            }
+            return Some(t)
+        }
+        None
     }
 
     pub fn remove(&mut self, ident: &VslIdent) -> Option<T> where T: Debug {
@@ -91,6 +103,12 @@ impl<T> VslStore<T> {
 
     fn is_expired(&self, entry_epoch: Wrapping<Epoch>) -> bool {
         self.epoch - entry_epoch > self.max_epoch_diff
+    }
+
+    fn expire(&mut self) {
+        for expired_ident in self.expired.drain(..) {
+            self.map.remove(&expired_ident);
+        }
     }
 
     fn nuke(&mut self) {
@@ -169,5 +187,19 @@ mod tests {
         assert!(s.remove(&100).is_none());
         assert!(s.remove(&(1023 - 101)).is_none());
         assert!(s.remove(&(1023 - 100)).is_some());
+    }
+
+    #[test]
+    fn old_elements_should_not_be_retruned_by_get_mut() {
+        let mut s = VslStore::with_max_slots_and_epoch_diff(1024, 100);
+
+        for i in 0..1024 {
+            s.insert(i, i);
+        }
+
+        assert!(s.get_mut(&0).is_none());
+        assert!(s.get_mut(&100).is_none());
+        assert!(s.get_mut(&(1023 - 101)).is_none());
+        assert!(s.get_mut(&(1023 - 100)).is_some());
     }
 }
