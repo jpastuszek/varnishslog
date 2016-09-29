@@ -521,10 +521,9 @@ impl<B, C> BuilderResult<B, C> {
         }
     }
 
-    fn apply(self, vsl: &VslRecord) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C>
-    {
+    fn apply(self, vsl: &VslRecord) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C> {
         let builder_result = if let Building(mut builder) = self {
-            try!(builder.mutate(vsl));
+            try!(builder.apply(vsl));
             Building(builder)
         } else {
             debug!("Ignoring {} as we have finished building {}", vsl, B::result_name());
@@ -549,18 +548,18 @@ impl<B, C> BuilderResult<B, C> {
     }
 }
 
-trait Mutate {
+trait MutBuilder {
     type C;
     type E;
 
     // returns Ok(true) if complete
-    fn mutate<'r>(&mut self, mutagen: &VslRecord<'r>) -> Result<bool, Self::E>;
+    fn apply<'r>(&mut self, mutagen: &VslRecord<'r>) -> Result<bool, Self::E>;
 
     // returns new value based on current
     fn unwrap(self) -> Result<Self::C, Self::E>;
 }
 
-trait DetailBuilder<C>: Mutate<C=C, E=RecordBuilderError> + Sized {
+trait DetailBuilder<C>: MutBuilder<C=C, E=RecordBuilderError> + Sized {
     fn result_name() -> &'static str;
 }
 
@@ -618,12 +617,12 @@ impl DetailBuilder<HttpRequest> for HttpRequestBuilder {
     }
 }
 
-impl Mutate for HttpRequestBuilder {
+impl MutBuilder for HttpRequestBuilder {
     type C = HttpRequest;
     type E = RecordBuilderError;
 
-    fn mutate<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
-        let builder = match vsl.tag {
+    fn apply<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
+        match vsl.tag {
             SLT_BereqProtocol | SLT_ReqProtocol => {
                 let protocol = try!(vsl.parse_data(slt_protocol));
                 self.protocol = Some(protocol.to_lossy_string());
@@ -693,12 +692,12 @@ impl DetailBuilder<HttpResponse> for HttpResponseBuilder {
     }
 }
 
-impl Mutate for HttpResponseBuilder {
+impl MutBuilder for HttpResponseBuilder {
     type C = HttpResponse;
     type E = RecordBuilderError;
 
-    fn mutate<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
-        let builder = match vsl.tag {
+    fn apply<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
+        match vsl.tag {
             SLT_BerespProtocol | SLT_RespProtocol | SLT_ObjProtocol => {
                 let protocol = try!(vsl.parse_data(slt_protocol));
                 self.protocol= Some(protocol.to_lossy_string());
