@@ -520,32 +520,6 @@ impl<B, C> BuilderResult<B, C> {
             Complete(complete) => panic!("Trying to unwrap BuilderResult::Complete: {:?}", complete),
         }
     }
-
-    fn apply(self, vsl: &VslRecord) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C> {
-        let builder_result = if let Building(mut builder) = self {
-            try!(builder.apply(vsl));
-            Building(builder)
-        } else {
-            debug!("Ignoring {} as we have finished building {}", vsl, B::result_name());
-            self
-        };
-
-        Ok(builder_result)
-    }
-
-    fn complete(self) -> Result<BuilderResult<B, C>, RecordBuilderError> where B: DetailBuilder<C> {
-        match self {
-            Complete(_) => Err(RecordBuilderError::DetailAlreadyBuilt(B::result_name())),
-            Building(builder) => Ok(Complete(try!(builder.unwrap()))),
-        }
-    }
-
-    fn get_complete(self) -> Result<C, RecordBuilderError> where B: DetailBuilder<C> {
-        match self {
-            Complete(response) => Ok(response),
-            Building(_) => Err(RecordBuilderError::DetailIncomplete(B::result_name())),
-        }
-    }
 }
 
 trait MutBuilder {
@@ -557,6 +531,46 @@ trait MutBuilder {
 
     // returns new value based on current
     fn unwrap(self) -> Result<Self::C, Self::E>;
+}
+
+#[derive(Debug)]
+struct MutBuilderState<B> {
+    inner: B,
+    complete: bool,
+}
+
+impl<B, C, E> MutBuilderState<B> where B: MutBuilder<C=C, E=E>  {
+    fn new(inner: B) -> MutBuilderState<B> {
+        MutBuilderState {
+            inner: inner,
+            complete: false,
+        }
+    }
+
+    fn apply<'r>(&mut self, val: &VslRecord<'r>) -> Result<bool, E> {
+        if !self.complete {
+            self.complete = try!(self.inner.apply(val));
+        }
+        Ok(self.complete)
+    }
+
+    // complete needs to be callable with &mut self
+    fn complete(&mut self) {
+        self.complete = true;
+    }
+
+    fn is_building(&self) -> bool {
+        !self.complete
+    }
+}
+
+impl<B> MutBuilderState<B> {
+    fn unwrap<C>(self) -> Result<C, RecordBuilderError> where B: DetailBuilder<C>  {
+        if self.complete {
+            return self.inner.unwrap()
+        }
+        Err(RecordBuilderError::DetailIncomplete(B::result_name()))
+    }
 }
 
 trait DetailBuilder<C>: MutBuilder<C=C, E=RecordBuilderError> + Sized {
@@ -809,9 +823,9 @@ pub struct RecordBuilder {
     record_type: RecordType,
     req_start: Option<TimeStamp>,
     pipe_start: Option<TimeStamp>,
-    http_request: BuilderResult<HttpRequestBuilder, HttpRequest>,
-    http_response: BuilderResult<HttpResponseBuilder, HttpResponse>,
-    cache_object: BuilderResult<HttpResponseBuilder, HttpResponse>,
+    http_request: MutBuilderState<HttpRequestBuilder>,
+    http_response: MutBuilderState<HttpResponseBuilder>,
+    cache_object: MutBuilderState<HttpResponseBuilder>,
     obj_storage: Option<ObjStorage>,
     obj_ttl: Option<ObjTtl>,
     backend_connection: Option<BackendConnection>,
@@ -844,9 +858,9 @@ impl RecordBuilder {
             record_type: RecordType::Undefined,
             req_start: None,
             pipe_start: None,
-            http_request: Building(HttpRequestBuilder::new()),
-            http_response: Building(HttpResponseBuilder::new()),
-            cache_object: Building(HttpResponseBuilder::new()),
+            http_request: MutBuilderState::new(HttpRequestBuilder::new()),
+            http_response: MutBuilderState::new(HttpResponseBuilder::new()),
+            cache_object: MutBuilderState::new(HttpResponseBuilder::new()),
             obj_storage: None,
             obj_ttl: None,
             backend_connection: None,
@@ -872,7 +886,8 @@ impl RecordBuilder {
         }
     }
 
-    pub fn apply<'r>(self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
+    //TODO: mut self for duration of refactionring - will become &mut self
+    pub fn apply<'r>(mut self, vsl: &'r VslRecord) -> Result<BuilderResult<RecordBuilder, Record>, RecordBuilderError> {
         //TODO: CEst: 1.96
         let builder = match vsl.tag {
             SLT_Begin => {
@@ -913,7 +928,7 @@ impl RecordBuilder {
                 // Reset http_request on ReqStar
                 // TODO: We get client IP/port form session but should it be this tag? (PROXY
                 // protocol etc?)
-                http_request: Building(HttpRequestBuilder::new()),
+                http_request: MutBuilderState::new(HttpRequestBuilder::new()),
                 .. self
             },
             SLT_Timestamp => {
@@ -1210,10 +1225,8 @@ impl RecordBuilder {
                 SLT_BereqURL | SLT_ReqURL |
                 SLT_BereqHeader | SLT_ReqHeader |
                 SLT_BereqUnset | SLT_ReqUnset => {
-                    RecordBuilder {
-                        http_request: try!(self.http_request.apply(vsl)),
-                        .. self
-                    }
+                    try!(self.http_request.apply(vsl));
+                    self
                 }
 
             // Response
@@ -1222,10 +1235,8 @@ impl RecordBuilder {
                 SLT_BerespReason | SLT_RespReason |
                 SLT_BerespHeader | SLT_RespHeader |
                 SLT_BerespUnset | SLT_RespUnset => {
-                    RecordBuilder {
-                        http_response: try!(self.http_response.apply(vsl)),
-                        .. self
-                    }
+                    try!(self.http_response.apply(vsl));
+                    self
                 }
 
             // Cache Object
@@ -1234,10 +1245,8 @@ impl RecordBuilder {
                 SLT_ObjReason |
                 SLT_ObjHeader |
                 SLT_ObjUnset => {
-                    RecordBuilder {
-                        cache_object: try!(self.cache_object.apply(vsl)),
-                        .. self
-                    }
+                    try!(self.cache_object.apply(vsl));
+                    self
                 }
 
             // Session
@@ -1286,9 +1295,9 @@ impl RecordBuilder {
                 let method = try!(vsl.parse_data(slt_vcl_call));
 
                 match method {
-                    "RECV" => RecordBuilder {
-                        http_request: try!(self.http_request.complete()),
-                        .. self
+                    "RECV" => {
+                        self.http_request.complete();
+                        self
                     },
                     "MISS" => RecordBuilder {
                         handling: Some(Handling::Miss),
@@ -1307,10 +1316,10 @@ impl RecordBuilder {
                         late: true,
                         .. self
                     },
-                    "BACKEND_RESPONSE" => RecordBuilder {
-                        http_request: try!(self.http_request.complete()),
-                        http_response: try!(self.http_response.complete()),
-                        .. self
+                    "BACKEND_RESPONSE" => {
+                        self.http_request.complete();
+                        self.http_response.complete();
+                        self
                     },
                     "BACKEND_ERROR" => {
                         match self.record_type {
@@ -1319,13 +1328,13 @@ impl RecordBuilder {
                                 reason,
                                 transaction: BackendAccessTransactionType::Full,
                             } => {
+                                self.http_request.complete();
                                 RecordBuilder {
                                     record_type: RecordType::BackendAccess {
                                         parent: parent,
                                         reason: reason,
                                         transaction: BackendAccessTransactionType::Failed,
                                     },
-                                    http_request: try!(self.http_request.complete()),
                                     .. self
                                 }
                             }
@@ -1377,15 +1386,15 @@ impl RecordBuilder {
                         }
                     },
                     "abandon" => {
-                        // eary abandon will have request still Building
-                        if let http_request @ Building(_) = self.http_request {
+                        // eary abandon will have request still building
+                        if self.http_request.is_building() {
                             if let RecordType::BackendAccess {
                                 parent,
                                 reason,
                                 transaction: BackendAccessTransactionType::Full,
                             } = self.record_type {
+                                self.http_request.complete();
                                 RecordBuilder {
-                                    http_request: try!(http_request.complete()),
                                     record_type: RecordType::BackendAccess {
                                         parent: parent,
                                         reason: reason,
@@ -1455,8 +1464,8 @@ impl RecordBuilder {
                                 reason,
                                 transaction: BackendAccessTransactionType::Full,
                             } => {
+                                self.http_request.complete();
                                 RecordBuilder {
-                                    http_request: try!(self.http_request.complete()),
                                     record_type: RecordType::BackendAccess {
                                         parent: parent,
                                         reason: reason,
@@ -1469,7 +1478,7 @@ impl RecordBuilder {
                         }
                     },
                     "synth" => RecordBuilder {
-                            http_response: Building(HttpResponseBuilder::new()),
+                            http_response: MutBuilderState::new(HttpResponseBuilder::new()),
                             .. self
                     },
                     _ => {
@@ -1483,8 +1492,9 @@ impl RecordBuilder {
                 let (_fetch_mode, fetch_mode_name, streamed) =
                     try!(vsl.parse_data(slt_fetch_body));
 
+                self.cache_object.complete();
+
                 RecordBuilder {
-                    cache_object: try!(self.cache_object.complete()),
                     fetch_body: Some( FetchBody {
                         mode: fetch_mode_name.to_string(),
                         streamed: streamed,
@@ -1509,18 +1519,18 @@ impl RecordBuilder {
                         return Ok(Complete(Record::Session(record)))
                     },
                     RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
-                        let request = try!(self.http_request.get_complete());
+                        let request = try!(self.http_request.unwrap());
 
                         match self.record_type {
                             RecordType::ClientAccess { parent, reason, transaction } => {
                                 let transaction = match transaction {
                                     ClientAccessTransactionType::Full => {
                                         // SLT_End tag is completing the client response
-                                        let http_response = try!(self.http_response.complete());
+                                        self.http_response.complete();
 
                                         ClientAccessTransaction::Full {
                                             request: request,
-                                            response: try!(http_response.get_complete()),
+                                            response: try!(self.http_response.unwrap()),
                                             esi_records: self.client_records,
                                             backend_record: self.backend_record,
                                             process: self.req_process,
@@ -1539,11 +1549,11 @@ impl RecordBuilder {
                                     },
                                     ClientAccessTransactionType::RestartedLate => {
                                         // SLT_End tag is completing the client response
-                                        let http_response = try!(self.http_response.complete());
+                                        self.http_response.complete();
 
                                         ClientAccessTransaction::RestartedLate {
                                             request: request,
-                                            response: try!(http_response.get_complete()),
+                                            response: try!(self.http_response.unwrap()),
                                             backend_record: self.backend_record,
                                             process: self.req_process,
                                             restart_record: try!(self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))),
@@ -1576,7 +1586,7 @@ impl RecordBuilder {
                             RecordType::BackendAccess { parent, reason, transaction } => {
                                 let transaction = match transaction {
                                     BackendAccessTransactionType::Full => {
-                                        let cache_object = try!(self.cache_object.get_complete());
+                                        let cache_object = try!(self.cache_object.unwrap());
 
                                         let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
                                         let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
@@ -1597,7 +1607,7 @@ impl RecordBuilder {
 
                                         BackendAccessTransaction::Full {
                                             request: request,
-                                            response: try!(self.http_response.get_complete()),
+                                            response: try!(self.http_response.unwrap()),
                                             backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
                                             cache_object: cache_object,
                                             send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
@@ -1610,11 +1620,11 @@ impl RecordBuilder {
                                     BackendAccessTransactionType::Failed => {
                                         // We complete it here as it is syhth response - not a
                                         // backend response
-                                        let http_response = try!(self.http_response.complete());
+                                        self.http_response.complete();
 
                                         BackendAccessTransaction::Failed {
                                             request: request,
-                                            synth_response: try!(http_response.get_complete()),
+                                            synth_response: try!(self.http_response.unwrap()),
                                             retry_record: self.retry_record,
                                             synth: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
                                             accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
@@ -1628,7 +1638,7 @@ impl RecordBuilder {
                                     BackendAccessTransactionType::Abandoned => {
                                         BackendAccessTransaction::Abandoned {
                                             request: request,
-                                            response: try!(self.http_response.get_complete()),
+                                            response: try!(self.http_response.unwrap()),
                                             backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
                                             retry_record: self.retry_record,
                                             send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
@@ -1803,7 +1813,7 @@ mod tests {
                                  123, SLT_VCL_call,         "BACKEND_RESPONSE";
                                 );
 
-        let request = builder.http_request.as_ref().unwrap();
+        let request = builder.http_request.unwrap().unwrap();
         assert_eq!(request.method, "GET".to_string());
         assert_eq!(request.url, "/foobar".to_string());
         assert_eq!(request.protocol, "HTTP/1.1".to_string());
@@ -1811,7 +1821,7 @@ mod tests {
                    ("Host".to_string(), "localhost:8080".to_string()),
                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
 
-        let response = builder.http_response.as_ref().unwrap();
+        let response = builder.http_response.unwrap().unwrap();
         assert_eq!(response.protocol, "HTTP/1.1".to_string());
         assert_eq!(response.status, 503);
         assert_eq!(response.reason, "Backend fetch failed".to_string());
@@ -1825,7 +1835,7 @@ mod tests {
         let builder = RecordBuilder::new(123);
 
         // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
-        let builder = apply_all!(builder,
+        let mut builder = apply_all!(builder,
                                  15, SLT_ReqMethod,     "GET";
                                  15, SLT_ReqURL,        "/test_page/abc";
                                  15, SLT_ReqProtocol,   "HTTP/1.1";
@@ -1859,7 +1869,9 @@ mod tests {
                                  15, SLT_ReqHeader,     "X-Varnish-Decision:";
                                  );
 
-        let request = builder.http_request.complete().unwrap().unwrap();
+        builder.http_request.complete();
+
+        let request = builder.http_request.unwrap().unwrap();
         assert_eq!(request.headers, &[
                    ("Host".to_string(), "127.0.0.1:1209".to_string()),
                    ("Test".to_string(), "1".to_string()),
@@ -1881,7 +1893,7 @@ mod tests {
         let builder = RecordBuilder::new(123);
 
         // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
-        let builder = apply_all!(builder,
+        let mut builder = apply_all!(builder,
                                  15, SLT_ReqMethod,     "POST";
                                  15, SLT_ReqURL,        "/foo/bar";
                                  15, SLT_ReqProtocol,   "HTTP/1.0";
@@ -1895,7 +1907,9 @@ mod tests {
                                  15, SLT_ReqHeader,     "Test: 1";
                                  );
 
-        let request = builder.http_request.complete().unwrap().unwrap();
+        builder.http_request.complete();
+
+        let request = builder.http_request.unwrap().unwrap();
         assert_eq!(request.method, "GET".to_string());
         assert_eq!(request.url, "/test_page/abc".to_string());
         assert_eq!(request.protocol, "HTTP/1.1".to_string());
@@ -1910,7 +1924,7 @@ mod tests {
         let builder = RecordBuilder::new(123);
 
         // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
-        let builder = apply_all!(builder,
+        let mut builder = apply_all!(builder,
                                  15, SLT_RespProtocol,   "HTTP/1.1";
                                  15, SLT_RespStatus,     "200";
                                  15, SLT_RespReason,     "OK";
@@ -1928,7 +1942,9 @@ mod tests {
                                  15, SLT_RespUnset,      "X-Varnish: 15";
                                 );
 
-        let response = builder.http_response.complete().unwrap().unwrap();
+        builder.http_response.complete();
+
+        let response = builder.http_response.unwrap().unwrap();
         assert_eq!(response.headers, &[
                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
                    ("Test".to_string(), "1".to_string()),
@@ -1944,7 +1960,7 @@ mod tests {
         let builder = RecordBuilder::new(123);
 
         // synth from deliver
-        let builder = apply_all!(builder,
+        let mut builder = apply_all!(builder,
                                  15, SLT_RespProtocol,   "HTTP/1.1";
                                  15, SLT_RespStatus,     "500";
                                  15, SLT_RespReason,     "Error";
@@ -1971,7 +1987,9 @@ mod tests {
                                  15, SLT_RespUnset,      "X-Varnish: 15";
                                 );
 
-        let response = builder.http_response.complete().unwrap().unwrap();
+        builder.http_response.complete();
+
+        let response = builder.http_response.unwrap().unwrap();
         assert_eq!(response.headers, &[
                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
                    ("Test".to_string(), "1".to_string()),
@@ -2009,7 +2027,7 @@ mod tests {
                    123, SLT_BereqHeader,    "Baz: bar";
                    );
 
-        let requests = builder.http_request.as_ref().unwrap();
+        let requests = builder.http_request.unwrap().unwrap();
         assert_eq!(requests.method, "GET".to_string());
         assert_eq!(requests.url, "/foobar".to_string());
         assert_eq!(requests.protocol, "HTTP/1.1".to_string());
@@ -2053,7 +2071,7 @@ mod tests {
                    123, SLT_VCL_call,       "BACKEND_RESPONSE";
                    );
 
-        let requests = builder.http_request.as_ref().unwrap();
+        let requests = builder.http_request.unwrap().unwrap();
         assert_eq!(requests.url, "\u{0}\u{fffd}\u{fffd}\u{fffd}".to_string());
         assert_eq!(requests.headers, vec![
                    ("Host".to_string(), "\u{0}\u{fffd}\u{fffd}\u{fffd}".to_string())
