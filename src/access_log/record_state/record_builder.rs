@@ -881,7 +881,6 @@ impl RecordBuilder {
     }
 
     pub fn apply<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
-        //TODO: CEst: 1.96
         match vsl.tag {
             SLT_Begin => match self.record_type {
                 RecordType::Undefined => {

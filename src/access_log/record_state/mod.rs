@@ -43,14 +43,14 @@ impl RecordState {
         }
 
         let action = match self.builders.get_mut(&vsl.ident) {
-            None => New, //TODO: CEst: 1.30
+            None => New,
             Some(&mut Builder(ref mut builder)) => {
                 match builder.apply(vsl) {
                     Ok(true) => Finalize,
                     Ok(false) => Continue,
                     Err(err) => Kill(err),
                 }
-            } // TODO: CEst: 3.23
+            }
             Some(&mut Tombstone(ref err)) => {
                 debug!("Found tombstone for record with ident {}: ignoring {}; inscription: {}", &vsl.ident, &vsl, err);
                 return None
@@ -73,7 +73,7 @@ impl RecordState {
                     },
                     _ => unreachable!()
                 }
-            } // TODO: CEst: 3.23
+            }
             Kill(err) => {
                 error!("Error while building record with ident {} while applying {}: {}", &vsl.ident, &vsl, &err);
                 self.builders.insert(vsl.ident, Tombstone(err));

@@ -66,7 +66,6 @@ impl<T> VslStore<T> {
         self.epoch = self.epoch + Wrapping(1);
 
         if self.map.insert(ident, (self.epoch, value)).is_none() {
-            // TODO: CEst: 11.59 !?!?!?
             self.slots_free = self.slots_free - 1;
         }
     }
@@ -112,7 +111,7 @@ impl<T> VslStore<T> {
     }
 
     fn nuke(&mut self) {
-        warn!("Nuking up to {} oldest records", self.nuke_count); //TODO: CEst: 1.92
+        warn!("Nuking up to {} oldest records", self.nuke_count);
 
         for _ in 0..self.nuke_count {
             if self.map.pop_front().is_none() {
