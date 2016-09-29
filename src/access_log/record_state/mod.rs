@@ -1,17 +1,25 @@
 mod record_builder;
+//TODO: don't use * imports as it makes things confusing
 pub use self::record_builder::*;
-use self::record_builder::BuilderResult::*;
 
 #[derive(Debug)]
-enum RecordBuilderSlot {
+enum Slot {
     Builder(RecordBuilder),
     Tombstone(RecordBuilderError),
 }
-use self::RecordBuilderSlot::*;
+use self::Slot::*;
+
+enum SlotAction {
+    New,
+    Finalize,
+    Continue,
+    Kill(RecordBuilderError),
+}
+use self::SlotAction::*;
 
 #[derive(Debug)]
 pub struct RecordState {
-    builders: VslStore<RecordBuilderSlot>
+    builders: VslStore<Slot>
 }
 
 impl RecordState {
@@ -34,30 +42,46 @@ impl RecordState {
             return None
         }
 
-        let builder = match self.builders.remove(&vsl.ident) { //TODO: CEst: 1.30
-            None => RecordBuilder::new(vsl.ident),
-            Some(Builder(builder)) => builder, // TODO: CEst: 3.23
-            Some(Tombstone(err)) => {
-                debug!("Found tombstone for record with ident {}: ignoring {}; inscription: {}",
-                       &vsl.ident, &vsl, &err);
-                self.builders.insert(vsl.ident, Tombstone(err)); // it's heavy, put it back
+        let action = match self.builders.get_mut(&vsl.ident) {
+            None => New, //TODO: CEst: 1.30
+            Some(&mut Builder(ref mut builder)) => {
+                match builder.apply(vsl) {
+                    Ok(true) => Finalize,
+                    Ok(false) => Continue,
+                    Err(err) => Kill(err),
+                }
+            } // TODO: CEst: 3.23
+            Some(&mut Tombstone(ref err)) => {
+                debug!("Found tombstone for record with ident {}: ignoring {}; inscription: {}", &vsl.ident, &vsl, err);
                 return None
             }
         };
 
-        match builder.apply(vsl) {
-            Ok(Complete(record)) => return Some(record),
-            Ok(Building(builder)) => {
-                self.builders.insert(vsl.ident, Builder(builder));
-                return None
+        match action {
+            New => {
+                self.builders.insert(vsl.ident, Builder(RecordBuilder::new(vsl.ident)));
+                return self.apply(vsl)
             }
-            Err(err) => {
-                error!("Error while building record with ident {} while applying {}: {}",
-                       &vsl.ident, &vsl, &err);
+            Finalize => {
+                match self.builders.remove(&vsl.ident).unwrap() {
+                    Builder(builder) => match builder.unwrap() {
+                        Ok(record) => return Some(record),
+                        Err(err) => {
+                            error!("Error while finalizing record with ident {} after applying {}: {}", &vsl.ident, &vsl, &err);
+                            self.builders.insert(vsl.ident, Tombstone(err));
+                        }
+                    },
+                    _ => unreachable!()
+                }
+            } // TODO: CEst: 3.23
+            Kill(err) => {
+                error!("Error while building record with ident {} while applying {}: {}", &vsl.ident, &vsl, &err);
                 self.builders.insert(vsl.ident, Tombstone(err));
-                return None
             }
+            Continue => (),
         }
+
+        None
     }
 
     pub fn building_count(&self) -> usize {

@@ -67,11 +67,16 @@ impl<T> VslStore<T> {
         }
     }
 
+    pub fn get_mut(&mut self, ident: &VslIdent) -> Option<&mut T> where T: Debug {
+        //TODO: need to check expiration somehow
+        self.map.get_refresh(ident).map(|&mut (_, ref mut t)| t)
+    }
+
     pub fn remove(&mut self, ident: &VslIdent) -> Option<T> where T: Debug {
         let opt = self.map.remove(ident);
         if let Some((epoch, t)) = opt {
             self.slots_free = self.slots_free + 1;
-            if self.epoch - epoch > self.max_epoch_diff {
+            if self.is_expired(epoch) {
                 warn!("Dropping old record; current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, t);
                 return None
             }
@@ -82,6 +87,10 @@ impl<T> VslStore<T> {
 
     pub fn values(&self) -> Values<T> {
         Values(self.map.values())
+    }
+
+    fn is_expired(&self, entry_epoch: Wrapping<Epoch>) -> bool {
+        self.epoch - entry_epoch > self.max_epoch_diff
     }
 
     fn nuke(&mut self) {
