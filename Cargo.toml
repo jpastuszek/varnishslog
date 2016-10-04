@@ -12,18 +12,6 @@ name = "stream_buf"
 harness = false
 name = "access_log"
 
-[profile.bench]
-opt-level = 3
-#debug = true # for profiling
-debug-assertions = false
-codegen-units = 1
-
-[profile.release]
-opt-level = 3
-#debug = true # for profiling
-debug-assertions = false
-codegen-units = 1
-
 [build-dependencies]
 serde_codegen = "0.8.4"
 
@@ -34,6 +22,7 @@ boolinator = "0.1.0"
 chrono = "0.2.25"
 clap = "2.10.0"
 env_logger = "0.3.4"
+flexi_logger = "0.5.0"
 fnv = "1.0.5"
 linked-hash-map = "0.3.0"
 log = "0.3.6"
@@ -41,7 +30,19 @@ nom = "1.2.4"
 quick-error = "1.1.0"
 serde = "0.8.4"
 serde_json = "0.8.1"
-stderrlog = "0.2.1"
+time = "0.1.35"
 
 [dev-dependencies]
 bencher = "0.1.1"
+
+[profile]
+
+[profile.bench]
+codegen-units = 1
+debug-assertions = false
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+debug-assertions = false
+opt-level = 3

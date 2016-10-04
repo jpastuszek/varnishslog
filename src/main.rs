@@ -1,9 +1,10 @@
 #[macro_use]
 extern crate varnishslog;
 
+extern crate flexi_logger;
+extern crate time;
 #[macro_use]
 extern crate log;
-extern crate stderrlog;
 
 #[macro_use]
 extern crate clap;
@@ -13,6 +14,8 @@ use clap::{Arg, App};
 
 use varnishslog::stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
 use varnishslog::access_log::*;
+
+mod program;
 
 arg_enum! {
     #[derive(Debug)]
@@ -32,15 +35,12 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Reads binary VSL log entreis, correlates them togeter and emits JSON log entry to syslog")
-        .arg(Arg::with_name("quiet")
-             .long("quiet")
-             .short("q")
-             .help("Don't log anything"))
-        .arg(Arg::with_name("verbose")
-             .long("verbose")
-             .short("v")
-             .help("Sets the level of verbosity; e.g. -vv for INFO level, -vvvv for TRACE level")
-             .multiple(true))
+        .arg(Arg::with_name("log-spec")
+             .short("d")
+             .long("log-sepc")
+             .value_name("LOG_LEVEL_SPEC")
+             .help("Logging level specification, e.g: varnishslog=info")
+             .takes_value(true))
         .arg(Arg::with_name("output")
              .long("output-format")
              .short("o")
@@ -66,12 +66,7 @@ fn main() {
              .help("Keep raw header name/value pairs; any indices are moved to top level"))
         .get_matches();
 
-    stderrlog::new()
-        .module(module_path!())
-        .quiet(arguments.is_present("quiet"))
-        .verbosity(arguments.occurrences_of("verbose") as usize)
-        .init()
-        .unwrap();
+    program::init(arguments.value_of("log-spec"));
 
     let output_format = value_t!(arguments, "output", OutputFormat).unwrap_or_else(|e| e.exit());
 
@@ -85,7 +80,7 @@ fn main() {
         match rfb.fill_apply(binary_vsl_tag) {
             Err(err) => {
                 error!("Error while reading VSL tag: {}", err);
-                panic!("VSL tag error")
+                program::exit_with_error("VSL tag error", 10)
             }
             Ok(None) => continue,
             Ok(Some(Some(_))) => {
@@ -116,15 +111,15 @@ fn main() {
                     break
                 }
                 error!("Got IO Error while reading stream: {}", err);
-                panic!("Stream IO error")
+                program::exit_with_error("Stream IO error", 20)
             },
             Err(FillApplyError::FillError(err)) => {
                 error!("Failed to fill parsing buffer: {}", err);
-                panic!("Fill error")
+                program::exit_with_error("Fill error", 21)
             }
             Err(FillApplyError::Parser(err)) => {
                 error!("Failed to parse VSL record: {}", err);
-                panic!("Parser error")
+                program::exit_with_error("Parser error", 22)
             },
             Ok(None) => continue,
             Ok(Some(record)) => record,
