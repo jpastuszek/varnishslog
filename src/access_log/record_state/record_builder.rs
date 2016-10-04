@@ -949,7 +949,7 @@ impl RecordBuilder {
                         self.resp_fetch = None;
                     }
                     "Restart" => self.resp_end = Some(timestamp),
-                    _ => warn!("Ignoring unknown SLT_Timestamp label variant: {}", label)
+                    _ => warn!("Ignoring unmatched SLT_Timestamp label variant: {}", label)
                 };
             }
             SLT_Link => {
@@ -977,7 +977,7 @@ impl RecordBuilder {
                         }
                         self.backend_record = Some(Link::Unresolved(child_ident));
                     }
-                    _ => warn!("Ignoring unknown SLT_Link reason variant: {}", reason)
+                    _ => warn!("Ignoring unmatched SLT_Link reason variant: {}", reason)
                 };
             }
             SLT_VCL_Log => {
@@ -1180,7 +1180,7 @@ impl RecordBuilder {
                         }
                     }
                     "DELIVER" => self.late = true,
-                    _ => debug!("Ignoring unknown {:?} method: {}", vsl.tag, method)
+                    _ => debug!("Ignoring unmatched {:?} method: {}", vsl.tag, method)
                 };
             }
 
@@ -1247,7 +1247,7 @@ impl RecordBuilder {
                         _ => return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return pipe"))
                     },
                     "synth" => self.http_response = MutBuilderState::new(HttpResponseBuilder::new()),
-                    _ => debug!("Ignoring unknown {:?} return: {}", vsl.tag, action)
+                    _ => debug!("Ignoring unmatched {:?} return: {}", vsl.tag, action)
                 };
             }
             SLT_Fetch_Body => {
@@ -1260,7 +1260,7 @@ impl RecordBuilder {
                 });
             }
             SLT_End => return Ok(true),
-            _ => debug!("Ignoring unknown VSL tag: {:?}", vsl.tag)
+            _ => debug!("Ignoring unmatched VSL tag: {:?}", vsl.tag)
         };
 
         Ok(false)
