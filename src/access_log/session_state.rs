@@ -351,7 +351,7 @@ mod tests {
             ident: 100,
             parent: 10,
             start: 1469180762.484544,
-            end: 1469180766.484544,
+            end: Some(1469180766.484544),
             ref reason,
             transaction: ClientAccessTransaction::Full {
                 backend_record: Some(_),
@@ -397,7 +397,7 @@ mod tests {
             assert_matches!(backend_record, &BackendAccessRecord {
                 ident: 1000,
                 parent: 100,
-                start: 1469180762.484544,
+                start: Some(1469180762.484544),
                 end: Some(1469180764.484544),
                 ref reason,
                 ..

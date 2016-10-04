@@ -460,9 +460,9 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
             request: &'a HttpRequest,
             backend_request: &'a HttpRequest,
             process_duration: Option<Duration>,
-            ttfb_duration: Duration,
+            ttfb_duration: Option<Duration>,
             accounting: &'a PipeAccounting,
-            backend_connection: &'a BackendConnection,
+            backend_connection: Option<&'a BackendConnection>,
         }
     }
 
@@ -673,7 +673,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     process_duration: process,
                                     ttfb_duration: ttfb,
                                     accounting: accounting,
-                                    backend_connection: backend_connection,
+                                    backend_connection: backend_connection.as_ref().map(|s| s),
                                 }))
                             } else {
                                 warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
@@ -772,7 +772,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 ser::BackendAccess {
                                     vxid: backend_log_record.final_record.ident,
                                     start_timestamp: backend_log_record.final_record.start,
-                                    end_timestamp: backend_log_record.final_record.end.unwrap_or(backend_log_record.final_record.start),
+                                    end_timestamp: backend_log_record.final_record.end,
                                     handling: backend_log_record.handling,
                                     request: indexed_request,
                                     response: indexed_response,
@@ -922,7 +922,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             recv_total_bytes: accounting.recv_total,
                             sent_total_bytes: accounting.sent_total,
                             log: (config.no_log_processing | config.keep_raw_log).as_some_from(|| final_record.log.as_ser()),
-                            backend_connection: backend_connection.as_ser(),
+                            backend_connection: backend_connection.map(|b| b.as_ser()),
                             request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                             backend_request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| backend_request_header_index.as_ref().unwrap().as_ser()),
                             log_vars: log_index.as_ref().map(|v| v.vars.as_ser()),

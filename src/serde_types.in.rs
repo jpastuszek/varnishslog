@@ -20,7 +20,7 @@ pub struct ClientAccess<'a: 'i, 'i> {
     pub remote_address: Address<'a>,
     pub session_timestamp: f64,
     pub start_timestamp: f64,
-    pub end_timestamp: f64,
+    pub end_timestamp: Option<f64>,
     pub handling: &'a str,
     pub request: HttpRequest<'a, 'i>,
     pub response: HttpResponse<'a, 'i>,
@@ -54,7 +54,7 @@ impl<'a: 'i, 'i> EntryType for ClientAccess<'a, 'i> {
         self.remote_address.ip
     }
     fn timestamp(&self) -> f64 {
-        self.end_timestamp
+        self.end_timestamp.unwrap_or(self.start_timestamp)
     }
     fn request_method(&self) -> &str {
         self.request.method
@@ -76,8 +76,8 @@ impl<'a: 'i, 'i> EntryType for ClientAccess<'a, 'i> {
 #[derive(Serialize, Debug)]
 pub struct BackendAccess<'a: 'i, 'i> {
     pub vxid: u32,
-    pub start_timestamp: f64,
-    pub end_timestamp: f64,
+    pub start_timestamp: Option<f64>,
+    pub end_timestamp: Option<f64>,
     pub handling: &'a str,
     pub request: HttpRequest<'a, 'i>,
     pub response: Option<HttpResponse<'a, 'i>>,
@@ -110,12 +110,12 @@ pub struct PipeSession<'a: 'i, 'i> {
     pub remote_address: Address<'a>,
     pub session_timestamp: f64,
     pub start_timestamp: f64,
-    pub end_timestamp: f64,
-    pub backend_connection: BackendConnection<'a>,
+    pub end_timestamp: Option<f64>,
+    pub backend_connection: Option<BackendConnection<'a>>,
     pub request: HttpRequest<'a, 'i>,
     pub backend_request: HttpRequest<'a, 'i>,
     pub process_duration: Option<f64>,
-    pub ttfb_duration: f64,
+    pub ttfb_duration: Option<f64>,
     pub recv_total_bytes: u64,
     pub sent_total_bytes: u64,
     #[serde(skip_serializing_if="Option::is_none")]
@@ -142,7 +142,7 @@ impl<'a: 'i, 'i> EntryType for PipeSession<'a, 'i> {
         self.remote_address.ip
     }
     fn timestamp(&self) -> f64 {
-        self.end_timestamp
+        self.end_timestamp.unwrap_or(self.start_timestamp)
     }
     fn request_method(&self) -> &str {
         self.request.method

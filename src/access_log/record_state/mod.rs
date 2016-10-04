@@ -179,7 +179,7 @@ mod tests {
                 ..
             },
             start: 1471355385.239203,
-            end: 1471355385.239652,
+            end: Some(1471355385.239652),
             ..
         } if
             reason == "rxreq" &&
@@ -264,7 +264,7 @@ mod tests {
         assert_matches!(backend, BackendAccessRecord {
             ident: 123,
             parent: 321,
-            start: 1469180762.484544,
+            start: Some(1469180762.484544),
             end: Some(1469180763.484544),
             ref reason,
             ..

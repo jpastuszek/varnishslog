@@ -22,4 +22,4 @@ test default_buffer_no_prefetch   ... bench:   2,569,675 ns/iter (+/- 151,935,68
 * 8.3 K/s JSON records (raw) or 1306 K/s VSL records processed into serialized output
 * 18.6 K/s session records (correlated access records) or 2913 K/s VSL records processed (without serialization)
 * 14.4 K/s access records (not correlated into sessions) or 2256 K/s VSL records
-* 24.6 M/s VSL records extracted from binary stream (each not parsed)
+* 24.6 M/s VSL records extracted from binary stream (message not parsed)

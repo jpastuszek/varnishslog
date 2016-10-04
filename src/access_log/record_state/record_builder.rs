@@ -185,7 +185,7 @@ pub struct ClientAccessRecord {
     /// Start of request processing
     pub start: TimeStamp,
     /// End of request processing
-    pub end: TimeStamp,
+    pub end: Option<TimeStamp>,
     pub handling: Handling,
     pub log: Vec<LogEntry>,
 }
@@ -227,7 +227,7 @@ pub enum ClientAccessTransaction {
         /// Time it took to process request; None for ESI subrequests as they have this done already
         process: Option<Duration>,
         /// Time it took to get first byte of response
-        ttfb: Duration,
+        ttfb: Option<Duration>,
         accounting: PipeAccounting,
     },
 }
@@ -270,7 +270,7 @@ pub struct BackendAccessRecord {
     pub reason: String,
     pub transaction: BackendAccessTransaction,
     /// Start of backend request processing
-    pub start: TimeStamp,
+    pub start: Option<TimeStamp>,
     /// End of response processing; None for aborted or piped response
     pub end: Option<TimeStamp>,
     pub log: Vec<LogEntry>,
@@ -328,7 +328,7 @@ pub enum BackendAccessTransaction {
     Piped {
         request: HttpRequest,
         /// Backend connection used/created
-        backend_connection: BackendConnection,
+        backend_connection: Option<BackendConnection>,
     },
 }
 
@@ -1327,7 +1327,7 @@ impl RecordBuilder {
                                     request: request,
                                     backend_record: try!(self.backend_record.ok_or(RecordBuilderError::RecordIncomplete("backend_record"))),
                                     process: self.req_process,
-                                    ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
+                                    ttfb: self.resp_ttfb,
                                     accounting: try!(self.pipe_accounting.ok_or(RecordBuilderError::RecordIncomplete("pipe_accounting"))),
                                 }
                             },
@@ -1339,7 +1339,7 @@ impl RecordBuilder {
                             reason: reason,
                             transaction: transaction,
                             start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
-                            end: try!(self.resp_end.ok_or(RecordBuilderError::RecordIncomplete("resp_end"))),
+                            end: self.resp_end,
                             handling: try!(self.handling.ok_or(RecordBuilderError::RecordIncomplete("handling"))),
                             log: self.log,
                         };
@@ -1413,16 +1413,16 @@ impl RecordBuilder {
                             BackendAccessTransactionType::Piped => {
                                 BackendAccessTransaction::Piped {
                                     request: request,
-                                    backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
+                                    backend_connection: self.backend_connection,
                                 }
                             }
                         };
 
                         let start = if let BackendAccessTransaction::Piped { .. } = transaction {
                             // Note that piped backend requests don't have start timestamp
-                            try!(self.pipe_start.ok_or(RecordBuilderError::RecordIncomplete("pipe_start")))
+                            self.pipe_start
                         } else {
-                            try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start")))
+                            self.req_start
                         };
 
                         let record = BackendAccessRecord {
@@ -1864,7 +1864,7 @@ mod tests {
             .unwrap_client_access();
 
         assert_eq!(record.start, 1470403413.664824);
-        assert_eq!(record.end, 1470403414.672458);
+        assert_eq!(record.end, Some(1470403414.672458));
 
         assert_eq!(record.handling, Handling::Miss);
 
@@ -1906,7 +1906,7 @@ mod tests {
             .unwrap_client_access();
 
         assert_eq!(record.start, 1471355414.450311);
-        assert_eq!(record.end, 1471355414.450428);
+        assert_eq!(record.end, Some(1471355414.450428));
 
         assert_matches!(record.transaction, ClientAccessTransaction::RestartedEarly {
             request: HttpRequest {
@@ -1956,7 +1956,7 @@ mod tests {
             .unwrap_client_access();
 
         assert_eq!(record.start, 1471355414.450311);
-        assert_eq!(record.end, 1471355414.450428);
+        assert_eq!(record.end, Some(1471355414.450428));
 
         assert_matches!(record.transaction, ClientAccessTransaction::RestartedLate {
             request: HttpRequest {
@@ -2006,7 +2006,7 @@ mod tests {
             .unwrap_client_access();
 
         assert_eq!(record.start, 1471355444.744141);
-        assert_eq!(record.end, 1471355444.751368);
+        assert_eq!(record.end, Some(1471355444.751368));
 
         assert_eq!(record.handling, Handling::Pipe);
 
@@ -2018,7 +2018,7 @@ mod tests {
             },
             ref backend_record,
             process: Some(0.0),
-            ttfb: 0.000209,
+            ttfb: Some(0.000209),
             accounting: PipeAccounting {
                 recv_total: 268,
                 sent_total: 480,
@@ -2029,6 +2029,63 @@ mod tests {
                 ("Upgrade".to_string(), "websocket".to_string()),
                 ("Connection".to_string(), "Upgrade".to_string())] &&
             backend_record == &Link::Unresolved(5)
+        );
+    }
+
+    #[test]
+    fn apply_client_access_piped_unavailable() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   32785, SLT_Begin,          "req 32784 rxreq";
+                   32785, SLT_Timestamp,      "Start: 1475491757.258461 0.000000 0.000000";
+                   32785, SLT_Timestamp,      "Req: 1475491757.258461 0.000000 0.000000";
+                   32785, SLT_ReqStart,       "192.168.1.115 55276";
+                   32785, SLT_ReqMethod,      "GET";
+                   32785, SLT_ReqURL,         "/sse";
+                   32785, SLT_ReqProtocol,    "HTTP/1.1";
+                   32785, SLT_ReqHeader,      "Host: staging.eod.whatclinic.net";
+                   32785, SLT_ReqHeader,      "Accept: text/event-stream";
+                   32785, SLT_VCL_call,       "RECV";
+                   32785, SLT_VCL_Log,        "server_name: v4.dev.varnish";
+                   32785, SLT_VCL_Log,        "data_source: WCC";
+                   32785, SLT_VCL_Log,        "Server-Sent-Events connection request from: 192.168.1.115";
+                   32785, SLT_VCL_Log,        "decision: Pipe-ServerSentEvents";
+                   32785, SLT_VCL_Log,        "data_source: WCC";
+                   32785, SLT_VCL_return,     "pipe";
+                   32785, SLT_VCL_call,       "HASH";
+                   32785, SLT_VCL_return,     "lookup";
+                   32785, SLT_Link,           "bereq 32786 pipe";
+                   32785, SLT_PipeAcct,       "350 0 0 0";
+               );
+
+        let record = apply_last!(builder, 32785, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.start, 1475491757.258461);
+        assert_eq!(record.end, None);
+
+        assert_eq!(record.handling, Handling::Pipe);
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Piped {
+            request: HttpRequest {
+                ref url,
+                ref headers,
+                ..
+            },
+            ref backend_record,
+            process: Some(0.0),
+            ttfb: None,
+            accounting: PipeAccounting {
+                recv_total: 350,
+                sent_total: 0,
+            }
+        } if
+            url == "/sse" &&
+            headers == &[
+                ("Host".to_string(), "staging.eod.whatclinic.net".to_string()),
+                ("Accept".to_string(), "text/event-stream".to_string())] &&
+            backend_record == &Link::Unresolved(32786)
         );
     }
 
@@ -2179,7 +2236,7 @@ mod tests {
        let record = apply_last!(builder, 5, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, 1471354579.281173);
+       assert_eq!(record.start, Some(1471354579.281173));
        assert_eq!(record.end, None);
 
        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
@@ -2263,7 +2320,7 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, 1470403414.669375);
+       assert_eq!(record.start, Some(1470403414.669375));
        assert_eq!(record.end, Some(1470403414.672290));
 
        assert_matches!(record.transaction, BackendAccessTransaction::Full {
@@ -2307,7 +2364,7 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, 1470403414.669375);
+       assert_eq!(record.start, Some(1470403414.669375));
        assert_eq!(record.end, Some(1470403414.672290));
 
        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
@@ -2364,7 +2421,7 @@ mod tests {
        let record = apply_last!(builder, 5, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, 1471355385.239334);
+       assert_eq!(record.start, Some(1471355385.239334));
        assert_eq!(record.end, Some(1471355385.239427));
 
        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
@@ -2436,7 +2493,7 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, 1470304835.059425);
+       assert_eq!(record.start, Some(1470304835.059425));
        assert_eq!(record.end, Some(1470304835.059479));
 
        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
@@ -2469,7 +2526,7 @@ mod tests {
        let record = apply_last!(builder, 5, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, 1471355444.744344);
+       assert_eq!(record.start, Some(1471355444.744344));
        assert_eq!(record.end, None);
 
        assert_matches!(record.transaction, BackendAccessTransaction::Piped {
@@ -2487,6 +2544,52 @@ mod tests {
            headers == &[
                ("Connection".to_string(), "Upgrade".to_string()),
                ("Upgrade".to_string(), "websocket".to_string())]
+       );
+    }
+
+    #[test]
+    fn apply_backend_access_record_piped_unavailable() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   32786, SLT_Begin,          "bereq 32785 pipe";
+                   32786, SLT_BereqMethod,    "GET";
+                   32786, SLT_BereqURL,       "/sse";
+                   32786, SLT_BereqProtocol,  "HTTP/1.1";
+                   32786, SLT_BereqHeader,    "Host: staging.eod.whatclinic.net";
+                   32786, SLT_BereqHeader,    "Accept: text/event-stream";
+                   32786, SLT_BereqHeader,    "Connection: close";
+                   32786, SLT_VCL_call,       "PIPE";
+                   32786, SLT_VCL_Log,        "proxy_host:";
+                   32786, SLT_BereqUnset,     "Connection: close";
+                   32786, SLT_BereqHeader,    "Connection: close";
+                   32786, SLT_VCL_return,     "pipe";
+                   32786, SLT_FetchError,     "no backend connection";
+                   32786, SLT_BereqAcct,      "0 0 0 0 0 0";
+                  );
+
+       let record = apply_last!(builder, 32786, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_eq!(record.start, None);
+       assert_eq!(record.end, None);
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Piped {
+           request: HttpRequest {
+               ref method,
+               ref url,
+               ref protocol,
+               ref headers,
+           },
+           ..
+       } if
+           method == "GET" &&
+           url == "/sse" &&
+           protocol == "HTTP/1.1" &&
+           headers == &[
+               ("Host".to_string(), "staging.eod.whatclinic.net".to_string()),
+               ("Accept".to_string(), "text/event-stream".to_string()),
+               ("Connection".to_string(), "close".to_string())]
        );
     }
 
@@ -2511,7 +2614,7 @@ mod tests {
        let record = apply_last!(builder, 5, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, 1471449766.106695);
+       assert_eq!(record.start, Some(1471449766.106695));
        assert_eq!(record.end, None);
 
        assert_matches!(record.transaction, BackendAccessTransaction::Aborted {
