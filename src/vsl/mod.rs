@@ -159,7 +159,7 @@ impl<'b> Display for VslRecord<'b> {
 }
 
 fn to_vsl_record_tag(num: u8) -> VslRecordTag {
-    // Tend to work even for missing tags as they end up as SLT__Bogus (0)
+    // Works even for missing tags as they end up as SLT__Bogus (value 0)
     unsafe { mem::transmute(num as u32) }
 }
 
