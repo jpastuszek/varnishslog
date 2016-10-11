@@ -30,6 +30,24 @@ arg_enum! {
     }
 }
 
+use std::io::Read;
+fn try_read_vsl_tag<T: Read>(rfb: &mut ReadStreamBuf<T>) {
+    loop {
+        match rfb.fill_apply(binary_vsl_tag) {
+            Err(err) => {
+                error!("Error while reading VSL tag: {}", err);
+                program::exit_with_error("VSL tag error", 10)
+            }
+            Ok(None) => continue,
+            Ok(Some(Some(_))) => {
+                info!("Found VSL tag");
+                break
+            }
+            Ok(Some(_)) => break,
+        }
+    }
+}
+
 fn main() {
     let arguments = App::new("Varnish VSL log to syslog logger")
         .version(crate_version!())
@@ -73,24 +91,9 @@ fn main() {
 
     let stdin = stdin();
     let stdin = stdin.lock();
-    // for testing
-    //let mut rfb = ReadStreamBuf::with_capacity(stdin, 123);
     let mut rfb = ReadStreamBuf::new(stdin);
 
-    loop {
-        match rfb.fill_apply(binary_vsl_tag) {
-            Err(err) => {
-                error!("Error while reading VSL tag: {}", err);
-                program::exit_with_error("VSL tag error", 10)
-            }
-            Ok(None) => continue,
-            Ok(Some(Some(_))) => {
-                info!("Found VSL tag");
-                break
-            }
-            Ok(Some(_)) => break,
-        }
-    }
+    try_read_vsl_tag(&mut rfb);
 
     let mut record_state = RecordState::new();
     let mut session_state = SessionState::new();

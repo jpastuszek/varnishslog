@@ -63,7 +63,7 @@ impl MaybeString {
         self
     }
 
-    pub fn to_lossy_string(self) -> String {
+    pub fn into_lossy_string(self) -> String {
         match String::from_utf8(self.0) {
             Ok(string) => string,
             Err(err) => {

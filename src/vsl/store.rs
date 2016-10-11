@@ -39,9 +39,15 @@ pub struct VslStore<T> {
     max_epoch_diff: Wrapping<Epoch>,
 }
 
+impl<T> Default for VslStore<T> {
+    fn default() -> Self {
+        VslStore::with_max_slots_and_epoch_diff(MAX_SLOTS, MAX_EPOCH_DIFF)
+    }
+}
+
 impl<T> VslStore<T> {
     pub fn new() -> VslStore<T> {
-        VslStore::with_max_slots_and_epoch_diff(MAX_SLOTS, MAX_EPOCH_DIFF)
+        Default::default()
     }
 
     pub fn with_max_slots_and_epoch_diff(max_slots: u32, max_epoch_diff: Epoch) -> VslStore<T> {
@@ -66,7 +72,7 @@ impl<T> VslStore<T> {
         self.epoch = self.epoch + Wrapping(1);
 
         if self.map.insert(ident, (self.epoch, value)).is_none() {
-            self.slots_free = self.slots_free - 1;
+            self.slots_free -= 1;
         }
     }
 
@@ -75,7 +81,7 @@ impl<T> VslStore<T> {
         if let Some(&mut (epoch, ref mut t)) = opt {
             if self.epoch - epoch > self.max_epoch_diff {
                 warn!("Adding old record to expirity list; current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, t);
-                self.expired.push(ident.clone());
+                self.expired.push(*ident);
                 return None
             }
             return Some(t)
@@ -86,7 +92,7 @@ impl<T> VslStore<T> {
     pub fn remove(&mut self, ident: &VslIdent) -> Option<T> where T: Debug {
         let opt = self.map.remove(ident);
         if let Some((epoch, t)) = opt {
-            self.slots_free = self.slots_free + 1;
+            self.slots_free += 1;
             if self.is_expired(epoch) {
                 warn!("Dropping old record; current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, t);
                 return None
@@ -117,7 +123,7 @@ impl<T> VslStore<T> {
             if self.map.pop_front().is_none() {
                 break;
             }
-            self.slots_free = self.slots_free + 1;
+            self.slots_free += 1;
         }
     }
 

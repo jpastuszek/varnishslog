@@ -114,8 +114,6 @@
 //     5 SLT_End
 //
 
-use std::fmt::Debug;
-
 pub use vsl::*;
 use vsl::VslRecordTag::*;
 
@@ -365,64 +363,53 @@ pub enum Record {
     Session(SessionRecord),
 }
 
-// Access helpers
-// TODO: dead code
-
 impl<T> Link<T> {
-    #[allow(dead_code)]
     pub fn is_unresolved(&self) -> bool {
-        match self {
-            &Link::Unresolved(_) => true,
+        match *self {
+            Link::Unresolved(_) => true,
             _ => false
         }
     }
-    #[allow(dead_code)]
     pub fn unwrap_unresolved(self) -> VslIdent {
         match self {
             Link::Unresolved(ident) => ident,
             _ => panic!("unwrap_unresolved called on Link that was not Unresolved")
         }
     }
-    #[allow(dead_code)]
     pub fn get_unresolved(&self) -> Option<VslIdent> {
-        match self {
-            &Link::Unresolved(ident) => Some(ident),
+        match *self {
+            Link::Unresolved(ident) => Some(ident),
             _ => None
         }
     }
 
-    #[allow(dead_code)]
     pub fn is_resolved(&self) -> bool {
-        match self {
-            &Link::Resolved(_) => true,
+        match *self {
+            Link::Resolved(_) => true,
             _ => false
         }
     }
-    #[allow(dead_code)]
     pub fn unwrap_resolved(self) -> Box<T> {
         match self {
             Link::Resolved(t) => t,
             _ => panic!("unwrap_resolved called on Link that was not Resolved")
         }
     }
-    #[allow(dead_code)]
     pub fn get_resolved(&self) -> Option<&T> {
-        match self {
-            &Link::Resolved(ref t) => Some(t.as_ref()),
+        match *self {
+            Link::Resolved(ref t) => Some(t.as_ref()),
             _ => None
         }
     }
 }
 
 impl Record {
-    #[allow(dead_code)]
     pub fn is_client_access(&self) -> bool {
-        match self {
-            &Record::ClientAccess(_) => true,
+        match *self {
+            Record::ClientAccess(_) => true,
             _ => false
         }
     }
-    #[allow(dead_code)]
     pub fn unwrap_client_access(self) -> ClientAccessRecord {
         match self {
             Record::ClientAccess(access_record) => access_record,
@@ -430,14 +417,12 @@ impl Record {
         }
     }
 
-    #[allow(dead_code)]
     pub fn is_backend_access(&self) -> bool {
-        match self {
-            &Record::BackendAccess(_) => true,
+        match *self {
+            Record::BackendAccess(_) => true,
             _ => false
         }
     }
-    #[allow(dead_code)]
     pub fn unwrap_backend_access(self) -> BackendAccessRecord {
         match self {
             Record::BackendAccess(access_record) => access_record,
@@ -445,14 +430,12 @@ impl Record {
         }
     }
 
-    #[allow(dead_code)]
     pub fn is_session(&self) -> bool {
-        match self {
-            &Record::Session(_) => true,
+        match *self {
+            Record::Session(_) => true,
             _ => false,
         }
     }
-    #[allow(dead_code)]
     pub fn unwrap_session(self) -> SessionRecord {
         match self {
             Record::Session(session_record) => session_record,
@@ -484,41 +467,6 @@ quick_error! {
         }
         RecordIncomplete(field_name: &'static str) {
             display("Failed to construct final access record due to missing field '{}'", field_name)
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum BuilderResult<B, C> {
-    Building(B),
-    Complete(C),
-}
-
-// So we can just type Building() and Complete()
-use self::BuilderResult::*;
-
-impl<B, C> BuilderResult<B, C> {
-    #[allow(dead_code)]
-    fn as_ref(&self) -> BuilderResult<&B, &C> {
-        match self {
-            &Building(ref buidling) => Building(buidling),
-            &Complete(ref complete) => Complete(complete),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn unwrap(self) -> C where B: Debug {
-        match self {
-            Building(buidling) => panic!("Trying to unwrap BuilderResult::Building: {:?}", buidling),
-            Complete(complete) => complete,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn unwrap_building(self) -> B where C: Debug {
-        match self {
-            Building(buidling) => buidling,
-            Complete(complete) => panic!("Trying to unwrap BuilderResult::Complete: {:?}", complete),
         }
     }
 }
@@ -650,20 +598,16 @@ impl MutBuilder for HttpRequestBuilder {
                 let url = try!(vsl.parse_data(slt_url));
                 self.url = Some(url.to_lossy_string());
             }
-            SLT_BereqHeader | SLT_ReqHeader => {
-                if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    self.headers.set(name.to_maybe_string(), value.to_maybe_string());
-                } else {
-                    debug!("Not setting empty request header: {:?}", vsl);
-                }
-            }
-            SLT_BereqUnset | SLT_ReqUnset => {
-                if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    self.headers.unset(&name, &value);
-                } else {
-                    debug!("Not unsetting empty request header: {:?}", vsl);
-                }
-            }
+            SLT_BereqHeader | SLT_ReqHeader => if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
+                self.headers.set(name.to_maybe_string(), value.to_maybe_string());
+            } else {
+                debug!("Not setting empty request header: {:?}", vsl);
+            },
+            SLT_BereqUnset | SLT_ReqUnset => if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
+                self.headers.unset(name, value);
+            } else {
+                debug!("Not unsetting empty request header: {:?}", vsl);
+            },
             _ => panic!("Got unexpected VSL record in request builder: {:?}", vsl)
         };
 
@@ -734,7 +678,7 @@ impl MutBuilder for HttpResponseBuilder {
             }
             SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
                 if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
-                    self.headers.unset(&name, &value);
+                    self.headers.unset(name, value);
                 } else {
                     debug!("Not unsetting empty response header: {:?}", vsl);
                 }
@@ -926,18 +870,9 @@ impl RecordBuilder {
                         self.resp_fetch = Some(since_last_timestamp);
                     }
                     "Fetch" => self.resp_fetch = Some(since_last_timestamp),
-                    "Pipe" => self.resp_ttfb = Some(since_work_start),
-                    "Process" => self.resp_ttfb = Some(since_work_start),
-                    "Resp" => {
-                        self.req_took = Some(since_work_start);
-                        self.resp_end = Some(timestamp);
-                    }
-                    "BerespBody" |
-                    "Retry" => {
-                        self.req_took = Some(since_work_start);
-                        self.resp_end = Some(timestamp);
-                    }
-                    "PipeSess" => {
+                    "Pipe" | "Process" =>
+                        self.resp_ttfb = Some(since_work_start),
+                    "Resp" | "BerespBody" | "Retry" | "PipeSess" => {
                         self.req_took = Some(since_work_start);
                         self.resp_end = Some(timestamp);
                     }
@@ -1168,8 +1103,8 @@ impl RecordBuilder {
                         self.http_response.complete();
                     }
                     "BACKEND_ERROR" => {
-                        match &mut self.record_type {
-                            &mut RecordType::BackendAccess {
+                        match self.record_type {
+                            RecordType::BackendAccess {
                                 transaction: ref mut transaction @ BackendAccessTransactionType::Full,
                                 ..
                             } => {
@@ -1188,10 +1123,10 @@ impl RecordBuilder {
                 let action = try!(vsl.parse_data(slt_vcl_return));
 
                 match action {
-                    "restart" => if let &mut RecordType::ClientAccess {
+                    "restart" => if let RecordType::ClientAccess {
                         transaction: ref mut transaction @ ClientAccessTransactionType::Full,
                         ..
-                    } = &mut self.record_type {
+                    } = self.record_type {
                         if self.late {
                             *transaction = ClientAccessTransactionType::RestartedLate;
                         } else {
@@ -1202,42 +1137,40 @@ impl RecordBuilder {
                     },
                     "abandon" => if self.http_request.is_building() {
                         // eary abandon will have request still building
-                        if let &mut RecordType::BackendAccess {
+                        if let RecordType::BackendAccess {
                             transaction: ref mut transaction @ BackendAccessTransactionType::Full,
                             ..
-                        } = &mut self.record_type {
+                        } = self.record_type {
                             self.http_request.complete();
                             *transaction = BackendAccessTransactionType::Aborted;
                         } else {
                             return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return abandon"))
                         }
-                    } else {
-                        if let &mut RecordType::BackendAccess {
-                            transaction: ref mut transaction @ BackendAccessTransactionType::Full,
-                            ..
-                        } = &mut self.record_type {
-                            *transaction = BackendAccessTransactionType::Abandoned;
-                        } else {
-                            return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return abandon"))
-                        }
-                    },
-                    "retry" => if let &mut RecordType::BackendAccess {
+                    } else if let RecordType::BackendAccess {
                         transaction: ref mut transaction @ BackendAccessTransactionType::Full,
                         ..
-                    } = &mut self.record_type {
+                    } = self.record_type {
+                        *transaction = BackendAccessTransactionType::Abandoned;
+                    } else {
+                        return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return abandon"))
+                    },
+                    "retry" => if let RecordType::BackendAccess {
+                        transaction: ref mut transaction @ BackendAccessTransactionType::Full,
+                        ..
+                    } = self.record_type {
                         *transaction = BackendAccessTransactionType::Abandoned;
                     } else {
                         return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return retry"))
                     },
-                    "pipe" => match &mut self.record_type {
-                        &mut RecordType::ClientAccess {
+                    "pipe" => match self.record_type {
+                        RecordType::ClientAccess {
                             transaction: ref mut transaction @ ClientAccessTransactionType::Full,
                             ..
                         } => {
                             *transaction = ClientAccessTransactionType::Piped;
                             self.handling = Some(Handling::Pipe);
                         }
-                        &mut RecordType::BackendAccess {
+                        RecordType::BackendAccess {
                             transaction: ref mut transaction @ BackendAccessTransactionType::Full,
                             ..
                         } => {
@@ -1268,7 +1201,7 @@ impl RecordBuilder {
 
     pub fn unwrap(mut self) -> Result<Record, RecordBuilderError> {
         match self.record_type {
-            RecordType::Undefined => return Err(RecordBuilderError::RecordIncomplete("record type is not known")),
+            RecordType::Undefined => Err(RecordBuilderError::RecordIncomplete("record type is not known")),
             RecordType::Session => {
                 let record = SessionRecord {
                     ident: self.ident,
@@ -1279,7 +1212,7 @@ impl RecordBuilder {
                     client_records: self.client_records,
                 };
 
-                return Ok(Record::Session(record))
+                Ok(Record::Session(record))
             },
             RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
                 let request = try!(self.http_request.unwrap());
@@ -1344,7 +1277,7 @@ impl RecordBuilder {
                             log: self.log,
                         };
 
-                        return Ok(Record::ClientAccess(record))
+                        Ok(Record::ClientAccess(record))
                     }
                     RecordType::BackendAccess { parent, reason, transaction } => {
                         let transaction = match transaction {
@@ -1435,7 +1368,7 @@ impl RecordBuilder {
                             log: self.log,
                         };
 
-                        return Ok(Record::BackendAccess(record))
+                        Ok(Record::BackendAccess(record))
                     }
                     _ => unreachable!()
                 }

@@ -128,13 +128,13 @@ impl<'a> AsSer<'a> for Address {
 impl<'a> AsSer<'a> for Handling {
     type Out = &'a str;
     fn as_ser(&self) -> Self::Out {
-        match self {
-            &Handling::Hit(_) => "hit",
-            &Handling::Miss => "miss",
-            &Handling::Pass => "pass",
-            &Handling::HitPass(_) => "hit_for_pass",
-            &Handling::Synth => "synth",
-            &Handling::Pipe => "pipe",
+        match *self {
+            Handling::Hit(_) => "hit",
+            Handling::Miss => "miss",
+            Handling::Pass => "pass",
+            Handling::HitPass(_) => "hit_for_pass",
+            Handling::Synth => "synth",
+            Handling::Pipe => "pipe",
         }
     }
 }
@@ -274,18 +274,19 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for CacheObject {
 pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W, config: &Config)
     -> Result<(), OutputError> where W: Write {
     fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: ser::EntryType {
-        let write_entry = match format {
-            &Format::Json => write_json,
-            &Format::JsonPretty => write_json_pretty,
-            &Format::NcsaJson => write_json,
+        let write_entry = match *format {
+            Format::Json |
+            Format::NcsaJson => write_json,
+            Format::JsonPretty => write_json_pretty,
         };
-        match format {
-            &Format::Json | &Format::JsonPretty => {
+        match *format {
+            Format::Json |
+            Format::JsonPretty => {
                 try!(write_entry(out, &log_entry));
 
                 try!(writeln!(out, ""));
             }
-            &Format::NcsaJson => {
+            Format::NcsaJson => {
                 // 192.168.1.115 - - [25/Aug/2016:11:56:55 +0000] "GET http://staging.eod.whatclinic.net/ HTTP/1.1" 503 1366
                 let date_time = NaiveDateTime::from_timestamp(log_entry.timestamp() as i64, 0);
 
@@ -368,7 +369,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
             let name = normalize_header_name(name);
 
             // Note: this will put the header at the end of the index
-            let mut values = index.remove(&name).unwrap_or(Vec::new());
+            let mut values = index.remove(&name).unwrap_or_default();
             values.push(value);
             index.insert(name, values);
 
@@ -383,15 +384,15 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         acl_not_matched: Vec<&'a str>,
     }
 
-    fn index_log<'a>(logs: &'a [LogEntry]) -> LogIndex<'a> {
+    fn index_log(logs: &[LogEntry]) -> LogIndex {
         let mut vars = LinkedHashMap::new();
         let mut messages = Vec::new();
         let mut acl_matched = Vec::new();
         let mut acl_not_matched = Vec::new();
 
         for log_entry in logs {
-            match log_entry {
-                &LogEntry::Vcl(ref message) => {
+            match *log_entry {
+                LogEntry::Vcl(ref message) => {
                     let mut s = message.splitn(2, ": ").fuse();
                     if let (Some(name), Some(value)) = (s.next(), s.next()) {
                         if !name.contains(' ') {
@@ -401,16 +402,16 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     }
                     messages.push(message.as_str());
                 }
-                &LogEntry::Debug(ref message) => messages.push(message.as_str()),
-                &LogEntry::Error(ref message) => messages.push(message.as_str()),
-                &LogEntry::FetchError(ref message) => messages.push(message.as_str()),
-                &LogEntry::Warning(ref message) => messages.push(message.as_str()),
-                &LogEntry::Acl(ref result, ref name, _) => {
-                    match result {
-                        &AclResult::Match => acl_matched.push(name.as_str()),
-                        &AclResult::NoMatch => acl_not_matched.push(name.as_str()),
+                LogEntry::Acl(ref result, ref name, _) => {
+                    match *result {
+                        AclResult::Match => acl_matched.push(name.as_str()),
+                        AclResult::NoMatch => acl_not_matched.push(name.as_str()),
                     }
                 }
+                LogEntry::Debug(ref message) |
+                LogEntry::Error(ref message) |
+                LogEntry::FetchError(ref message) |
+                LogEntry::Warning(ref message) => messages.push(message.as_str()),
             }
         }
 
@@ -472,8 +473,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         maybe_record_link: Option<&Link<BackendAccessRecord>>,
         retry: usize,
         block: F) -> R where F: FnOnce(Option<&FlatBackendAccessRecord>) -> R {
-        if let Some(ref record_link) = maybe_record_link {
-            if let Some(ref record) = record_link.get_resolved() {
+        if let Some(record_link) = maybe_record_link {
+            if let Some(record) = record_link.get_resolved() {
                 match record.transaction {
                     BackendAccessTransaction::Full {
                         ref request,
@@ -583,7 +584,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         request: request,
                         response: response,
                         restarted_backend_record: None,
-                        backend_record: backend_record.as_ref().map(|s| s),
+                        backend_record: backend_record.as_ref(),
                         process_duration: process,
                         fetch_duration: fetch,
                         ttfb_duration: ttfb,
@@ -612,8 +613,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         final_record: final_record,
                         request: request,
                         response: response,
-                        restarted_backend_record: restarted_backend_record.as_ref().map(|s| s),
-                        backend_record: backend_record.as_ref().map(|s| s),
+                        restarted_backend_record: restarted_backend_record.as_ref(),
+                        backend_record: backend_record.as_ref(),
                         process_duration: process,
                         fetch_duration: fetch,
                         ttfb_duration: ttfb,
@@ -639,7 +640,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         final_record: final_record,
                         request: request,
                         response: response,
-                        backend_record: backend_record.as_ref().map(|s| s),
+                        backend_record: backend_record.as_ref(),
                         restarted_backend_record: None,
                         process_duration: process,
                         fetch_duration: fetch,
@@ -673,7 +674,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     process_duration: process,
                                     ttfb_duration: ttfb,
                                     accounting: accounting,
-                                    backend_connection: backend_connection.as_ref().map(|s| s),
+                                    backend_connection: backend_connection.as_ref(),
                                 }))
                             } else {
                                 warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
@@ -704,8 +705,8 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         config: &Config) -> Result<(), OutputError> where W: Write {
         flatten_linked_client_log_record(session_record, record_link, |client_log_record| {
             if let Some(client_log_record) = client_log_record {
-                match client_log_record {
-                    &FlatClientAccessRecord::ClientAccess {
+                match *client_log_record {
+                    FlatClientAccessRecord::ClientAccess {
                         record,
                         final_record,
                         request,
@@ -874,7 +875,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         }));
                         Ok(())
                     },
-                    &FlatClientAccessRecord::PipeSession {
+                    FlatClientAccessRecord::PipeSession {
                         record,
                         final_record,
                         request,
@@ -940,7 +941,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
         })
     }
 
-    for record_link in session_record.client_records.iter() {
+    for record_link in &session_record.client_records {
         try!(log_linked_client_access_record(format, out, session_record, record_link, "client_request", config))
     }
     Ok(())

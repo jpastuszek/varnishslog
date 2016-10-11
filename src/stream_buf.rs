@@ -14,7 +14,7 @@ pub trait StreamBuf<O> {
     fn fill(&mut self, min_count: usize) -> Result<(), FillError>;
     fn relocate(&mut self);
     fn consume(&mut self, count: usize);
-    fn data<'b>(&'b self) -> &'b[O];
+    fn data(&self) -> &[O];
     fn needed(&self) -> Option<nom::Needed>;
     fn apply<'b, C, CO, E>(&'b self, combinator: C) -> Result<Option<CO>, nom::Err<&'b [O], E>> where
         O: 'b, C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO, E>;
@@ -46,24 +46,24 @@ impl From<io::Error> for FillError {
 
 impl Display for FillError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &FillError::Io(ref e) => write!(f, "Failed to read data: {}", e),
-            &FillError::BufferOverflow(needed, capacity) => write!(f, "Cannot fill buffer of size {} bytes with {} bytes of data", capacity, needed),
+        match *self {
+            FillError::Io(ref e) => write!(f, "Failed to read data: {}", e),
+            FillError::BufferOverflow(needed, capacity) => write!(f, "Cannot fill buffer of size {} bytes with {} bytes of data", capacity, needed),
         }
     }
 }
 
 impl Error for FillError {
     fn description(&self) -> &str {
-        match self {
-            &FillError::Io(_) => "I/O error",
-            &FillError::BufferOverflow(_, _) => "buffer overflow",
+        match *self {
+            FillError::Io(_) => "I/O error",
+            FillError::BufferOverflow(_, _) => "buffer overflow",
         }
     }
     fn cause(&self) -> Option<&Error> {
-        match self {
-            &FillError::Io(ref e) => Some(e),
-            &FillError::BufferOverflow(_, _) => None,
+        match *self {
+            FillError::Io(ref e) => Some(e),
+            FillError::BufferOverflow(_, _) => None,
         }
     }
 }
@@ -88,24 +88,24 @@ impl<I, E> From<FillError> for FillApplyError<I, E> {
 
 impl<I, E> Display for FillApplyError<I, E> where I: Debug, E: Debug {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &FillApplyError::Parser(ref e) => write!(f, "Failed to parse data: {}", e),
-            &FillApplyError::FillError(ref e) => write!(f, "Failed to fill buffer with amout of data requested by parser: {}", e),
+        match *self {
+            FillApplyError::Parser(ref e) => write!(f, "Failed to parse data: {}", e),
+            FillApplyError::FillError(ref e) => write!(f, "Failed to fill buffer with amout of data requested by parser: {}", e),
         }
     }
 }
 
 impl<I, E> Error for FillApplyError<I, E> where I: Debug + Display + Any, E: Error {
     fn description(&self) -> &str {
-        match self {
-            &FillApplyError::Parser(_) => "parsing faield",
-            &FillApplyError::FillError(_) => "buffer fill error",
+        match *self {
+            FillApplyError::Parser(_) => "parsing faield",
+            FillApplyError::FillError(_) => "buffer fill error",
         }
     }
     fn cause(&self) -> Option<&Error> {
-        match self {
-            &FillApplyError::Parser(_) => None, // e contains reference to data
-            &FillApplyError::FillError(ref e) => Some(e),
+        match *self {
+            FillApplyError::Parser(_) => None, // e contains reference to data
+            FillApplyError::FillError(ref e) => Some(e),
         }
     }
 }
@@ -231,12 +231,12 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         self.offset.set(self.offset.get() + consume);
     }
 
-    fn data<'b>(&'b self) -> &'b[u8] {
+    fn data(&self) -> &[u8] {
         &self.buf[self.offset.get()..self.buf.len()]
     }
 
     fn needed(&self) -> Option<nom::Needed> {
-        self.needed.get().clone()
+        self.needed.get()
     }
 
     fn apply<'b, C, CO, E>(&'b self, combinator: C) -> Result<Option<CO>, nom::Err<&'b [u8], E>> where

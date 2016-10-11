@@ -17,22 +17,21 @@ enum SlotAction {
 }
 use self::SlotAction::*;
 
-#[derive(Debug)]
+// Note: tombstones will accumulate over time
+// We need to remove Tombstone and RecordBuilder records after a while so they dont
+// accumulate in memory. We need to store them long enought so that the will recive all the
+// VSL records that are for them. The VslIdent may recycle after a while though so we need
+// to make sure that old records that could potentially have same VslIdent are gone log
+// beofore.
+//
+#[derive(Debug, Default)]
 pub struct RecordState {
     builders: VslStore<Slot>
 }
 
 impl RecordState {
     pub fn new() -> RecordState {
-        //TODO: some sort of expirity mechanism like LRU
-        //Note: tombstones will accumulate over time
-        // We need to remove Tombstone and RecordBuilder records after a while so they dont
-        // accumulate in memory. We need to store them long enought so that the will recive all the
-        // VSL records that are for them. The VslIdent may recycle after a while though so we need
-        // to make sure that old records that could potentially have same VslIdent are gone log
-        // beofore.
-        //
-        RecordState { builders: VslStore::new() }
+        Default::default()
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {
@@ -85,11 +84,11 @@ impl RecordState {
     }
 
     pub fn building_count(&self) -> usize {
-        self.builders.values().filter(|&v| if let &Builder(_) = v { true } else { false }).count()
+        self.builders.values().filter(|&v| if let Builder(_) = *v { true } else { false }).count()
     }
 
     pub fn tombstone_count(&self) -> usize {
-        self.builders.values().filter(|&v| if let &Tombstone(_) = v { true } else { false }).count()
+        self.builders.values().filter(|&v| if let Tombstone(_) = *v { true } else { false }).count()
     }
 
     #[cfg(test)]

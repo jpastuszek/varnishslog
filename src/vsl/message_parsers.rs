@@ -8,14 +8,14 @@ use super::{VslIdent, MaybeStr};
 ///
 /// This should not allocate memory but do primitive conversion when applicable
 /// To keep this simple they will be returning tuples.
-/// Format and comments are form include/tbl/vsl_tags.h and include/tbl/vsl_tags_http.h.
+/// Format and comments are form `include/tbl/vsl_tags.h` and `include/tbl/vsl_tags_http.h`.
 ///
 /// Parsing:
 /// * numeric types are parsed out - this is done with 0 allocation by mapping bytes as string and convertion
 /// * strings
-///   * symbol - this are comming from Varnish code (strings or numbers/IP) so they will be mapped to &str or
+///   * `symbol` - this are comming from Varnish code (strings or numbers/IP) so they will be mapped to &str or
 ///   parsing will fail; symbols can be trusted to be UTF-8 compatible (ASCII)
-///   * maybe_str - foreign string: URL, headers, methods, etc. - we cannot trust them to be UTF-8 so they
+///   * `maybe_str` - foreign string: URL, headers, methods, etc. - we cannot trust them to be UTF-8 so they
 ///   will be provided as bytes to the caller - this is to avoid mem alloc of lossless convertion and let the
 ///   client do the checking, logging and converstion etc
 
@@ -68,7 +68,7 @@ named_parsed_symbol!(port<Port>);
 named_parsed_symbol!(file_descriptor<FileDescriptor>);
 
 fn map_opt_duration(duration: Duration) -> Option<Duration> {
-    if duration == -1.0 {
+    if duration < 0.0 {
         None
     } else {
         Some(duration)

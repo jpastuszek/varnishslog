@@ -78,7 +78,7 @@ struct VslRecordHeader {
     ident: VslIdent,
 }
 
-fn vsl_record_header<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecordHeader, u32> {
+fn vsl_record_header(input: &[u8]) -> nom::IResult<&[u8], VslRecordHeader, u32> {
     chain!(
         input, r1: le_u32 ~ r2: le_u32,
         || VslRecordHeader {
@@ -113,7 +113,7 @@ impl<'b> VslRecord<'b> {
         // variant that would help to infer it
         let result: nom::IResult<_, Result<T, _>, u32> = opt_res!(self.data, complete!(parser));
         // unwrap here is safe as complete! eliminates Incomplete variant and opt_res! remaining Error variant
-        result.unwrap().1.context(self).map_err(|err| From::from(err))
+        result.unwrap().1.context(self).map_err(From::from)
     }
 
     pub fn is_client(&self) -> bool {
@@ -141,7 +141,7 @@ impl<'b> Debug for VslRecord<'b> {
             .field("tag", &self.tag)
             .field("marker", &self.marker)
             .field("ident", &self.ident)
-            .field("data", &MaybeStr::from_bytes(&self.data))
+            .field("data", &MaybeStr::from_bytes(self.data))
             .finish()
     }
 }
@@ -159,11 +159,11 @@ impl<'b> Display for VslRecord<'b> {
 }
 
 fn to_vsl_record_tag(num: u8) -> VslRecordTag {
-    // Works even for missing tags as they end up as SLT__Bogus (value 0)
+    // Works even for undefined tags as they end up as SLT__Bogus (value 0)
     unsafe { mem::transmute(num as u32) }
 }
 
-pub fn vsl_record_v4<'b>(input: &'b[u8]) -> nom::IResult<&'b[u8], VslRecord<'b>, u32> {
+pub fn vsl_record_v4(input: &[u8]) -> nom::IResult<&[u8], VslRecord, u32> {
     chain!(
         input,
         header: vsl_record_header ~
