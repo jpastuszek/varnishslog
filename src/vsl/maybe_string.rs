@@ -54,7 +54,6 @@ impl Deref for MaybeStr {
 pub struct MaybeString(pub Vec<u8>);
 
 impl MaybeString {
-    #[allow(dead_code)]
     pub fn as_bytes(&self) -> &[u8] {
         self
     }

@@ -7,7 +7,6 @@ use std::io;
 use std::ptr::copy;
 use nom;
 
-#[allow(dead_code)]
 pub const DEFAULT_BUF_SIZE: usize = 256 * 1024;
 
 pub trait StreamBuf<O> {
@@ -119,7 +118,6 @@ pub struct ReadStreamBuf<R: Read> {
 }
 
 impl<R: Read> ReadStreamBuf<R> {
-    #[allow(dead_code)]
     pub fn new(reader: R) -> ReadStreamBuf<R> {
         ReadStreamBuf::with_capacity(reader, DEFAULT_BUF_SIZE)
     }
@@ -134,12 +132,10 @@ impl<R: Read> ReadStreamBuf<R> {
         }
     }
 
-    #[allow(dead_code)]
     pub fn disable_prefetch(&mut self) {
         self.prefetch = false
     }
 
-    #[allow(dead_code)]
     pub fn into_inner(self) -> R {
         self.reader
     }
