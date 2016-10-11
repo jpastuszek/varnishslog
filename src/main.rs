@@ -119,9 +119,9 @@ fn process_vsl_records<R, W, P>(stream: &mut ReadStreamBuf<R>, mut writer: P, ou
     }
 }
 
-fn process_vsl_stream<R, W>(input: R, mut output: W, output_format: OutputFormat, config: Config) -> Result<(), ProcessingError> where R: Read, W: Write {
+fn process_vsl_stream<R, W>(input: R, mut output: W, stream_buf_size: usize, output_format: OutputFormat, config: Config) -> Result<(), ProcessingError> where R: Read, W: Write {
     //TODO: make buffer size configurable
-    let mut stream = ReadStreamBuf::new(input);
+    let mut stream = ReadStreamBuf::with_capacity(input, stream_buf_size);
 
     try!(try_read_vsl_tag(&mut stream));
 
@@ -270,11 +270,17 @@ fn main() {
              .long("keep-raw-headers")
              .short("I")
              .help("Keep raw header name/value pairs; any indices are moved to top level"))
+        .arg(Arg::with_name("stream-buffer-size")
+             .long("stream-buffer-size")
+             .short("s")
+             .help("Size of stream buffer in bytes - must be bigger than biggest VSL record")
+             .default_value("262144"))
         .get_matches();
 
     program::init(arguments.value_of("log-spec"));
 
     let output_format = value_t!(arguments, "output", OutputFormat).unwrap_or_else(|e| e.exit());
+    let stream_buf_size = value_t!(arguments, "stream-buffer-size", usize).unwrap_or_else(|e| e.exit());
 
     let input = stdin();
     let input = input.lock();
@@ -287,7 +293,7 @@ fn main() {
         keep_raw_headers: arguments.is_present("keep-raw-headers"),
     };
 
-    if let Err(err) = process_vsl_stream(input, output, output_format, config) {
+    if let Err(err) = process_vsl_stream(input, output, stream_buf_size, output_format, config) {
         if err.is_brokend_pipe() {
             info!("Broken pipe")
         } else {
