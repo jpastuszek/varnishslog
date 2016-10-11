@@ -1,21 +1,204 @@
-#[macro_use]
-extern crate varnishslog;
-
 extern crate flexi_logger;
 extern crate time;
 #[macro_use]
 extern crate log;
-
+#[macro_use]
+extern crate quick_error;
 #[macro_use]
 extern crate clap;
 
-use std::io::{self, stdin};
+#[macro_use]
+extern crate varnishslog;
+
+use std::io::{self, stdin, Read, Write};
+use std::error::Error;
 use clap::{Arg, App};
 
 use varnishslog::stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
 use varnishslog::access_log::*;
 
 mod program;
+
+quick_error! {
+    #[derive(Debug)]
+    pub enum ProcessingError {
+        IO(err: io::Error) {
+            display("IO Error while processing records: {}", err)
+            description("I/O error")
+            from()
+        }
+        InputBuffer(err: FillError) {
+            display("Failed to fill parsing buffer: {}", err)
+            description("Input buffer error")
+        }
+        Parsing(err: String) {
+            display("Failed to parse VSL record: {}", err)
+            description("Parser error")
+        }
+        Serialization(err: String) {
+            display("Failed to serialize log record: {}", err)
+            description("Serialization error")
+        }
+    }
+}
+
+impl<'b> From<FillApplyError<&'b[u8], u32>> for ProcessingError {
+    fn from(err: FillApplyError<&'b[u8], u32>) -> ProcessingError {
+        match err {
+            FillApplyError::FillError(FillError::Io(err)) => ProcessingError::IO(err),
+            FillApplyError::FillError(err) => ProcessingError::InputBuffer(err),
+            // we need to convert it to string due to input reference
+            FillApplyError::Parser(err) => ProcessingError::Parsing(format!("nom parser error: {}", err)),
+        }
+    }
+}
+
+impl From<OutputError> for ProcessingError {
+    fn from(err: OutputError) -> ProcessingError {
+        match err {
+            OutputError::JsonSerialization(JsonError::Io(err)) |
+            OutputError::Io(err) => ProcessingError::IO(err),
+            err => ProcessingError::Serialization(format!("Serialization error: {}", err)),
+        }
+    }
+}
+
+impl ProcessingError {
+    fn to_exit_code(&self) -> i32 {
+        match *self {
+            ProcessingError::IO(_) => 10,
+            ProcessingError::InputBuffer(_) => 11,
+            ProcessingError::Parsing(_) => 20,
+            ProcessingError::Serialization(_) => 30,
+        }
+    }
+}
+
+impl ProcessingError {
+    fn is_brokend_pipe(&self) -> bool {
+        match *self {
+            ProcessingError::IO(ref err) =>
+                err.kind() == io::ErrorKind::UnexpectedEof || err.kind() == io::ErrorKind::BrokenPipe,
+            _ => false
+        }
+    }
+}
+
+fn try_read_vsl_tag<R: Read>(stream: &mut ReadStreamBuf<R>) -> Result<(), ProcessingError> {
+    loop {
+        match try!(stream.fill_apply(binary_vsl_tag)) {
+            None => continue,
+            Some(Some(_)) => {
+                info!("Found VSL tag");
+                break
+            }
+            Some(_) => break,
+        }
+    }
+    Ok(())
+}
+
+trait WriteRecord {
+    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write;
+}
+
+fn process_vsl_records<R, W, P>(stream: &mut ReadStreamBuf<R>, mut writer: P, output: &mut W) -> Result<(), ProcessingError> where R: Read, W: Write, P: WriteRecord {
+    loop {
+        match try!(stream.fill_apply(vsl_record_v4)) {
+            None => continue,
+            Some(record) => try!(writer.write_record(record, output)),
+        }
+    }
+}
+
+fn process_vsl_stream<R, W>(input: R, mut output: W, output_format: OutputFormat, config: Config) -> Result<(), ProcessingError> where R: Read, W: Write {
+    //TODO: make buffer size configurable
+    let mut stream = ReadStreamBuf::new(input);
+
+    try!(try_read_vsl_tag(&mut stream));
+
+    match output_format {
+        OutputFormat::Log => process_vsl_records(&mut stream, LogWriter::default(), &mut output),
+        OutputFormat::LogDebug => process_vsl_records(&mut stream, LogDebugWriter::default(), &mut output),
+        OutputFormat::RecordDebug => process_vsl_records(&mut stream, RecordDebugWriter::default(), &mut output),
+        OutputFormat::SessionDebug => process_vsl_records(&mut stream, SessionDebugWriter::default(), &mut output),
+        OutputFormat::Json => process_vsl_records(&mut stream, SerdeWriter::new(Format::Json, config), &mut output),
+        OutputFormat::JsonPretty => process_vsl_records(&mut stream, SerdeWriter::new(Format::JsonPretty, config), &mut output),
+        OutputFormat::NcsaJson => process_vsl_records(&mut stream, SerdeWriter::new(Format::NcsaJson, config), &mut output),
+    }
+}
+
+#[derive(Default)]
+struct LogWriter;
+impl WriteRecord for LogWriter {
+    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+        writeln!(output, "{:#}", record).map_err(From::from)
+    }
+}
+
+#[derive(Default)]
+struct LogDebugWriter;
+impl WriteRecord for LogDebugWriter {
+    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+        writeln!(output, "{:#?}", record).map_err(From::from)
+    }
+}
+
+#[derive(Default)]
+struct RecordDebugWriter {
+    state: RecordState,
+}
+
+impl WriteRecord for RecordDebugWriter {
+    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+        if let Some(record) = self.state.apply(&record) {
+            writeln!(output, "{:#?}", record).map_err(From::from)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Default)]
+struct SessionDebugWriter {
+    state: SessionState,
+}
+
+impl WriteRecord for SessionDebugWriter {
+    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+        if let Some(record) = self.state.apply(&record) {
+            writeln!(output, "{:#?}", record).map_err(From::from)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+struct SerdeWriter {
+    state: SessionState,
+    format: Format,
+    config: Config,
+}
+
+impl SerdeWriter {
+    fn new(format: Format, config: Config) -> SerdeWriter {
+        SerdeWriter {
+            state: SessionState::default(),
+            format: format,
+            config: config,
+        }
+    }
+}
+
+impl WriteRecord for SerdeWriter {
+    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+        if let Some(session) = self.state.apply(&record) {
+            log_session_record(&session, &self.format, output, &self.config).map_err(From::from)
+        } else {
+            Ok(())
+        }
+    }
+}
 
 arg_enum! {
     #[derive(Debug)]
@@ -27,24 +210,6 @@ arg_enum! {
         Json,
         JsonPretty,
         NcsaJson
-    }
-}
-
-use std::io::Read;
-fn try_read_vsl_tag<T: Read>(rfb: &mut ReadStreamBuf<T>) {
-    loop {
-        match rfb.fill_apply(binary_vsl_tag) {
-            Err(err) => {
-                error!("Error while reading VSL tag: {}", err);
-                program::exit_with_error("VSL tag error", 10)
-            }
-            Ok(None) => continue,
-            Ok(Some(Some(_))) => {
-                info!("Found VSL tag");
-                break
-            }
-            Ok(Some(_)) => break,
-        }
     }
 }
 
@@ -89,16 +254,9 @@ fn main() {
 
     let output_format = value_t!(arguments, "output", OutputFormat).unwrap_or_else(|e| e.exit());
 
-    let stdin = stdin();
-    let stdin = stdin.lock();
-    let mut rfb = ReadStreamBuf::new(stdin);
-
-    try_read_vsl_tag(&mut rfb);
-
-    let mut record_state = RecordState::new();
-    let mut session_state = SessionState::new();
-
-    let mut out = std::io::stdout();
+    let input = stdin();
+    let input = input.lock();
+    let output = std::io::stdout();
 
     let config = Config {
         no_log_processing: arguments.is_present("no-log-processing"),
@@ -107,67 +265,16 @@ fn main() {
         keep_raw_headers: arguments.is_present("keep-raw-headers"),
     };
 
-    loop {
-        let record = match rfb.fill_apply(vsl_record_v4) {
-            Err(FillApplyError::FillError(FillError::Io(err))) => {
-                if err.kind() == io::ErrorKind::UnexpectedEof {
-                    info!("Reached end of stream");
-                    break
-                }
-                error!("Got IO Error while reading stream: {}", err);
-                program::exit_with_error("Stream IO error", 20)
-            },
-            Err(FillApplyError::FillError(err)) => {
-                error!("Failed to fill parsing buffer: {}", err);
-                program::exit_with_error("Fill error", 21)
-            }
-            Err(FillApplyError::Parser(err)) => {
-                error!("Failed to parse VSL record: {}", err);
-                program::exit_with_error("Parser error", 22)
-            },
-            Ok(None) => continue,
-            Ok(Some(record)) => record,
-        };
-
-        match output_format {
-            OutputFormat::Log => println!("{:#}", record),
-            OutputFormat::LogDebug => println!("{:#?}", record),
-            OutputFormat::RecordDebug => {
-                if let Some(record) = record_state.apply(&record) {
-                    println!("{:#?}", record)
-                }
-            }
-            OutputFormat::SessionDebug => {
-                if let Some(session) = session_state.apply(&record) {
-                    println!("{:#?}", session)
-                }
-            }
-            _ => {
-                let format = match output_format {
-                    OutputFormat::Json => Format::Json,
-                    OutputFormat::JsonPretty => Format::JsonPretty,
-                    OutputFormat::NcsaJson => Format::NcsaJson,
-                    _ => unreachable!()
-                };
-
-                if let Some(session) = session_state.apply(&record) {
-                    match log_session_record(&session, &format, &mut out, &config) {
-                        Ok(()) => (),
-                        Err(OutputError::Io(err)) |
-                        Err(OutputError::JsonSerialization(JsonError::Io(err))) => match err.kind() {
-                            io::ErrorKind::BrokenPipe => {
-                                info!("Broken pipe");
-                                break
-                            }
-                            _ => error!("Failed to write out client access logs: {:?}: {}", record, err)
-                        },
-                        Err(err) => error!("Failed to serialize client access logs: {:?}: {}", record, err)
-                    }
-                }
-            }
+    if let Err(err) = process_vsl_stream(input, output, output_format, config) {
+        if err.is_brokend_pipe() {
+            info!("Broken pipe")
+        } else {
+            error!("{}", err);
+            program::exit_with_error(err.description(), err.to_exit_code())
         }
     }
 
+    /* TODO
     for client in session_state.unmatched_client_access_records() {
         warn!("ClientAccessRecord without matching session left: {:?}", client)
     }
@@ -179,6 +286,7 @@ fn main() {
     for session in session_state.unresolved_sessions() {
         warn!("SessionRecord with unresolved links to other objects left: {:?}", session)
     }
+    */
 
     info!("Done");
 }
