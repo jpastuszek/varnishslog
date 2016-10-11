@@ -73,7 +73,7 @@
 
 pub use super::record_state::*;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SessionState {
     record_state: RecordState,
     client: VslStore<ClientAccessRecord>,
@@ -83,20 +83,14 @@ pub struct SessionState {
 
 impl SessionState {
     pub fn new() -> SessionState {
-        //TODO: some sort of expirity mechanism like LRU
-        SessionState {
-            record_state: RecordState::new(),
-            client: VslStore::new(),
-            backend: VslStore::new(),
-            sessions: Vec::new(),
-        }
+        Default::default()
     }
 
     fn try_resolve_sessions(&mut self) -> Option<SessionRecord> {
         fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
                               client_records: &mut VslStore<ClientAccessRecord>,
                               backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-            if let Some(client_record) = if let &mut Link::Unresolved(ref ident) = link {
+            if let Some(client_record) = if let Link::Unresolved(ref ident) = *link {
                 client_records.remove(ident)
             } else {
                 None
@@ -104,7 +98,7 @@ impl SessionState {
                 *link = Link::Resolved(Box::new(client_record))
             }
 
-            if let &mut Link::Resolved(ref mut client_record) = link {
+            if let Link::Resolved(ref mut client_record) = *link {
                 try_resolve_client_record(client_record, client_records, backend_records)
             } else {
                 false
@@ -113,7 +107,7 @@ impl SessionState {
 
         fn try_resolve_backend_link(link: &mut Link<BackendAccessRecord>,
                                backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-            if let Some(backend_record) = if let &mut Link::Unresolved(ref ident) = link {
+            if let Some(backend_record) = if let Link::Unresolved(ref ident) = *link {
                 backend_records.remove(ident)
             } else {
                 None
@@ -121,7 +115,7 @@ impl SessionState {
                 *link = Link::Resolved(Box::new(backend_record))
             }
 
-            if let &mut Link::Resolved(ref mut backend_record) = link {
+            if let Link::Resolved(ref mut backend_record) = *link {
                 try_resolve_backend_record(backend_record, backend_records)
             } else {
                 false
@@ -139,14 +133,14 @@ impl SessionState {
                     ref mut retry_record,
                     ..
                 } => {
-                    if let &mut Some(ref mut link) = retry_record {
+                    if let Some(ref mut link) = *retry_record {
                         try_resolve_backend_link(link, backend_records)
                     } else {
                         true
                     }
                 }
-                BackendAccessTransaction::Aborted { .. } => true,
-                BackendAccessTransaction::Full { .. } => true,
+                BackendAccessTransaction::Aborted { .. } |
+                BackendAccessTransaction::Full { .. } |
                 BackendAccessTransaction::Piped { .. } => true,
             }
         }
@@ -169,8 +163,8 @@ impl SessionState {
                 } => {
                     try_resolve_backend_link(link, backend_records)
                 }
-                ClientAccessTransaction::Full { backend_record: None, ..  } => true,
-                ClientAccessTransaction::RestartedLate { backend_record: None, .. } => true,
+                ClientAccessTransaction::Full { backend_record: None, ..  } |
+                ClientAccessTransaction::RestartedLate { backend_record: None, .. } |
                 ClientAccessTransaction::RestartedEarly { .. } => true,
             };
 
@@ -183,8 +177,8 @@ impl SessionState {
                         try_resolve_client_link(link, client_records, backend_records)
                     )
                 }
-                ClientAccessTransaction::RestartedEarly { .. } => true,
-                ClientAccessTransaction::RestartedLate { .. } => true,
+                ClientAccessTransaction::RestartedEarly { .. } |
+                ClientAccessTransaction::RestartedLate { .. } |
                 ClientAccessTransaction::Piped { .. } => true,
             };
 
@@ -199,7 +193,7 @@ impl SessionState {
                 } => {
                     try_resolve_client_link(link, client_records, backend_records)
                 }
-                ClientAccessTransaction::Full { .. } => true,
+                ClientAccessTransaction::Full { .. } |
                 ClientAccessTransaction::Piped { .. } => true,
             };
 
@@ -214,23 +208,17 @@ impl SessionState {
             )
         }
 
-        let sessions = self.sessions.split_off(0);
+        let mut resolved_no = None;
 
-        let (mut resolved, unresolved): (Vec<(bool, SessionRecord)>, Vec<(bool, SessionRecord)>) =
-            sessions.into_iter()
-            .map(|mut session|
-                (
-                    try_resolve_session_record(&mut session, &mut self.client, &mut self.backend),
-                    session
-                )
-            )
-            .partition(|&(resolved, _)| resolved);
+        // We attempt to resolve only one session
+        for (i, ref mut session) in self.sessions.iter_mut().enumerate() {
+            if try_resolve_session_record(session, &mut self.client, &mut self.backend) {
+                resolved_no = Some(i);
+                break
+            }
+        }
 
-        self.sessions.extend(unresolved.into_iter().map(|(_, session)| session));
-
-        assert!(resolved.is_empty() || resolved.len() == 1, "each new record may resolve only one session but got more!");
-
-        resolved.pop().map(|(_, session)| session)
+        resolved_no.map(|no| self.sessions.remove(no))
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<SessionRecord> {
