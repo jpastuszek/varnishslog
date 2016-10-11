@@ -100,13 +100,21 @@ fn try_read_vsl_tag<R: Read>(stream: &mut ReadStreamBuf<R>) -> Result<(), Proces
 
 trait WriteRecord {
     fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write;
+    fn log_reports(&self) {}
 }
 
 fn process_vsl_records<R, W, P>(stream: &mut ReadStreamBuf<R>, mut writer: P, output: &mut W) -> Result<(), ProcessingError> where R: Read, W: Write, P: WriteRecord {
     loop {
-        match try!(stream.fill_apply(vsl_record_v4)) {
-            None => continue,
-            Some(record) => try!(writer.write_record(record, output)),
+        match stream.fill_apply(vsl_record_v4).map_err(ProcessingError::from) {
+            Ok(None) => continue,
+            Ok(Some(record)) => try!(writer.write_record(record, output)),
+            Err(err) => {
+                //TODO: need better tracking of orphan records and other stats
+                if err.is_brokend_pipe() {
+                    writer.log_reports();
+                }
+                return Err(err)
+            }
         }
     }
 }
@@ -198,6 +206,20 @@ impl WriteRecord for SerdeWriter {
             Ok(())
         }
     }
+
+    fn log_reports(&self) {
+        for client in self.state.unmatched_client_access_records() {
+            warn!("ClientAccessRecord without matching session left: {:?}", client)
+        }
+
+        for backend in self.state.unmatched_backend_access_records() {
+            warn!("BackendAccessRecord without matching session left: {:?}", backend)
+        }
+
+        for session in self.state.unresolved_sessions() {
+            warn!("SessionRecord with unresolved links to other objects left: {:?}", session)
+        }
+    }
 }
 
 arg_enum! {
@@ -273,20 +295,6 @@ fn main() {
             program::exit_with_error(err.description(), err.to_exit_code())
         }
     }
-
-    /* TODO
-    for client in session_state.unmatched_client_access_records() {
-        warn!("ClientAccessRecord without matching session left: {:?}", client)
-    }
-
-    for backend in session_state.unmatched_backend_access_records() {
-        warn!("BackendAccessRecord without matching session left: {:?}", backend)
-    }
-
-    for session in session_state.unresolved_sessions() {
-        warn!("SessionRecord with unresolved links to other objects left: {:?}", session)
-    }
-    */
 
     info!("Done");
 }
