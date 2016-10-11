@@ -337,7 +337,6 @@ mod tests {
 
         assert_matches!(client_record, &ClientAccessRecord {
             ident: 100,
-            parent: 10,
             start: 1469180762.484544,
             end: Some(1469180766.484544),
             ref reason,
@@ -384,7 +383,6 @@ mod tests {
 
             assert_matches!(backend_record, &BackendAccessRecord {
                 ident: 1000,
-                parent: 100,
                 start: Some(1469180762.484544),
                 end: Some(1469180764.484544),
                 ref reason,
