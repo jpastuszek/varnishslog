@@ -1071,6 +1071,8 @@ impl RecordBuilder {
 mod tests {
     pub use super::*;
     pub use super::super::super::test_helpers::*;
+    pub use access_log::record::*;
+    pub use vsl::record::*;
 
     macro_rules! apply {
         ($state:ident, $ident:expr, $tag:ident, $message:expr) => {{

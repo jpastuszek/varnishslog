@@ -271,6 +271,7 @@ impl SessionState {
 mod tests {
     pub use super::*;
     pub use super::super::test_helpers::*;
+    pub use access_log::record::*;
 
     //TODO: testing too much here; should only test session state related structures and how they
     //are put together

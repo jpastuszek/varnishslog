@@ -92,29 +92,33 @@ impl RecordState {
     pub fn tombstone_count(&self) -> usize {
         self.builders.values().filter(|&v| if let Tombstone(_) = *v { true } else { false }).count()
     }
-
-    #[cfg(test)]
-    fn get(&self, ident: VslIdent) -> Option<&RecordBuilder> {
-        match self.builders.get(&ident) {
-            Some(&Builder(ref builder)) => return Some(builder),
-            Some(&Tombstone(ref err)) => panic!("Found Tombstone; inscription: {}", err),
-            None => None,
-        }
-    }
-
-    #[cfg(test)]
-    fn is_tombstone(&self, ident: VslIdent) -> bool {
-        match self.builders.get(&ident) {
-            Some(&Tombstone(_)) => true,
-            _ => false,
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     pub use super::*;
     pub use super::super::test_helpers::*;
+    pub use access_log::record::*;
+    pub use vsl::record::*;
+
+    use super::record_builder::RecordBuilder;
+    use super::Slot;
+    impl RecordState {
+        fn get(&self, ident: VslIdent) -> Option<&RecordBuilder> {
+            match self.builders.get(&ident) {
+                Some(&Slot::Builder(ref builder)) => return Some(builder),
+                Some(&Slot::Tombstone(ref err)) => panic!("Found Tombstone; inscription: {}", err),
+                None => None,
+            }
+        }
+
+        fn is_tombstone(&self, ident: VslIdent) -> bool {
+            match self.builders.get(&ident) {
+                Some(&Slot::Tombstone(_)) => true,
+                _ => false,
+            }
+        }
+    }
 
     #[test]
     fn apply_record_state_client_access() {
