@@ -885,6 +885,7 @@ impl RecordBuilder {
                 });
             }
             SLT_End => return Ok(true),
+            SLT__Bogus | SLT__Reserved | SLT__Batch => warn!("Ignoring bogus tag: {:?}", vsl.tag),
             _ => debug!("Ignoring unmatched VSL tag: {:?}", vsl.tag)
         };
 

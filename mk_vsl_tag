@@ -1,2 +1,2 @@
 which bindgen || cargo install bindgen
-bindgen include/vsl_int.h -- -I include > src/vsl_tag_e.rs
+bindgen include/vsl_int.h -- -I include > src/vsl/record/tag_e.rs
