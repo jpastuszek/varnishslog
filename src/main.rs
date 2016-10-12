@@ -15,7 +15,11 @@ use std::error::Error;
 use clap::{Arg, App};
 
 use varnishslog::stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
-use varnishslog::access_log::*;
+use varnishslog::vsl::record::VslRecord;
+use varnishslog::vsl::record::parser::{binary_vsl_tag, vsl_record_v4};
+use varnishslog::access_log::session_state::SessionState;
+use varnishslog::access_log::record_state::RecordState;
+use varnishslog::serialization::{log_session_record, Config, Format, OutputError, JsonError};
 
 mod program;
 

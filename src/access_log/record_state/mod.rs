@@ -1,6 +1,8 @@
 mod record_builder;
-//TODO: don't use * imports as it makes things confusing
-pub use self::record_builder::*;
+use self::record_builder::{RecordBuilder, RecordBuilderError};
+use store::VslStore;
+use vsl::record::VslRecord;
+use access_log::record::Record;
 
 #[derive(Debug)]
 enum Slot {

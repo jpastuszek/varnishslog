@@ -71,7 +71,18 @@
 //     6 SLT_SessClose      REM_CLOSE 0.008
 //     6 SLT_End
 
-pub use super::record_state::*;
+use store::VslStore;
+use access_log::record_state::RecordState;
+use access_log::record::{
+    Record,
+    ClientAccessRecord,
+    ClientAccessTransaction,
+    BackendAccessRecord,
+    BackendAccessTransaction,
+    SessionRecord,
+    Link,
+};
+use vsl::record::VslRecord;
 
 #[derive(Debug, Default)]
 pub struct SessionState {

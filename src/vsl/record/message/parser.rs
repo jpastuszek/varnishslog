@@ -1,9 +1,3 @@
-use std::str::{FromStr, from_utf8};
-
-use nom::{non_empty, space, eof};
-
-use super::{VslIdent, MaybeStr};
-
 /// Parsers for the message body of the VSL records
 ///
 /// This should not allocate memory but do primitive conversion when applicable
@@ -19,18 +13,22 @@ use super::{VslIdent, MaybeStr};
 ///   will be provided as bytes to the caller - this is to avoid mem alloc of lossless convertion and let the
 ///   client do the checking, logging and converstion etc
 
-pub type TimeStamp = f64;
-pub type Duration = f64;
-pub type ByteCount = u64;
-pub type FetchMode = u32;
-pub type Status = u32;
-pub type Port = u16;
-pub type FileDescriptor = isize;
-#[derive(Debug, Clone, PartialEq)]
-pub enum AclResult {
-    Match,
-    NoMatch,
-}
+use std::str::{FromStr, from_utf8};
+use nom::{non_empty, space, eof};
+
+use vsl::record::VslIdent;
+use maybe_string::MaybeStr;
+
+use super::{
+    TimeStamp,
+    Duration,
+    ByteCount,
+    FetchMode,
+    Status,
+    Port,
+    FileDescriptor,
+    AclResult,
+};
 
 /// Wrap result in MaybeStr type
 macro_rules! maybe_str {

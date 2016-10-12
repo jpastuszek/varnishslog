@@ -16,9 +16,10 @@
 use linked_hash_map::{self, LinkedHashMap};
 use std::num::Wrapping;
 use std::fmt::Debug;
-use super::VslIdent;
 use fnv::FnvHasher;
 use std::hash::BuildHasherDefault;
+
+use vsl::record::VslIdent;
 
 pub type Epoch = u32;
 
