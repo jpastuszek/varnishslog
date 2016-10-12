@@ -10,6 +10,18 @@ mod test_helpers {
         VslRecord::from_str(tag, ident, message)
     }
 
+    use vsl::record::VSL_CLIENTMARKER;
+    impl<'s> VslRecord<'s> {
+        pub fn from_str(tag: VslRecordTag, ident: VslIdent, message: &str) -> VslRecord {
+            VslRecord {
+                tag: tag,
+                marker: VSL_CLIENTMARKER,
+                ident: ident,
+                data: message.as_ref()
+            }
+        }
+    }
+
     static LOGGER: Once = ONCE_INIT;
 
     pub fn log() {

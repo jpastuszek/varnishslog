@@ -260,7 +260,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
 }
 
 #[cfg(test)]
-mod resd_stream_buf_tests {
+mod tests {
     use super::StreamBuf;
     use super::ReadStreamBuf;
     use super::FillError;

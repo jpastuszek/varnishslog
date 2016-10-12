@@ -72,16 +72,6 @@ impl<'b> VslRecord<'b> {
     pub fn is_backend(&self) -> bool {
         self.marker.contains(VSL_BACKENDMARKER)
     }
-
-    #[cfg(test)]
-    pub fn from_str<'s>(tag: VslRecordTag, ident: VslIdent, message: &'s str) -> VslRecord<'s> {
-        VslRecord {
-            tag: tag,
-            marker: VSL_CLIENTMARKER,
-            ident: ident,
-            data: message.as_ref()
-        }
-    }
 }
 
 impl<'b> Debug for VslRecord<'b> {

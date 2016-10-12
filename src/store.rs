@@ -127,20 +127,6 @@ impl<T> VslStore<T> {
             self.slots_free += 1;
         }
     }
-
-    #[cfg(test)]
-    pub fn get(&self, ident: &VslIdent) -> Option<&T> {
-        self.map.get(ident).map(t)
-    }
-
-    #[cfg(test)]
-    pub fn oldest(&self) -> Option<(&VslIdent, &T)> {
-        self.map.front().map(|(i, v)| (i, t(v)))
-    }
-}
-
-fn t<T>(v: &(Wrapping<Epoch>, T)) -> &T {
-    &v.1
 }
 
 pub struct Values<'a, T: 'a>(linked_hash_map::Values<'a, VslIdent, (Wrapping<Epoch>, T)>);
@@ -148,13 +134,24 @@ pub struct Values<'a, T: 'a>(linked_hash_map::Values<'a, VslIdent, (Wrapping<Epo
 impl<'a, T> Iterator for Values<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(t)
+        self.0.next().map(|v| &v.1)
     }
 }
 
 #[cfg(test)]
 mod tests {
     pub use super::*;
+
+    use vsl::record::VslIdent;
+    impl<T> VslStore<T> {
+        pub fn get(&self, ident: &VslIdent) -> Option<&T> {
+            self.map.get(ident).map(|v| &v.1)
+        }
+
+        pub fn oldest(&self) -> Option<(&VslIdent, &T)> {
+            self.map.front().map(|(i, v)| (i, &v.1))
+        }
+    }
 
     #[test]
     fn old_elements_should_be_removed_on_overflow() {
