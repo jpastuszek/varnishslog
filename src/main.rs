@@ -11,6 +11,7 @@ extern crate clap;
 extern crate varnishslog;
 
 use std::io::{self, stdin, Read, Write};
+use std::fs::File;
 use std::error::Error;
 use clap::{Arg, App};
 
@@ -279,6 +280,9 @@ fn main() {
              .short("s")
              .help("Size of stream buffer in bytes - must be bigger than biggest VSL record")
              .default_value("262144"))
+        .arg(Arg::with_name("vsl-file")
+             .value_name("VSL_FILE")
+             .help("VSL file to process (read from standard input if not specified)"))
         .get_matches();
 
     program::init(arguments.value_of("log-spec"));
@@ -286,8 +290,6 @@ fn main() {
     let output_format = value_t!(arguments, "output", OutputFormat).unwrap_or_else(|e| e.exit());
     let stream_buf_size = value_t!(arguments, "stream-buffer-size", usize).unwrap_or_else(|e| e.exit());
 
-    let input = stdin();
-    let input = input.lock();
     let output = std::io::stdout();
 
     let config = Config {
@@ -297,7 +299,19 @@ fn main() {
         keep_raw_headers: arguments.is_present("keep-raw-headers"),
     };
 
-    if let Err(err) = process_vsl_stream(input, output, stream_buf_size, output_format, config) {
+    let result = if let Some(path) = arguments.value_of("vsl-file") {
+        let file = File::open(path);
+        match file {
+            Ok(file) => process_vsl_stream(file, output, stream_buf_size, output_format, config),
+            Err(err) => program::exit_with_error(&format!("Failed to open VSL file: {}: {}", path, err), 1),
+        }
+    } else {
+        let stdin = stdin();
+        let stdin = stdin.lock();
+        process_vsl_stream(stdin, output, stream_buf_size, output_format, config)
+    };
+
+    if let Err(err) = result {
         if err.is_brokend_pipe() {
             info!("Broken pipe")
         } else {
