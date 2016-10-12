@@ -9,10 +9,11 @@ use std::io::{Read, ErrorKind};
 extern crate varnishslog;
 
 use varnishslog::stream_buf::{ReadStreamBuf, StreamBuf, FillApplyError, FillError};
-use varnishslog::access_log::{binary_vsl_tag, vsl_record_v4, VslRecord};
-use varnishslog::access_log::RecordState;
-use varnishslog::access_log::SessionState;
-use varnishslog::access_log::{log_session_record, Format, Config};
+use varnishslog::vsl::record::VslRecord;
+use varnishslog::vsl::record::parser::{binary_vsl_tag, vsl_record_v4};
+use varnishslog::access_log::session_state::SessionState;
+use varnishslog::access_log::record_state::RecordState;
+use varnishslog::serialization::{log_session_record, Format, Config};
 
 fn parse_each_vsl_record<R: Read, C>(mut rfb: ReadStreamBuf<R>, mut block: C) where C: FnMut(&VslRecord) {
     rfb.fill_apply(binary_vsl_tag).unwrap();

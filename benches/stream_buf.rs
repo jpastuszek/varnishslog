@@ -10,7 +10,7 @@ use std::io::{Read, ErrorKind};
 extern crate varnishslog;
 
 use varnishslog::stream_buf::{ReadStreamBuf, StreamBuf, FillApplyError, FillError};
-use varnishslog::access_log::{binary_vsl_tag, vsl_record_v4};
+use varnishslog::vsl::record::parser::{binary_vsl_tag, vsl_record_v4};
 
 fn parse_vsl<R: Read>(mut rfb: ReadStreamBuf<R>) {
     rfb.fill_apply(binary_vsl_tag).unwrap();
