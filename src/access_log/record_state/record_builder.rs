@@ -552,7 +552,7 @@ impl RecordBuilder {
 
                 match label {
                     "Start" => self.req_start = Some(timestamp),
-                    "Req" => self.req_process = Some(since_work_start),
+                    "Req" | "ReqBody" => self.req_process = Some(since_work_start),
                     "Bereq" => {
                         self.pipe_start = Some(timestamp);
                         self.req_process = Some(since_work_start);
@@ -576,7 +576,7 @@ impl RecordBuilder {
                         self.resp_fetch = None;
                     }
                     "Restart" => self.resp_end = Some(timestamp),
-                    _ => warn!("Ignoring unmatched SLT_Timestamp label variant: {}", label)
+                    _ => debug!("Ignoring unmatched SLT_Timestamp label variant: {}", label)
                 };
             }
             SLT_Link => {
