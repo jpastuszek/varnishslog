@@ -1,6 +1,3 @@
-//TODO: SLT_Gzip
-//TODO: use SLT_Length value when SLT_BereqAcct body size is 0 (ESI)
-//
 // Client headers:
 // ---
 //
@@ -129,6 +126,7 @@ use access_log::record::{
     Status,
     Address,
     LogEntry,
+    Compression,
     Accounting,
     PipeAccounting,
     Handling,
@@ -461,6 +459,7 @@ pub struct RecordBuilder {
     obj_storage: Option<ObjStorage>,
     obj_ttl: Option<ObjTtl>,
     backend_connection: Option<BackendConnection>,
+    compression: Option<Compression>,
     fetch_body: Option<FetchBody>,
     resp_fetch: Option<Duration>,
     req_process: Option<Duration>,
@@ -496,6 +495,7 @@ impl RecordBuilder {
             obj_storage: None,
             obj_ttl: None,
             backend_connection: None,
+            compression: None,
             fetch_body: None,
             req_process: None,
             resp_fetch: None,
@@ -698,6 +698,10 @@ impl RecordBuilder {
                     recv_total: recv_total,
                 });
             }
+            SLT_Length => {
+                // Logs the size of a fetch object body.
+                // Looks the same as SLT_BereqAcct/recv_body
+            }
             SLT_PipeAcct => {
                 let (client_request_headers, _backend_request_headers,
                      piped_from_client, piped_to_client) =
@@ -875,6 +879,18 @@ impl RecordBuilder {
                     _ => debug!("Ignoring unmatched {:?} return: {}", vsl.tag, action)
                 };
             }
+            SLT_Gzip => {
+                // Note: direction and ESI values will be known form context
+                let (operation, _direction, _esi,
+                     bytes_in, bytes_out,
+                     _bit_first, _bit_last, _bit_len) = try!(vsl.parse_data(slt_gzip));
+
+                self.compression = Some(Compression {
+                    operation: operation,
+                    bytes_in: bytes_in,
+                    bytes_out: bytes_out,
+                });
+            }
             SLT_Fetch_Body => {
                 let (_fetch_mode, fetch_mode_name, streamed) = try!(vsl.parse_data(slt_fetch_body));
 
@@ -966,6 +982,7 @@ impl RecordBuilder {
                             start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                             end: self.resp_end,
                             handling: try!(self.handling.ok_or(RecordBuilderError::RecordIncomplete("handling"))),
+                            compression: self.compression,
                             log: self.log,
                         };
 
@@ -1056,6 +1073,7 @@ impl RecordBuilder {
                             transaction: transaction,
                             start: start,
                             end: self.resp_end,
+                            compression: self.compression,
                             log: self.log,
                         };
 
@@ -1767,6 +1785,50 @@ mod tests {
     }
 
     #[test]
+    fn apply_client_access_record_gzip() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   7, SLT_Begin,        "req 6 rxreq";
+                   7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+                   7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+                   7, SLT_ReqStart,     "127.0.0.1 39798";
+                   7, SLT_ReqMethod,    "GET";
+                   7, SLT_ReqURL,       "/retry";
+                   7, SLT_ReqProtocol,  "HTTP/1.1";
+                   7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   7, SLT_VCL_call,     "RECV";
+                   7, SLT_VCL_return,   "pass";
+                   7, SLT_VCL_call,     "HASH";
+                   7, SLT_VCL_return,   "lookup";
+                   7, SLT_VCL_call,     "PASS";
+                   7, SLT_Link,         "bereq 8 fetch";
+                   7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+                   7, SLT_RespProtocol, "HTTP/1.1";
+                   7, SLT_RespStatus,   "200";
+                   7, SLT_RespReason,   "OK";
+                   7, SLT_RespHeader,   "Content-Type: image/jpeg";
+                   7, SLT_VCL_return,   "deliver";
+                   7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+                   7, SLT_RespHeader,   "Accept-Ranges: bytes";
+                   7, SLT_Debug,        "RES_MODE 2";
+                   7, SLT_RespHeader,   "Connection: keep-alive";
+                   7, SLT_Gzip,         "U D - 29 9 80 80 162";
+                   7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+                   7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
+                   );
+
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_matches!(record.compression, Some(Compression {
+            operation: CompressionOperation::Gunzip,
+            bytes_in: 29,
+            bytes_out: 9,
+        }));
+    }
+
+    #[test]
     fn apply_client_access_record_hit_for_pass() {
         let mut builder = RecordBuilder::new(123);
 
@@ -2000,6 +2062,52 @@ mod tests {
            fetch: Some(0.007367),
            ..
        });
+    }
+
+    #[test]
+    fn apply_backend_access_record_gzip() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   32769, SLT_Begin,            "bereq 8 retry";
+                   32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                   32769, SLT_BereqMethod,      "GET";
+                   32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                   32769, SLT_BereqProtocol,    "HTTP/1.1";
+                   32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                   32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
+                   32769, SLT_VCL_return,       "fetch";
+                   32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                   32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                   32769, SLT_BerespProtocol,   "HTTP/1.1";
+                   32769, SLT_BerespStatus,     "200";
+                   32769, SLT_BerespReason,     "OK";
+                   32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+                   32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   32769, SLT_BackendReuse,     "19 boot.iss";
+                   32769, SLT_Storage,          "malloc s0";
+                   32769, SLT_ObjProtocol,      "HTTP/1.1";
+                   32769, SLT_ObjStatus,        "200";
+                   32769, SLT_ObjReason,        "OK";
+                   32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+                   32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+                   32769, SLT_Fetch_Body,       "3 length stream";
+                   32769, SLT_Gzip,             "G F - 861 41 80 80 260";
+                   32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                   32769, SLT_Length,           "6962";
+                   32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+                   );
+
+       let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_matches!(record.compression, Some(Compression {
+           operation: CompressionOperation::Gzip,
+           bytes_in: 861,
+           bytes_out: 41,
+       }));
     }
 
     #[test]

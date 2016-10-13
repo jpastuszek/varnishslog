@@ -23,11 +23,14 @@ use super::{
     TimeStamp,
     Duration,
     ByteCount,
+    BitCount,
     FetchMode,
     Status,
     Port,
     FileDescriptor,
     AclResult,
+    CompressionOperation,
+    CompressionDirection,
 };
 
 /// Wrap result in MaybeStr type
@@ -58,6 +61,7 @@ macro_rules! named_parsed_symbol {
 
 named_parsed_symbol!(vsl_ident<VslIdent>);
 named_parsed_symbol!(byte_count<ByteCount>);
+named_parsed_symbol!(bit_count<BitCount>);
 named_parsed_symbol!(fech_mode<FetchMode>);
 named_parsed_symbol!(status<Status>);
 named_parsed_symbol!(time_stamp<TimeStamp>);
@@ -198,10 +202,38 @@ named!(pub slt_fetch_body<&[u8], (FetchMode, &str, bool)>, tuple!(
         fech_mode,  // Body fetch mode
         symbol,     // Text description of body fetch mode
         // 'stream' or '-'
-        terminated!(map!(
-                alt_complete!(tag!(b"stream") | tag!(b"-")),
-                |s| s == b"stream"),
-            eof)));
+        terminated!(map!(alt_complete!(tag!(b"stream") | tag!(b"-")),
+            |s| s == b"stream"
+            ), eof)));
+
+named!(pub slt_gzip<&[u8], (CompressionOperation, CompressionDirection, bool, ByteCount, ByteCount,
+                            BitCount, BitCount, BitCount)>, tuple!(
+        // 'G': Gzip, 'U': Gunzip, 'u': Gunzip-test\n"
+        // Note: somehow match won't compile here
+        terminated!(map!(alt!(tag!(b"G") | tag!(b"U") | tag!(b"u")),
+            |s| if s == b"G" {
+                CompressionOperation::Gzip
+            } else if s == b"U" {
+                CompressionOperation::Gunzip
+            } else {
+                CompressionOperation::GunzipTest
+            }), space),
+        // 'F': Fetch, 'D': Deliver
+        terminated!(map!(alt!(tag!(b"F") | tag!(b"D")),
+            |s| if s == b"F" {
+                CompressionDirection::Fetch
+            } else {
+                CompressionDirection::Deliver
+            }), space),
+        // 'E': ESI, '-': Plain object
+        terminated!(map!(alt!(tag!(b"E") | tag!(b"-")),
+            |o| o == b"E"
+            ), space),
+        byte_count,
+        byte_count,
+        bit_count,
+        bit_count,
+        bit_count));
 
 named!(pub slt_vcl_log<&[u8], &MaybeStr>, maybe_str!(
         non_empty));
