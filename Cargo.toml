@@ -2,7 +2,7 @@
 authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
 build = "build.rs"
 name = "varnishslog"
-version = "0.1.3"
+version = "0.1.4"
 
 [[bench]]
 harness = false

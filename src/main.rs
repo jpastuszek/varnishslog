@@ -241,10 +241,10 @@ arg_enum! {
 }
 
 fn main() {
-    let arguments = App::new("Varnish VSL log to syslog logger")
+    let arguments = App::new("Varnish Structured Logger")
         .version(crate_version!())
         .author(crate_authors!())
-        .about("Reads binary VSL log entreis, correlates them togeter and emits JSON log entry to syslog")
+        .about("Reads Varnish VSL (binary) log stream and emits JSON log entries to standard output")
         .arg(Arg::with_name("log-spec")
              .short("d")
              .long("log-sepc")
