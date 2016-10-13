@@ -723,6 +723,12 @@ impl RecordBuilder {
                     local: (local_addr.to_string(), local_port),
                 });
             }
+            SLT_BackendStart | SLT_BackendReuse | SLT_BackendClose => {
+                // SLT_BackendStart: Start of backend processing. Logs the backend IP address and port
+                // SLT_BackendReuse: Logged when a backend connection is put up for reuse by a later
+                // SLT_BackendClose: Logged when a backend connection is closed
+                // Not much more than in SLT_BackendOpen
+            }
 
             // Request
             SLT_BereqProtocol | SLT_ReqProtocol |
@@ -811,6 +817,7 @@ impl RecordBuilder {
                         }
                     }
                     "DELIVER" => self.late = true,
+                    "BACKEND_FETCH" | "HASH" | "HIT" | "PIPE" => (),
                     _ => debug!("Ignoring unmatched {:?} method: {}", vsl.tag, method)
                 };
             }
@@ -876,6 +883,7 @@ impl RecordBuilder {
                         _ => return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return pipe"))
                     },
                     "synth" => self.http_response = MutBuilderState::new(HttpResponseBuilder::new()),
+                    "deliver" | "fetch" | "hash" | "lookup" | "pass" => (),
                     _ => debug!("Ignoring unmatched {:?} return: {}", vsl.tag, action)
                 };
             }
