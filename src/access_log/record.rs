@@ -10,6 +10,8 @@ pub use vsl::record::message::{
     Port,
     FileDescriptor,
     AclResult,
+    CompressionOperation,
+    CompressionDirection,
 };
 
 pub type Address = (String, Port);
@@ -63,6 +65,13 @@ pub enum Handling {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Compression {
+    pub operation: CompressionOperation,
+    pub bytes_in: ByteCount,
+    pub bytes_out: ByteCount,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Link<T> {
     Unresolved(VslIdent),
     Resolved(Box<T>),
@@ -79,6 +88,7 @@ pub struct ClientAccessRecord {
     /// End of request processing
     pub end: Option<TimeStamp>,
     pub handling: Handling,
+    pub compression: Option<Compression>,
     pub log: Vec<LogEntry>,
 }
 
@@ -164,6 +174,7 @@ pub struct BackendAccessRecord {
     pub start: Option<TimeStamp>,
     /// End of response processing; None for aborted or piped response
     pub end: Option<TimeStamp>,
+    pub compression: Option<Compression>,
     pub log: Vec<LogEntry>,
 }
 

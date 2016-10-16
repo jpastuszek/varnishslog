@@ -27,6 +27,8 @@ use access_log::record::{
     Link,
     Accounting,
     PipeAccounting,
+    Compression,
+    CompressionOperation,
 };
 
 mod ser {
@@ -147,6 +149,21 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for HttpResponse {
             reason: self.reason.as_str(),
             protocol: self.protocol.as_str(),
             headers: ser::Headers::Indexed(index.as_ser()),
+        }
+    }
+}
+
+impl<'a> AsSer<'a> for Compression {
+    type Out = ser::Compression;
+    fn as_ser(&self) -> Self::Out {
+        ser::Compression {
+            operation: match self.operation {
+                CompressionOperation::Gzip => "Gzip",
+                CompressionOperation::Gunzip => "Gunzip",
+                CompressionOperation::GunzipTest => "Gunzip-test",
+            },
+            bytes_in: self.bytes_in,
+            bytes_out: self.bytes_out,
         }
     }
 }
@@ -747,6 +764,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                     retry: backend_log_record.retry,
                                     backend_connection: backend_log_record.backend_connection.map(|b| b.as_ser()),
                                     cache_object: indexed_cache_object,
+                                    compression: backend_log_record.final_record.compression.as_ref().map(|c| c.as_ser()),
                                     log: log,
                                     request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                     response_header_index: response_header_index.as_ref().and_then(|index| (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| index.as_ser())),
@@ -822,6 +840,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                                 sent_body_bytes: accounting.sent_body,
                                 sent_total_bytes: accounting.sent_total,
                                 esi_count: esi_records.len(),
+                                compression: final_record.compression.as_ref().map(|c| c.as_ser()),
                                 restart_count: restart_count,
                                 restart_log: restart_log,
                                 log: log,

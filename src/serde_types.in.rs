@@ -36,6 +36,7 @@ pub struct ClientAccess<'a: 'i, 'i> {
     pub sent_body_bytes: u64,
     pub sent_total_bytes: u64,
     pub esi_count: usize,
+    pub compression: Option<Compression>,
     pub restart_count: usize,
     #[serde(skip_serializing_if="Option::is_none")]
     pub restart_log: Option<Log<'a, 'i>>,
@@ -94,6 +95,7 @@ pub struct BackendAccess<'a: 'i, 'i> {
     pub retry: usize,
     pub backend_connection: Option<BackendConnection<'a>>,
     pub cache_object: Option<CacheObject<'a, 'i>>,
+    pub compression: Option<Compression>,
     pub log: Log<'a, 'i>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub request_header_index: Option<Index<'a, 'i>>,
@@ -196,6 +198,13 @@ pub struct HttpResponse<'a: 'i, 'i> {
     pub reason: &'a str,
     pub protocol: &'a str,
     pub headers: Headers<'a, 'i>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Compression {
+    pub operation: &'static str,
+    pub bytes_in: u64,
+    pub bytes_out: u64,
 }
 
 #[derive(Serialize, Debug)]
