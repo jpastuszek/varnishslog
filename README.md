@@ -4,7 +4,7 @@
 
 This data is then flattened down and serialised as JSON like this one:
 
-```
+```json
 {
   "record_type": "client_request",
   "vxid": 32802,
