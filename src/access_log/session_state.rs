@@ -92,162 +92,161 @@ pub struct SessionState {
     sessions: Vec<SessionRecord>,
 }
 
+fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
+                      client_records: &mut VslStore<ClientAccessRecord>,
+                      backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
+    if let Some(client_record) = if let Link::Unresolved(ref ident) = *link {
+        client_records.remove(ident)
+    } else {
+        None
+    } {
+        *link = Link::Resolved(Box::new(client_record))
+    }
+
+    if let Link::Resolved(ref mut client_record) = *link {
+        try_resolve_client_record(client_record, client_records, backend_records)
+    } else {
+        false
+    }
+}
+
+fn try_resolve_backend_link(link: &mut Link<BackendAccessRecord>,
+                       backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
+    if let Some(backend_record) = if let Link::Unresolved(ref ident) = *link {
+        backend_records.remove(ident)
+    } else {
+        None
+    } {
+        *link = Link::Resolved(Box::new(backend_record))
+    }
+
+    if let Link::Resolved(ref mut backend_record) = *link {
+        try_resolve_backend_record(backend_record, backend_records)
+    } else {
+        false
+    }
+}
+
+fn try_resolve_backend_record(backend_record: &mut BackendAccessRecord,
+                      backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
+    match backend_record.transaction {
+        BackendAccessTransaction::Failed {
+            ref mut retry_record,
+            ..
+        } |
+        BackendAccessTransaction::Abandoned {
+            ref mut retry_record,
+            ..
+        } => {
+            if let Some(ref mut link) = *retry_record {
+                try_resolve_backend_link(link, backend_records)
+            } else {
+                true
+            }
+        }
+        BackendAccessTransaction::Aborted { .. } |
+        BackendAccessTransaction::Full { .. } |
+        BackendAccessTransaction::Piped { .. } => true,
+    }
+}
+
+fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
+                      client_records: &mut VslStore<ClientAccessRecord>,
+                      backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
+    let backend_record_resolved = match client_record.transaction {
+        ClientAccessTransaction::Full {
+            backend_record: Some(ref mut link),
+            ..
+        } |
+        ClientAccessTransaction::RestartedLate {
+            backend_record: Some(ref mut link),
+            ..
+        } |
+        ClientAccessTransaction::Piped {
+            backend_record: ref mut link,
+            ..
+        } => {
+            try_resolve_backend_link(link, backend_records)
+        }
+        ClientAccessTransaction::Full { backend_record: None, ..  } |
+        ClientAccessTransaction::RestartedLate { backend_record: None, .. } |
+        ClientAccessTransaction::RestartedEarly { .. } => true,
+    };
+
+    let esi_records_resolved = match client_record.transaction {
+        ClientAccessTransaction::Full {
+            ref mut esi_records,
+            ..
+        } => {
+            esi_records.iter_mut().all(|link|
+                try_resolve_client_link(link, client_records, backend_records)
+            )
+        }
+        ClientAccessTransaction::RestartedEarly { .. } |
+        ClientAccessTransaction::RestartedLate { .. } |
+        ClientAccessTransaction::Piped { .. } => true,
+    };
+
+    let restart_record_resolved = match client_record.transaction {
+        ClientAccessTransaction::RestartedEarly {
+            restart_record: ref mut link,
+            ..
+        } |
+        ClientAccessTransaction::RestartedLate {
+            restart_record: ref mut link,
+            ..
+        } => {
+            try_resolve_client_link(link, client_records, backend_records)
+        }
+        ClientAccessTransaction::Full { .. } |
+        ClientAccessTransaction::Piped { .. } => true,
+    };
+
+    backend_record_resolved && esi_records_resolved && restart_record_resolved
+}
+
 impl SessionState {
     pub fn new() -> SessionState {
         Default::default()
     }
 
-    fn try_resolve_sessions(&mut self) -> Option<SessionRecord> {
-        fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
-                              client_records: &mut VslStore<ClientAccessRecord>,
-                              backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-            if let Some(client_record) = if let Link::Unresolved(ref ident) = *link {
-                client_records.remove(ident)
-            } else {
-                None
-            } {
-                *link = Link::Resolved(Box::new(client_record))
-            }
-
-            if let Link::Resolved(ref mut client_record) = *link {
-                try_resolve_client_record(client_record, client_records, backend_records)
-            } else {
-                false
-            }
-        }
-
-        fn try_resolve_backend_link(link: &mut Link<BackendAccessRecord>,
-                               backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-            if let Some(backend_record) = if let Link::Unresolved(ref ident) = *link {
-                backend_records.remove(ident)
-            } else {
-                None
-            } {
-                *link = Link::Resolved(Box::new(backend_record))
-            }
-
-            if let Link::Resolved(ref mut backend_record) = *link {
-                try_resolve_backend_record(backend_record, backend_records)
-            } else {
-                false
-            }
-        }
-
-        fn try_resolve_backend_record(backend_record: &mut BackendAccessRecord,
-                              backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-            match backend_record.transaction {
-                BackendAccessTransaction::Failed {
-                    ref mut retry_record,
-                    ..
-                } |
-                BackendAccessTransaction::Abandoned {
-                    ref mut retry_record,
-                    ..
-                } => {
-                    if let Some(ref mut link) = *retry_record {
-                        try_resolve_backend_link(link, backend_records)
-                    } else {
-                        true
-                    }
-                }
-                BackendAccessTransaction::Aborted { .. } |
-                BackendAccessTransaction::Full { .. } |
-                BackendAccessTransaction::Piped { .. } => true,
-            }
-        }
-
-        fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
-                              client_records: &mut VslStore<ClientAccessRecord>,
-                              backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-            let backend_record_resolved = match client_record.transaction {
-                ClientAccessTransaction::Full {
-                    backend_record: Some(ref mut link),
-                    ..
-                } |
-                ClientAccessTransaction::RestartedLate {
-                    backend_record: Some(ref mut link),
-                    ..
-                } |
-                ClientAccessTransaction::Piped {
-                    backend_record: ref mut link,
-                    ..
-                } => {
-                    try_resolve_backend_link(link, backend_records)
-                }
-                ClientAccessTransaction::Full { backend_record: None, ..  } |
-                ClientAccessTransaction::RestartedLate { backend_record: None, .. } |
-                ClientAccessTransaction::RestartedEarly { .. } => true,
-            };
-
-            let esi_records_resolved = match client_record.transaction {
-                ClientAccessTransaction::Full {
-                    ref mut esi_records,
-                    ..
-                } => {
-                    esi_records.iter_mut().all(|link|
-                        try_resolve_client_link(link, client_records, backend_records)
-                    )
-                }
-                ClientAccessTransaction::RestartedEarly { .. } |
-                ClientAccessTransaction::RestartedLate { .. } |
-                ClientAccessTransaction::Piped { .. } => true,
-            };
-
-            let restart_record_resolved = match client_record.transaction {
-                ClientAccessTransaction::RestartedEarly {
-                    restart_record: ref mut link,
-                    ..
-                } |
-                ClientAccessTransaction::RestartedLate {
-                    restart_record: ref mut link,
-                    ..
-                } => {
-                    try_resolve_client_link(link, client_records, backend_records)
-                }
-                ClientAccessTransaction::Full { .. } |
-                ClientAccessTransaction::Piped { .. } => true,
-            };
-
-            backend_record_resolved && esi_records_resolved && restart_record_resolved
-        }
-
-        fn try_resolve_session_record(session_record: &mut SessionRecord,
-                               client_records: &mut VslStore<ClientAccessRecord>,
-                               backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-            session_record.client_records.iter_mut().all(|link|
-                try_resolve_client_link(link, client_records, backend_records)
-            )
-        }
-
-        let mut resolved_no = None;
-
-        // We attempt to resolve only one session
-        for (i, ref mut session) in self.sessions.iter_mut().enumerate() {
-            if try_resolve_session_record(session, &mut self.client, &mut self.backend) {
-                resolved_no = Some(i);
-                break
-            }
-        }
-
-        resolved_no.map(|no| self.sessions.remove(no))
+    /*
+    fn try_resolve_session_record(session_record: &mut SessionRecord,
+                           client_records: &mut VslStore<ClientAccessRecord>,
+                           backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
+        session_record.client_records.iter_mut().all(|link|
+            try_resolve_client_link(link, client_records, backend_records)
+        )
     }
+    */
 
-    pub fn apply(&mut self, vsl: &VslRecord) -> Option<SessionRecord> {
+    pub fn apply(&mut self, vsl: &VslRecord) -> Option<ClientAccessRecord> {
         match self.record_state.apply(vsl) {
-            Some(Record::ClientAccess(record)) => {
+            Some(Record::ClientAccess(mut record)) => {
+                if try_resolve_client_record(&mut record, &mut self.client, &mut self.backend) {
+                    return Some(record)
+                }
                 self.client.insert(record.ident, record);
-                self.try_resolve_sessions()
             }
             Some(Record::BackendAccess(record)) => {
+                //let parent = record.parent;
                 self.backend.insert(record.ident, record);
-                self.try_resolve_sessions()
+
+                // If we have already seen the parent cilent record try to resolve it
+                ////if Some(record) = self.client.remove(parent) {
+                    //if try_resolve_client_record(&mut record, &mut self.client, &mut self.backend) {
+                        //return Some(record)
+                    //}
+                //}
             }
             Some(Record::Session(session)) => {
                 self.sessions.push(session);
-                self.try_resolve_sessions()
+                //TODO: verify session was full
+                //self.try_resolve_sessions()
             }
-            None => None
+            None => ()
         }
+        None
     }
 
     pub fn unmatched_client_access_records(&self) -> Vec<&ClientAccessRecord> {
@@ -332,19 +331,11 @@ mod tests {
                1000, SLT_BerespHeader,  "Content-Type: text/html; charset=utf-8";
                1000, SLT_VCL_call,      "BACKEND_ERROR";
                1000, SLT_BereqAcct,     "0 0 0 0 0 0";
-               1000, SLT_End,           "";
-
-               10, SLT_Begin,       "sess 0 HTTP/1";
-               10, SLT_SessOpen,    "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18";
-               10, SLT_Link,        "req 100 rxreq";
-               10, SLT_SessClose,   "REM_CLOSE 0.001";
                );
 
-        let session_record = apply_final!(state, 10, SLT_End, "");
+        let client_record = apply_final!(state, 1000, SLT_End, "");
 
-        let client_record = session_record.client_records[0].get_resolved().unwrap();
-
-        assert_matches!(client_record, &ClientAccessRecord {
+        assert_matches!(client_record, ClientAccessRecord {
             ident: 100,
             start: 1469180762.484544,
             end: Some(1469180766.484544),
@@ -426,19 +417,6 @@ mod tests {
         } else {
             unreachable!()
         }
-
-        assert_matches!(session_record, SessionRecord {
-            ident: 10,
-            open: 1469180762.484344,
-            duration: 0.001,
-            local: Some((ref local, 1080)),
-            remote: (ref remote, 40078),
-            ref client_records,
-        } if
-            local == "127.0.0.1" &&
-            remote == "192.168.1.10" &&
-            client_records.len() == 1
-        );
     }
 
     #[test]
@@ -620,11 +598,11 @@ mod tests {
                65537, SLT_SessClose,        "REM_CLOSE 3.228";
               );
 
-        let session_record = apply_final!(state, 65537, SLT_End, "");
+        let client_record = apply_final!(state, 65537, SLT_End, "");
 
         // We will have esi_transactions in client request
         if let ClientAccessTransaction::Full { ref esi_records, .. } =
-            session_record.client_records[0].get_resolved().unwrap().transaction {
+            client_record.transaction {
             assert_eq!(esi_records[0].get_resolved().unwrap().reason, "esi".to_string());
 
             if let ClientAccessTransaction::Full {
@@ -711,11 +689,11 @@ mod tests {
                );
 
        // Note that we are ending the bgfetch request as session is already closed
-       let session_record = apply_final!(state, 65541, SLT_End, "");
+       let client_record = apply_final!(state, 65541, SLT_End, "");
 
        // It is handled as ususal; only difference is backend request reason
        if let ClientAccessTransaction::Full { backend_record: Some(ref backend_record), .. } =
-           session_record.client_records[0].get_resolved().unwrap().transaction {
+           client_record.transaction {
            assert_eq!(backend_record.get_resolved().unwrap().reason, "bgfetch".to_string());
        } else {
            unreachable!()
@@ -809,11 +787,11 @@ mod tests {
                    32769, SLT_Link,             "req 32770 rxreq";
                    32769, SLT_SessClose,        "REM_CLOSE 0.347";
                    );
-        let session_record = apply_final!(state, 32769, SLT_End, "");
+        let client_record = apply_final!(state, 32769, SLT_End, "");
 
         // We should have restarted transaction
         if let ClientAccessTransaction::RestartedEarly { ref restart_record, .. } =
-            session_record.client_records[0].get_resolved().unwrap().transaction {
+            client_record.transaction {
             // It should have a full transaction
             assert_matches!(restart_record.get_resolved().unwrap().transaction, ClientAccessTransaction::Full { .. });
         } else {
@@ -912,11 +890,11 @@ mod tests {
                    6, SLT_Link,         "req 7 rxreq";
                    6, SLT_SessClose,    "REM_CLOSE 0.008";
                    );
-        let session_record = apply_final!(state, 6, SLT_End, "");
+        let client_record = apply_final!(state, 6, SLT_End, "");
 
         // It is handled as ususal; only difference is backend request reason
         if let ClientAccessTransaction::Full { backend_record: Some(ref backend_record), .. } =
-            session_record.client_records[0].get_resolved().unwrap().transaction {
+            client_record.transaction {
             let backend_record = backend_record.get_resolved().unwrap();
 
             // Backend transaction request record will be the one from before retry (triggering)
@@ -995,10 +973,10 @@ mod tests {
                    3, SLT_SessClose,      "TX_PIPE 0.008";
               );
 
-        let session_record = apply_final!(state, 3, SLT_End, "");
+        let client_record = apply_final!(state, 3, SLT_End, "");
 
         if let ClientAccessTransaction::Piped { ref backend_record, .. } =
-            session_record.client_records[0].get_resolved().unwrap().transaction {
+            client_record.transaction {
             assert_matches!(backend_record.get_resolved().unwrap().transaction, BackendAccessTransaction::Piped { .. });
         } else {
             unreachable!()

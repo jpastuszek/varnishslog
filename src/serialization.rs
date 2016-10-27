@@ -17,7 +17,6 @@ use access_log::record::{
     LogEntry,
     BackendConnection,
     CacheObject,
-    SessionRecord,
     ClientAccessRecord,
     ClientAccessTransaction,
     BackendAccessRecord,
@@ -245,7 +244,7 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for CacheObject {
     }
 }
 
-pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, out: &mut W, config: &Config)
+pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format, out: &mut W, config: &Config)
     -> Result<(), OutputError> where W: Write {
     fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: ser::EntryType {
         let write_entry = match *format {
@@ -442,7 +441,6 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
     }
 
     fn flatten_linked_backend_log_record<F, R>(
-        session_record: &SessionRecord,
         client_record: &ClientAccessRecord,
         maybe_record_link: Option<&Link<BackendAccessRecord>>,
         retry: usize,
@@ -477,7 +475,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     })),
                     BackendAccessTransaction::Failed { retry_record: Some(ref record_link), .. } |
                     BackendAccessTransaction::Abandoned { retry_record: Some(ref record_link), .. } =>
-                        return flatten_linked_backend_log_record(session_record, client_record, Some(record_link), retry + 1, block),
+                        return flatten_linked_backend_log_record(client_record, Some(record_link), retry + 1, block),
                     BackendAccessTransaction::Failed {
                         ref request,
                         synth,
@@ -525,159 +523,153 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     BackendAccessTransaction::Piped { .. } => return block(None),
                 }
             } else {
-                warn!("Found unresolved link {:?} in: {:?}", record_link, session_record);
+                warn!("Found unresolved link {:?} in: {:?}", record_link, client_record);
             }
         }
         block(None)
     }
 
-    fn flatten_linked_client_log_record<F, R>(
-        session_record: &SessionRecord,
-        record_link: &Link<ClientAccessRecord>,
+    fn flatten_client_log_record<F, R>(
+        record: &ClientAccessRecord,
         block: F) -> R where F: FnOnce(Option<&FlatClientAccessRecord>) -> R {
-        if let Some(record) = record_link.get_resolved() {
-            if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
-                // Note: we skip all the intermediate restart records
-                match (&record.transaction, &final_record.transaction) {
-                    (&ClientAccessTransaction::RestartedEarly {
-                        ref request,
-                        process,
-                        ..
-                    }, &ClientAccessTransaction::Full {
-                        ref esi_records,
-                        ref response,
-                        ref backend_record,
-                        fetch,
-                        ttfb,
-                        serve,
-                        ref accounting,
-                        ..
-                    }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
-                        record: record,
-                        final_record: final_record,
-                        request: request,
-                        response: response,
-                        restarted_backend_record: None,
-                        backend_record: backend_record.as_ref(),
-                        process_duration: process,
-                        fetch_duration: fetch,
-                        ttfb_duration: ttfb,
-                        serve_duration: serve,
-                        accounting: accounting,
-                        esi_records: esi_records,
-                        restart_count: restart_count,
-                        restart_log: Some(&record.log),
-                    })),
-                    (&ClientAccessTransaction::RestartedLate {
-                        ref request,
-                        backend_record: ref restarted_backend_record,
-                        process,
-                        ..
-                    }, &ClientAccessTransaction::Full {
-                        ref esi_records,
-                        ref response,
-                        ref backend_record,
-                        fetch,
-                        ttfb,
-                        serve,
-                        ref accounting,
-                        ..
-                    }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
-                        record: record,
-                        final_record: final_record,
-                        request: request,
-                        response: response,
-                        restarted_backend_record: restarted_backend_record.as_ref(),
-                        backend_record: backend_record.as_ref(),
-                        process_duration: process,
-                        fetch_duration: fetch,
-                        ttfb_duration: ttfb,
-                        serve_duration: serve,
-                        accounting: accounting,
-                        esi_records: esi_records,
-                        restart_count: restart_count,
-                        restart_log: Some(&record.log),
-                    })),
-                    (_, &ClientAccessTransaction::Full {
-                        ref esi_records,
-                        ref request,
-                        ref response,
-                        ref backend_record,
-                        process,
-                        fetch,
-                        ttfb,
-                        serve,
-                        ref accounting,
-                        ..
-                    }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
-                        record: record,
-                        final_record: final_record,
-                        request: request,
-                        response: response,
-                        backend_record: backend_record.as_ref(),
-                        restarted_backend_record: None,
-                        process_duration: process,
-                        fetch_duration: fetch,
-                        ttfb_duration: ttfb,
-                        serve_duration: serve,
-                        accounting: accounting,
-                        esi_records: esi_records,
-                        restart_count: restart_count,
-                        restart_log: None,
-                    })),
-                    (_, &ClientAccessTransaction::Piped {
-                        ref request,
-                        ref backend_record,
-                        process,
-                        ttfb,
-                        ref accounting,
-                        ..
-                    }) => {
-                        if let Some(backend_record) = backend_record.get_resolved() {
-                            if let BackendAccessTransaction::Piped {
-                                request: ref backend_request,
-                                ref backend_connection,
-                                ..
-                            } = backend_record.transaction {
+        if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
+            // Note: we skip all the intermediate restart records
+            match (&record.transaction, &final_record.transaction) {
+                (&ClientAccessTransaction::RestartedEarly {
+                    ref request,
+                    process,
+                    ..
+                }, &ClientAccessTransaction::Full {
+                    ref esi_records,
+                    ref response,
+                    ref backend_record,
+                    fetch,
+                    ttfb,
+                    serve,
+                    ref accounting,
+                    ..
+                }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
+                    record: record,
+                    final_record: final_record,
+                    request: request,
+                    response: response,
+                    restarted_backend_record: None,
+                    backend_record: backend_record.as_ref(),
+                    process_duration: process,
+                    fetch_duration: fetch,
+                    ttfb_duration: ttfb,
+                    serve_duration: serve,
+                    accounting: accounting,
+                    esi_records: esi_records,
+                    restart_count: restart_count,
+                    restart_log: Some(&record.log),
+                })),
+                (&ClientAccessTransaction::RestartedLate {
+                    ref request,
+                    backend_record: ref restarted_backend_record,
+                    process,
+                    ..
+                }, &ClientAccessTransaction::Full {
+                    ref esi_records,
+                    ref response,
+                    ref backend_record,
+                    fetch,
+                    ttfb,
+                    serve,
+                    ref accounting,
+                    ..
+                }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
+                    record: record,
+                    final_record: final_record,
+                    request: request,
+                    response: response,
+                    restarted_backend_record: restarted_backend_record.as_ref(),
+                    backend_record: backend_record.as_ref(),
+                    process_duration: process,
+                    fetch_duration: fetch,
+                    ttfb_duration: ttfb,
+                    serve_duration: serve,
+                    accounting: accounting,
+                    esi_records: esi_records,
+                    restart_count: restart_count,
+                    restart_log: Some(&record.log),
+                })),
+                (_, &ClientAccessTransaction::Full {
+                    ref esi_records,
+                    ref request,
+                    ref response,
+                    ref backend_record,
+                    process,
+                    fetch,
+                    ttfb,
+                    serve,
+                    ref accounting,
+                    ..
+                }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
+                    record: record,
+                    final_record: final_record,
+                    request: request,
+                    response: response,
+                    backend_record: backend_record.as_ref(),
+                    restarted_backend_record: None,
+                    process_duration: process,
+                    fetch_duration: fetch,
+                    ttfb_duration: ttfb,
+                    serve_duration: serve,
+                    accounting: accounting,
+                    esi_records: esi_records,
+                    restart_count: restart_count,
+                    restart_log: None,
+                })),
+                (_, &ClientAccessTransaction::Piped {
+                    ref request,
+                    ref backend_record,
+                    process,
+                    ttfb,
+                    ref accounting,
+                    ..
+                }) => {
+                    if let Some(backend_record) = backend_record.get_resolved() {
+                        if let BackendAccessTransaction::Piped {
+                            request: ref backend_request,
+                            ref backend_connection,
+                            ..
+                        } = backend_record.transaction {
 
-                                return block(Some(&FlatClientAccessRecord::PipeSession {
-                                    record: record,
-                                    final_record: final_record,
-                                    request: request,
-                                    backend_request: backend_request,
-                                    process_duration: process,
-                                    ttfb_duration: ttfb,
-                                    accounting: accounting,
-                                    backend_connection: backend_connection.as_ref(),
-                                }))
-                            } else {
-                                warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
-                                      backend_record, final_record);
-                            }
+                            return block(Some(&FlatClientAccessRecord::PipeSession {
+                                record: record,
+                                final_record: final_record,
+                                request: request,
+                                backend_request: backend_request,
+                                process_duration: process,
+                                ttfb_duration: ttfb,
+                                accounting: accounting,
+                                backend_connection: backend_connection.as_ref(),
+                            }))
                         } else {
-                            warn!("Found unresolved link {:?} in: {:?}", backend_record, final_record);
+                            warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
+                                  backend_record, final_record);
                         }
-                    },
-                    (_, &ClientAccessTransaction::RestartedEarly { .. }) => panic!("got ClientAccessTransaction::RestartedEarly as final final_record"),
-                    (_, &ClientAccessTransaction::RestartedLate { .. }) => panic!("got ClientAccessTransaction::RestartedLate as final final_record"),
-                }
-            } else {
-                warn!("Failed to find final record for: {:?}", record);
+                    } else {
+                        warn!("Found unresolved link {:?} in: {:?}", backend_record, final_record);
+                    }
+                },
+                (_, &ClientAccessTransaction::RestartedEarly { .. }) => panic!("got ClientAccessTransaction::RestartedEarly as final final_record"),
+                (_, &ClientAccessTransaction::RestartedLate { .. }) => panic!("got ClientAccessTransaction::RestartedLate as final final_record"),
             }
         } else {
-            warn!("Found unresolved link {:?} in: {:?}", record_link, session_record);
+            warn!("Failed to find final record for: {:?}", record);
         }
         block(None)
     }
 
-    fn log_linked_client_access_record<W>(
+    fn log_client_access_record<W>(
         format: &Format,
         out: &mut W,
-        session_record: &SessionRecord,
-        record_link: &Link<ClientAccessRecord>,
+        record: &ClientAccessRecord,
         record_type: &'static str,
         config: &Config) -> Result<(), OutputError> where W: Write {
-        flatten_linked_client_log_record(session_record, record_link, |client_log_record| {
+        flatten_client_log_record(record, |client_log_record| {
             if let Some(client_log_record) = client_log_record {
                 match *client_log_record {
                     FlatClientAccessRecord::ClientAccess {
@@ -697,12 +689,16 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         restart_log,
                     } => {
                         for esi_record_link in esi_records {
-                            try!(log_linked_client_access_record(format, out, session_record, esi_record_link, "esi_subrequest", config));
+                            if let Some(esi_record) = esi_record_link.get_resolved() {
+                                try!(log_client_access_record(format, out, esi_record, "esi_subrequest", config));
+                            } else {
+                                warn!("Found unresolved ESI record link {:?} in: {:?}", esi_record_link, record);
+                            }
                         }
 
                         let ber = backend_record.or(restarted_backend_record);
 
-                        try!(flatten_linked_backend_log_record(session_record, record, ber, 0, |backend_log_record| {
+                        try!(flatten_linked_backend_log_record(record, ber, 0, |backend_log_record| {
                             // backend record
                             // Need to live up to write()
                             let mut log_index = None;
@@ -909,15 +905,12 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                     }
                 }
             } else {
-                warn!("No log entry found for linked client access record {:?} in: {:?}", record_link, session_record);
+                warn!("No log entry found for linked client access record {:?}", record);
                 Ok(())
             }
         })
     }
 
-    for record_link in &session_record.client_records {
-        try!(log_linked_client_access_record(format, out, session_record, record_link, "client_request", config))
-    }
-    Ok(())
+    log_client_access_record(format, out, client_record, "client_request", config)
 }
 

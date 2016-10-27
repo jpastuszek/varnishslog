@@ -20,7 +20,7 @@ use varnishslog::vsl::record::VslRecord;
 use varnishslog::vsl::record::parser::{binary_vsl_tag, vsl_record_v4};
 use varnishslog::access_log::session_state::SessionState;
 use varnishslog::access_log::record_state::RecordState;
-use varnishslog::serialization::{log_session_record, Config, Format, OutputError, JsonError};
+use varnishslog::serialization::{log_client_record, Config, Format, OutputError, JsonError};
 
 mod program;
 
@@ -205,8 +205,8 @@ impl SerdeWriter {
 
 impl WriteRecord for SerdeWriter {
     fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
-        if let Some(session) = self.state.apply(&record) {
-            log_session_record(&session, &self.format, output, &self.config).map_err(From::from)
+        if let Some(client) = self.state.apply(&record) {
+            log_client_record(&client, &self.format, output, &self.config).map_err(From::from)
         } else {
             Ok(())
         }
