@@ -821,8 +821,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                             let client_access = ser::ClientAccess {
                                 record_type: record_type,
                                 vxid: record.ident,
-                                remote_address: session_record.remote.as_ser(),
-                                session_timestamp: session_record.open,
+                                remote_address: record.remote.as_ser(),
                                 start_timestamp: final_record.start,
                                 end_timestamp: final_record.end,
                                 handling: final_record.handling.as_ser(),
@@ -888,8 +887,7 @@ pub fn log_session_record<W>(session_record: &SessionRecord, format: &Format, ou
                         let pipe_session = ser::PipeSession {
                             record_type: "pipe_session",
                             vxid: record.ident,
-                            remote_address: session_record.remote.as_ser(),
-                            session_timestamp: session_record.open,
+                            remote_address: record.remote.as_ser(),
                             start_timestamp: final_record.start,
                             end_timestamp: final_record.end,
                             request: indexed_request,

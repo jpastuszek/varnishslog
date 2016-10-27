@@ -82,6 +82,7 @@ pub enum Link<T> {
 pub struct ClientAccessRecord {
     pub ident: VslIdent,
     pub reason: String,
+    pub remote: Address,
     pub transaction: ClientAccessTransaction,
     /// Start of request processing
     pub start: TimeStamp,

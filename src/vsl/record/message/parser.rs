@@ -238,6 +238,10 @@ named!(pub slt_gzip<&[u8], (CompressionOperation, CompressionDirection, bool, By
 named!(pub slt_vcl_log<&[u8], &MaybeStr>, maybe_str!(
         non_empty));
 
+named!(pub slt_req_start<&[u8], (&str, Port)>, tuple!(
+        symbol, // Client IP4/6 address
+        port));  // Client Port number
+
 named!(pub slt_backend_open<&[u8], (FileDescriptor, &str, (&str, Port), (&str, Port))>, tuple!(
         file_descriptor,        // Connection file descriptor
         symbol,                 // Backend display name

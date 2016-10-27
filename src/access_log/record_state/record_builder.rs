@@ -468,6 +468,7 @@ pub struct RecordBuilder {
     resp_end: Option<TimeStamp>,
     accounting: Option<Accounting>,
     pipe_accounting: Option<PipeAccounting>,
+    client_addr: Option<Address>,
     sess_open: Option<TimeStamp>,
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
@@ -504,6 +505,7 @@ impl RecordBuilder {
             resp_end: None,
             accounting: None,
             pipe_accounting: None,
+            client_addr: None,
             sess_open: None,
             sess_duration: None,
             sess_remote: None,
@@ -542,10 +544,13 @@ impl RecordBuilder {
                     return self.apply(vsl)
                 }
             },
-            // Reset http_request on ReqStar
-            // TODO: We get client IP/port form session but should it be this tag? (PROXY
-            // protocol etc?)
-            SLT_ReqStart => self.http_request = MutBuilderState::new(HttpRequestBuilder::new()),
+            SLT_ReqStart => {
+                let (client_ip, client_port) = try!(vsl.parse_data(slt_req_start));
+                self.client_addr = Some((client_ip.to_string(), client_port));
+
+                // Reset http_request on ReqStar
+                self.http_request = MutBuilderState::new(HttpRequestBuilder::new());
+            }
             SLT_Timestamp => {
                 let (label, timestamp, since_work_start, since_last_timestamp) =
                     try!(vsl.parse_data(slt_timestamp));
@@ -986,6 +991,7 @@ impl RecordBuilder {
                         let record = ClientAccessRecord {
                             ident: self.ident,
                             reason: reason,
+                            remote: try!(self.client_addr.ok_or(RecordBuilderError::RecordIncomplete("client_addr"))),
                             transaction: transaction,
                             start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                             end: self.resp_end,

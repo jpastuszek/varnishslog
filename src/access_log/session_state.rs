@@ -233,24 +233,20 @@ impl SessionState {
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<SessionRecord> {
-        if match self.record_state.apply(vsl) {
+        match self.record_state.apply(vsl) {
             Some(Record::ClientAccess(record)) => {
                 self.client.insert(record.ident, record);
-                true
+                self.try_resolve_sessions()
             }
             Some(Record::BackendAccess(record)) => {
                 self.backend.insert(record.ident, record);
-                true
+                self.try_resolve_sessions()
             }
             Some(Record::Session(session)) => {
                 self.sessions.push(session);
-                true
-            },
-            None => false
-        } {
-            self.try_resolve_sessions()
-        } else {
-            None
+                self.try_resolve_sessions()
+            }
+            None => None
         }
     }
 
@@ -285,6 +281,7 @@ mod tests {
                100, SLT_Begin,          "req 10 rxreq";
                100, SLT_Timestamp,      "Start: 1469180762.484544 0.000000 0.000000";
                100, SLT_Timestamp,      "Req: 1469180762.484544 0.000000 0.000000";
+               100, SLT_ReqStart,       "127.0.0.1 57408";
                100, SLT_ReqMethod,      "GET";
                100, SLT_ReqURL,         "/foobar";
                100, SLT_ReqProtocol,    "HTTP/1.1";
