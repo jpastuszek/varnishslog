@@ -94,12 +94,14 @@ pub struct SessionState {
 fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
                       client_records: &mut VslStore<ClientAccessRecord>,
                       backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-    // move from store to stack
-    if let Some(mut client_record) = if let Link::Unresolved(ref ident) = *link {
+    let client_record = if let Link::Unresolved(ref ident) = *link {
+        // move from store to stack
         client_records.remove(ident)
     } else {
-        None
-    } {
+        return true
+    };
+
+    if let Some(mut client_record) = client_record {
         // recurse down
         let resolved = try_resolve_client_record(&mut client_record, client_records, backend_records);
 
@@ -109,7 +111,7 @@ fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
             return true
         } else {
             // move it back to store
-            client_records.insert(client_record.ident, client_record)
+            client_records.insert(client_record.ident, client_record);
         }
     }
     false
@@ -117,11 +119,13 @@ fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
 
 fn try_resolve_backend_link(link: &mut Link<BackendAccessRecord>,
                        backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-    if let Some(mut backend_record) = if let Link::Unresolved(ref ident) = *link {
+    let backend_record = if let Link::Unresolved(ref ident) = *link {
         backend_records.remove(ident)
     } else {
-        None
-    } {
+        return true
+    };
+
+    if let Some(mut backend_record) = backend_record {
         let resolved = try_resolve_backend_record(&mut backend_record, backend_records);
 
         if resolved {
@@ -296,7 +300,8 @@ impl SessionState {
             Some(Record::Session(session)) => {
                 for client_record_link in &session.client_records {
                     if let &Link::Unresolved(ref ident) = client_record_link {
-                        if let Some(client_record) = self.root.remove(ident) {
+                        if let Some(ref client_record) = self.root.get(ident) {
+                            // TODO: don't warn if backend_record is Unresolved with bgfetch reason
                             warn!("Unresolved root ClientAccessRecord found on session close: {:?} in session: {:?}", client_record, &session);
                         }
                     }
