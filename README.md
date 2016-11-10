@@ -287,7 +287,7 @@ ARGS:
 Bench results
 -------------
 
-Run against commit a433e194659d561b48adbdfad9921611f357a8b0 using 13480 VSL records making up 211 access records and 86 sessions and 86 client access records so about 157 VSL records per output client access record (benches/varnish20160816-4093-1xh1jbx808a493d5e74216e5.vsl).
+Run against commit 3b792650e9b0c7e52dc6a7e3a0e982c3b2fe03d6 using 13480 VSL records making up 211 access records and 86 sessions and 86 client access records so about 157 VSL records per output client access record (benches/varnish20160816-4093-1xh1jbx808a493d5e74216e5.vsl).
 This was run on MacBook Air (13-inch, Mid 2013) and build with rustc 1.12.0 (3191fbae9 2016-09-23).
 
 ```
