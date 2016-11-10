@@ -13,7 +13,7 @@ use varnishslog::vsl::record::VslRecord;
 use varnishslog::vsl::record::parser::{binary_vsl_tag, vsl_record_v4};
 use varnishslog::access_log::session_state::SessionState;
 use varnishslog::access_log::record_state::RecordState;
-use varnishslog::serialization::{log_session_record, Format, Config};
+use varnishslog::serialization::{log_client_record, Format, Config};
 
 fn parse_each_vsl_record<R: Read, C>(mut rfb: ReadStreamBuf<R>, mut block: C) where C: FnMut(&VslRecord) {
     rfb.fill_apply(binary_vsl_tag).unwrap();
@@ -94,7 +94,7 @@ fn log_session_record_ncsa_json(bench: &mut Bencher) {
         {
             parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
                 if let Some(session) = ss.apply(vsl_record) {
-                    log_session_record(&session, &format, &mut out, &config).unwrap()
+                    log_client_record(&session, &format, &mut out, &config).unwrap()
                 }
             });
         }
@@ -119,7 +119,7 @@ fn log_session_record_json(bench: &mut Bencher) {
         {
             parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
                 if let Some(session) = ss.apply(vsl_record) {
-                    log_session_record(&session, &format, &mut out, &config).unwrap()
+                    log_client_record(&session, &format, &mut out, &config).unwrap()
                 }
             });
         }
@@ -143,7 +143,7 @@ fn log_session_record_json_raw(bench: &mut Bencher) {
         {
             parse_each_vsl_record(ReadStreamBuf::new(&mut cursor), |vsl_record| {
                 if let Some(session) = ss.apply(vsl_record) {
-                    log_session_record(&session, &format, &mut out, &config).unwrap()
+                    log_client_record(&session, &format, &mut out, &config).unwrap()
                 }
             });
         }

@@ -294,11 +294,11 @@ This was run on MacBook Air (13-inch, Mid 2013) and build with rustc 1.12.0 (319
 test log_session_record_ncsa_json ... bench:  17,268,828 ns/iter (+/- 4,231,860)
 test log_session_record_json      ... bench:  17,232,030 ns/iter (+/- 7,914,488)
 test log_session_record_json_raw  ... bench:  10,231,954 ns/iter (+/- 9,468,751)
-test session_state                ... bench:   4,671,541 ns/iter (+/- 4,695,443)
+test session_state                ... bench:   5,427,802 ns/iter (+/- 4,695,443)
 test default_buffer_from_file     ... bench:     408,024 ns/iter (+/- 163,009)
 ```
 
 * 5.0 K/s JSON records (indexed) or 780 K/s VSL records processed into serialized output
 * 8.4 K/s JSON records (raw) or 1317 K/s VSL records processed into serialized output
-* 18.4 K/s session records (correlated access records) or 2885 K/s VSL records processed (without serialization)
+* 15.8 K/s session records (correlated access records) or 2483 K/s VSL records processed (without serialization)
 * 33.0 M/s VSL records extracted from binary stream (message not parsed)

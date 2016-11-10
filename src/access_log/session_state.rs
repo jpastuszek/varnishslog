@@ -303,6 +303,7 @@ impl SessionState {
                         if let Some(ref client_record) = self.root.get(ident) {
                             // bgfetch records may be logged after session is closed as the are
                             // async to the client request
+                            // TODO: this will not follow restarts
                             if let ClientAccessTransaction::Full {
                                 backend_record: Some(Link::Unresolved(_, ref reason)),
                                 ..
