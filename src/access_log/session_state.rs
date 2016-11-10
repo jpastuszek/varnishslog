@@ -79,7 +79,6 @@ use access_log::record::{
     ClientAccessTransaction,
     BackendAccessRecord,
     BackendAccessTransaction,
-    SessionRecord,
     Link,
 };
 use vsl::record::VslRecord;
@@ -89,14 +88,13 @@ pub struct SessionState {
     record_state: RecordState,
     root: VslStore<ClientAccessRecord>,
     client: VslStore<ClientAccessRecord>,
-    backend: VslStore<BackendAccessRecord>,
-    sessions: Vec<SessionRecord>,
+    backend: VslStore<BackendAccessRecord>
 }
 
 fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
                       client_records: &mut VslStore<ClientAccessRecord>,
                       backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-    // move it on stack
+    // move from store to stack
     if let Some(mut client_record) = if let Link::Unresolved(ref ident) = *link {
         client_records.remove(ident)
     } else {
@@ -110,7 +108,7 @@ fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
             *link = Link::Resolved(Box::new(client_record));
             return true
         } else {
-            // move it back
+            // move it back to store
             client_records.insert(client_record.ident, client_record)
         }
     }
@@ -296,25 +294,29 @@ impl SessionState {
                 self.root.remove(&root_ident)
             }
             Some(Record::Session(session)) => {
-                self.sessions.push(session);
-                //TODO: verify session was complete
-                //self.try_resolve_sessions()
+                for client_record_link in &session.client_records {
+                    if let &Link::Unresolved(ref ident) = client_record_link {
+                        if let Some(client_record) = self.root.remove(ident) {
+                            warn!("Unresolved root ClientAccessRecord found on session close: {:?} in session: {:?}", client_record, &session);
+                        }
+                    }
+                }
                 None
             }
             None => None
         }
     }
 
-    pub fn unmatched_client_access_records(&self) -> Vec<&ClientAccessRecord> {
+    pub fn unresolved_root_client_access_records(&self) -> Vec<&ClientAccessRecord> {
+        self.root.values().collect()
+    }
+
+    pub fn unresolved_client_access_records(&self) -> Vec<&ClientAccessRecord> {
         self.client.values().collect()
     }
 
-    pub fn unmatched_backend_access_records(&self) -> Vec<&BackendAccessRecord> {
+    pub fn unresolved_backend_access_records(&self) -> Vec<&BackendAccessRecord> {
         self.backend.values().collect()
-    }
-
-    pub fn unresolved_sessions(&self) -> &[SessionRecord] {
-        self.sessions.as_slice()
     }
 }
 

@@ -213,16 +213,16 @@ impl WriteRecord for SerdeWriter {
     }
 
     fn log_reports(&self) {
-        for client in self.state.unmatched_client_access_records() {
-            warn!("ClientAccessRecord without matching session left: {:?}", client)
+        for client in self.state.unresolved_root_client_access_records() {
+            warn!("Root ClientAccessRecord left unresolved: {:?}", client)
         }
 
-        for backend in self.state.unmatched_backend_access_records() {
-            warn!("BackendAccessRecord without matching session left: {:?}", backend)
+        for client in self.state.unresolved_client_access_records() {
+            warn!("ClientAccessRecord left unresolved: {:?}", client)
         }
 
-        for session in self.state.unresolved_sessions() {
-            warn!("SessionRecord with unresolved links to other objects left: {:?}", session)
+        for backend in self.state.unresolved_backend_access_records() {
+            warn!("BackendAccessRecord left unresolved: {:?}", backend)
         }
     }
 }
