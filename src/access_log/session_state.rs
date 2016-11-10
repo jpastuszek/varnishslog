@@ -96,36 +96,44 @@ pub struct SessionState {
 fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
                       client_records: &mut VslStore<ClientAccessRecord>,
                       backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-    if let Some(client_record) = if let Link::Unresolved(ref ident) = *link {
+    // move it on stack
+    if let Some(mut client_record) = if let Link::Unresolved(ref ident) = *link {
         client_records.remove(ident)
     } else {
         None
     } {
-        *link = Link::Resolved(Box::new(client_record))
-    }
+        // recurse down
+        let resolved = try_resolve_client_record(&mut client_record, client_records, backend_records);
 
-    if let Link::Resolved(ref mut client_record) = *link {
-        try_resolve_client_record(client_record, client_records, backend_records)
-    } else {
-        false
+        if resolved {
+            // move is on heap
+            *link = Link::Resolved(Box::new(client_record));
+            return true
+        } else {
+            // move it back
+            client_records.insert(client_record.ident, client_record)
+        }
     }
+    false
 }
 
 fn try_resolve_backend_link(link: &mut Link<BackendAccessRecord>,
                        backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-    if let Some(backend_record) = if let Link::Unresolved(ref ident) = *link {
+    if let Some(mut backend_record) = if let Link::Unresolved(ref ident) = *link {
         backend_records.remove(ident)
     } else {
         None
     } {
-        *link = Link::Resolved(Box::new(backend_record))
-    }
+        let resolved = try_resolve_backend_record(&mut backend_record, backend_records);
 
-    if let Link::Resolved(ref mut backend_record) = *link {
-        try_resolve_backend_record(backend_record, backend_records)
-    } else {
-        false
+        if resolved {
+            *link = Link::Resolved(Box::new(backend_record));
+            return true
+        } else {
+            backend_records.insert(backend_record.ident, backend_record)
+        }
     }
+    false
 }
 
 fn try_resolve_backend_record(backend_record: &mut BackendAccessRecord,
@@ -208,13 +216,11 @@ fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
 
 fn find_root_mut_from_client_record<'r>(record: &ClientAccessRecord, root_records: &'r mut VslStore<ClientAccessRecord>, client_records: &VslStore<ClientAccessRecord>) -> Option<&'r mut ClientAccessRecord> {
     if let Some(ref record) = client_records.get(&record.parent) {
-        error!("client - found client");
         return find_root_mut_from_client_record(record, root_records, client_records)
     }
 
     // can't make this done first! lexical scopes :/
     if let root @ Some(_) = root_records.get_mut(&record.parent) {
-        error!("client - found root");
         return root
     }
 
@@ -223,22 +229,18 @@ fn find_root_mut_from_client_record<'r>(record: &ClientAccessRecord, root_record
 
 fn find_root_mut_from_backend_record<'r>(record: &BackendAccessRecord, root_records: &'r mut VslStore<ClientAccessRecord>, client_records: &VslStore<ClientAccessRecord>, backend_records: &VslStore<BackendAccessRecord>) -> Option<&'r mut ClientAccessRecord> {
     if let Some(ref record) = client_records.get(&record.parent) {
-        error!("backend - found client");
         return find_root_mut_from_client_record(record, root_records, client_records)
     }
 
     if let Some(ref record) = backend_records.get(&record.parent) {
-        error!("backend - found backend");
         return find_root_mut_from_backend_record(record, root_records, client_records, backend_records)
     }
 
     // can't make this done first! lexical scopes :/
     if let root @ Some(_) = root_records.get_mut(&record.parent) {
-        error!("backend - found root");
         return root
     }
 
-    error!("backend - nothing found");
     None
 }
 
@@ -265,11 +267,9 @@ impl SessionState {
                         self.client.insert(record.ident, record);
 
                         if !try_resolve_client_record(root, &mut self.client, &mut self.backend) {
-                            error!("client - still unresolved");
                             return None
                         }
 
-                        error!("client - resolved!");
                         root.ident
                     } else {
                         self.client.insert(record.ident, record);
@@ -284,11 +284,9 @@ impl SessionState {
                         self.backend.insert(record.ident, record);
 
                         if !try_resolve_client_record(root, &mut self.client, &mut self.backend) {
-                            error!("client - still unresolved");
                             return None
                         }
 
-                        error!("backend - resolved!");
                         root.ident
                     } else {
                         self.backend.insert(record.ident, record);
