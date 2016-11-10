@@ -73,7 +73,7 @@ pub struct Compression {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Link<T> {
-    Unresolved(VslIdent),
+    Unresolved(VslIdent, String),
     Resolved(Box<T>),
 }
 
@@ -273,19 +273,19 @@ pub enum Record {
 impl<T> Link<T> {
     pub fn is_unresolved(&self) -> bool {
         match *self {
-            Link::Unresolved(_) => true,
+            Link::Unresolved(..) => true,
             _ => false
         }
     }
     pub fn unwrap_unresolved(self) -> VslIdent {
         match self {
-            Link::Unresolved(ident) => ident,
+            Link::Unresolved(ident, _) => ident,
             _ => panic!("unwrap_unresolved called on Link that was not Unresolved")
         }
     }
     pub fn get_unresolved(&self) -> Option<VslIdent> {
         match *self {
-            Link::Unresolved(ident) => Some(ident),
+            Link::Unresolved(ident, _) => Some(ident),
             _ => None
         }
     }

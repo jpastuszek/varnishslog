@@ -94,7 +94,7 @@ pub struct SessionState {
 fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
                       client_records: &mut VslStore<ClientAccessRecord>,
                       backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-    let client_record = if let Link::Unresolved(ref ident) = *link {
+    let client_record = if let Link::Unresolved(ref ident, _) = *link {
         // move from store to stack
         client_records.remove(ident)
     } else {
@@ -119,7 +119,7 @@ fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
 
 fn try_resolve_backend_link(link: &mut Link<BackendAccessRecord>,
                        backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-    let backend_record = if let Link::Unresolved(ref ident) = *link {
+    let backend_record = if let Link::Unresolved(ref ident, _) = *link {
         backend_records.remove(ident)
     } else {
         return true
@@ -299,9 +299,19 @@ impl SessionState {
             }
             Some(Record::Session(session)) => {
                 for client_record_link in &session.client_records {
-                    if let &Link::Unresolved(ref ident) = client_record_link {
+                    if let &Link::Unresolved(ref ident, _) = client_record_link {
                         if let Some(ref client_record) = self.root.get(ident) {
-                            // TODO: don't warn if backend_record is Unresolved with bgfetch reason
+                            // bgfetch records may be logged after session is closed as the are
+                            // async to the client request
+                            if let ClientAccessTransaction::Full {
+                                backend_record: Some(Link::Unresolved(_, ref reason)),
+                                ..
+                            } = client_record.transaction {
+                                if reason == "bgfetch" {
+                                    continue
+                                }
+                            }
+
                             warn!("Unresolved root ClientAccessRecord found on session close: {:?} in session: {:?}", client_record, &session);
                         }
                     }

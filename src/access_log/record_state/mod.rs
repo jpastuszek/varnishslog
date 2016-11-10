@@ -188,7 +188,7 @@ mod tests {
             ..
         } if
             reason == "rxreq" &&
-            backend_record == &Link::Unresolved(5) &&
+            backend_record == &Link::Unresolved(5, "fetch".to_string()) &&
             esi_records.is_empty()
         );
 
@@ -335,7 +335,7 @@ mod tests {
             duration: 0.001,
             local: Some(("127.0.0.1".to_string(), 1080)),
             remote: ("192.168.1.10".to_string(), 40078),
-            client_records: vec![Link::Unresolved(32773)],
+            client_records: vec![Link::Unresolved(32773, "rxreq".to_string())],
         });
     }
 

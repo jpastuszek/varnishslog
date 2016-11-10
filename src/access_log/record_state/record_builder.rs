@@ -596,22 +596,22 @@ impl RecordBuilder {
                         if let Some(ref link) = self.restart_record {
                             warn!("Already have restart client request link with ident {}; replacing with {}", link.get_unresolved().as_ref().unwrap(), child_ident);
                         }
-                        self.restart_record = Some(Link::Unresolved(child_ident));
+                        self.restart_record = Some(Link::Unresolved(child_ident, child_type.to_owned()));
                     }
                     ("req", _) => {
-                        self.client_records.push(Link::Unresolved(child_ident));
+                        self.client_records.push(Link::Unresolved(child_ident, child_type.to_owned()));
                     }
                     ("bereq", "retry") => {
                         if let Some(ref link) = self.retry_record {
                             warn!("Already have retry backend request link with ident {}; replacing with {}", link.get_unresolved().as_ref().unwrap(), child_ident);
                         }
-                        self.retry_record = Some(Link::Unresolved(child_ident));
+                        self.retry_record = Some(Link::Unresolved(child_ident, child_type.to_owned()));
                     }
                     ("bereq", _) => {
                         if let Some(ref link) = self.backend_record {
                             warn!("Already have backend request link with ident {}; replacing with {}", link.get_unresolved().as_ref().unwrap(), child_ident);
                         }
-                        self.backend_record = Some(Link::Unresolved(child_ident));
+                        self.backend_record = Some(Link::Unresolved(child_ident, child_type.to_owned()));
                     }
                     _ => warn!("Ignoring unmatched SLT_Link reason variant: {}", reason)
                 };
@@ -1578,7 +1578,7 @@ mod tests {
                 ..
             },
             process: Some(0.0),
-            restart_record: Link::Unresolved(5),
+            restart_record: Link::Unresolved(5, _),
         } if url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
     }
 
@@ -1631,9 +1631,9 @@ mod tests {
                 status,
                 ..
             },
-            backend_record: Some(Link::Unresolved(3)),
+            backend_record: Some(Link::Unresolved(3, _)),
             process: Some(0.0),
-            restart_record: Link::Unresolved(5),
+            restart_record: Link::Unresolved(5, _),
         } if
             url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure" &&
             status == 301
@@ -1692,7 +1692,7 @@ mod tests {
             headers == &[
                 ("Upgrade".to_string(), "websocket".to_string()),
                 ("Connection".to_string(), "Upgrade".to_string())] &&
-            backend_record == &Link::Unresolved(5)
+            backend_record == &Link::Unresolved(5, "pipe".to_string())
         );
     }
 
@@ -1749,7 +1749,7 @@ mod tests {
             headers == &[
                 ("Host".to_string(), "staging.eod.whatclinic.net".to_string()),
                 ("Accept".to_string(), "text/event-stream".to_string())] &&
-            backend_record == &Link::Unresolved(32786)
+            backend_record == &Link::Unresolved(32786, "pipe".to_string())
         );
     }
 
