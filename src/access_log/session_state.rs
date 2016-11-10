@@ -87,6 +87,7 @@ use vsl::record::VslRecord;
 #[derive(Debug, Default)]
 pub struct SessionState {
     record_state: RecordState,
+    root: VslStore<ClientAccessRecord>,
     client: VslStore<ClientAccessRecord>,
     backend: VslStore<BackendAccessRecord>,
     sessions: Vec<SessionRecord>,
@@ -205,48 +206,105 @@ fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
     backend_record_resolved && esi_records_resolved && restart_record_resolved
 }
 
+fn find_root_mut_from_client_record<'r>(record: &ClientAccessRecord, root_records: &'r mut VslStore<ClientAccessRecord>, client_records: &VslStore<ClientAccessRecord>) -> Option<&'r mut ClientAccessRecord> {
+    if let Some(ref record) = client_records.get(&record.parent) {
+        error!("client - found client");
+        return find_root_mut_from_client_record(record, root_records, client_records)
+    }
+
+    // can't make this done first! lexical scopes :/
+    if let root @ Some(_) = root_records.get_mut(&record.parent) {
+        error!("client - found root");
+        return root
+    }
+
+    None
+}
+
+fn find_root_mut_from_backend_record<'r>(record: &BackendAccessRecord, root_records: &'r mut VslStore<ClientAccessRecord>, client_records: &VslStore<ClientAccessRecord>, backend_records: &VslStore<BackendAccessRecord>) -> Option<&'r mut ClientAccessRecord> {
+    if let Some(ref record) = client_records.get(&record.parent) {
+        error!("backend - found client");
+        return find_root_mut_from_client_record(record, root_records, client_records)
+    }
+
+    if let Some(ref record) = backend_records.get(&record.parent) {
+        error!("backend - found backend");
+        return find_root_mut_from_backend_record(record, root_records, client_records, backend_records)
+    }
+
+    // can't make this done first! lexical scopes :/
+    if let root @ Some(_) = root_records.get_mut(&record.parent) {
+        error!("backend - found root");
+        return root
+    }
+
+    error!("backend - nothing found");
+    None
+}
+
 impl SessionState {
     pub fn new() -> SessionState {
         Default::default()
     }
 
-    /*
-    fn try_resolve_session_record(session_record: &mut SessionRecord,
-                           client_records: &mut VslStore<ClientAccessRecord>,
-                           backend_records: &mut VslStore<BackendAccessRecord>) -> bool {
-        session_record.client_records.iter_mut().all(|link|
-            try_resolve_client_link(link, client_records, backend_records)
-        )
-    }
-    */
-
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<ClientAccessRecord> {
         match self.record_state.apply(vsl) {
             Some(Record::ClientAccess(mut record)) => {
-                if try_resolve_client_record(&mut record, &mut self.client, &mut self.backend) {
-                    return Some(record)
+                // TODO: move the predicate out to ClientAccessRecord
+                // or even create a newtype?!?
+                if record.reason == "rxreq" {
+                    if try_resolve_client_record(&mut record, &mut self.client, &mut self.backend) {
+                        return Some(record)
+                    }
+                    self.root.insert(record.ident, record);
+                    return None
                 }
-                self.client.insert(record.ident, record);
+
+                let root_ident =
+                    if let Some(ref mut root) = find_root_mut_from_client_record(&record, &mut self.root, &self.client) {
+                        self.client.insert(record.ident, record);
+
+                        if !try_resolve_client_record(root, &mut self.client, &mut self.backend) {
+                            error!("client - still unresolved");
+                            return None
+                        }
+
+                        error!("client - resolved!");
+                        root.ident
+                    } else {
+                        self.client.insert(record.ident, record);
+                        return None
+                    };
+
+                self.root.remove(&root_ident)
             }
             Some(Record::BackendAccess(record)) => {
-                //let parent = record.parent;
-                self.backend.insert(record.ident, record);
+                let root_ident =
+                    if let Some(ref mut root) = find_root_mut_from_backend_record(&record, &mut self.root, &self.client, &self.backend) {
+                        self.backend.insert(record.ident, record);
 
-                // If we have already seen the parent cilent record try to resolve it
-                ////if Some(record) = self.client.remove(parent) {
-                    //if try_resolve_client_record(&mut record, &mut self.client, &mut self.backend) {
-                        //return Some(record)
-                    //}
-                //}
+                        if !try_resolve_client_record(root, &mut self.client, &mut self.backend) {
+                            error!("client - still unresolved");
+                            return None
+                        }
+
+                        error!("backend - resolved!");
+                        root.ident
+                    } else {
+                        self.backend.insert(record.ident, record);
+                        return None
+                    };
+
+                self.root.remove(&root_ident)
             }
             Some(Record::Session(session)) => {
                 self.sessions.push(session);
-                //TODO: verify session was full
+                //TODO: verify session was complete
                 //self.try_resolve_sessions()
+                None
             }
-            None => ()
+            None => None
         }
-        None
     }
 
     pub fn unmatched_client_access_records(&self) -> Vec<&ClientAccessRecord> {
@@ -590,15 +648,9 @@ mod tests {
                65538, SLT_Link,             "req 65541 esi";
                65538, SLT_Timestamp,        "Resp: 1470304807.479222 0.089391 0.089199";
                65538, SLT_ReqAcct,          "220 0 220 1423 29 1452";
-               65538, SLT_End,              "";
-
-               65537, SLT_Begin,            "sess 0 HTTP/1";
-               65537, SLT_SessOpen,         "127.0.0.1 57408 127.0.0.1:1221 127.0.0.1 1221 1470304807.389646 20";
-               65537, SLT_Link,             "req 65538 rxreq";
-               65537, SLT_SessClose,        "REM_CLOSE 3.228";
               );
 
-        let client_record = apply_final!(state, 65537, SLT_End, "");
+        let client_record = apply_final!(state, 65538, SLT_End, "");
 
         // We will have esi_transactions in client request
         if let ClientAccessTransaction::Full { ref esi_records, .. } =
@@ -780,14 +832,8 @@ mod tests {
                    32772, SLT_Timestamp,        "BerespBody: 1470304882.615228 0.038584 0.036172";
                    32772, SLT_Length,           "6962";
                    32772, SLT_BereqAcct,        "792 0 792 332 6962 7294";
-                   32772, SLT_End,              "";
-
-                   32769, SLT_Begin,            "sess 0 HTTP/1";
-                   32769, SLT_SessOpen,         "127.0.0.1 34560 127.0.0.1:1244 127.0.0.1 1244 1470304882.576266 14";
-                   32769, SLT_Link,             "req 32770 rxreq";
-                   32769, SLT_SessClose,        "REM_CLOSE 0.347";
                    );
-        let client_record = apply_final!(state, 32769, SLT_End, "");
+        let client_record = apply_final!(state, 32772, SLT_End, "");
 
         // We should have restarted transaction
         if let ClientAccessTransaction::RestartedEarly { ref restart_record, .. } =
@@ -883,14 +929,8 @@ mod tests {
                    7, SLT_RespHeader,   "Connection: keep-alive";
                    7, SLT_Timestamp,    "Resp: 1470403414.672458 0.007634 0.000032";
                    7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
-                   7, SLT_End,          "";
-
-                   6, SLT_Begin,        "sess 0 HTTP/1";
-                   6, SLT_SessOpen,     "127.0.0.1 39798 127.0.0.1:1200 127.0.0.1 1200 1470403414.664642 17";
-                   6, SLT_Link,         "req 7 rxreq";
-                   6, SLT_SessClose,    "REM_CLOSE 0.008";
                    );
-        let client_record = apply_final!(state, 6, SLT_End, "");
+        let client_record = apply_final!(state, 7, SLT_End, "");
 
         // It is handled as ususal; only difference is backend request reason
         if let ClientAccessTransaction::Full { backend_record: Some(ref backend_record), .. } =
@@ -933,10 +973,6 @@ mod tests {
 
         // logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl
         apply_all!(state,
-                   3, SLT_Begin,          "sess 0 HTTP/1";
-                   3, SLT_SessOpen,       "127.0.0.1 59830 127.0.0.1:1220 127.0.0.1 1220 1471355444.743889 18";
-                   3, SLT_Link,           "req 4 rxreq";
-
                    5, SLT_Begin,          "bereq 4 pipe";
                    5, SLT_BereqMethod,    "GET";
                    5, SLT_BereqURL,       "/websocket";
@@ -968,12 +1004,9 @@ mod tests {
                    4, SLT_Timestamp,      "Pipe: 1471355444.744349 0.000209 0.000209";
                    4, SLT_Timestamp,      "PipeSess: 1471355444.751368 0.007228 0.007019";
                    4, SLT_PipeAcct,       "268 761 0 480";
-                   4, SLT_End,            "";
-
-                   3, SLT_SessClose,      "TX_PIPE 0.008";
               );
 
-        let client_record = apply_final!(state, 3, SLT_End, "");
+        let client_record = apply_final!(state, 4, SLT_End, "");
 
         if let ClientAccessTransaction::Piped { ref backend_record, .. } =
             client_record.transaction {

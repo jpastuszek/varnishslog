@@ -81,6 +81,7 @@ pub enum Link<T> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
     pub ident: VslIdent,
+    pub parent: VslIdent,
     pub reason: String,
     pub remote: Address,
     pub transaction: ClientAccessTransaction,
@@ -169,6 +170,7 @@ pub struct BackendConnection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendAccessRecord {
     pub ident: VslIdent,
+    pub parent: VslIdent,
     pub reason: String,
     pub transaction: BackendAccessTransaction,
     /// Start of backend request processing

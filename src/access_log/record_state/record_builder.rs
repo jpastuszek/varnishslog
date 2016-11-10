@@ -417,10 +417,12 @@ enum RecordType {
     Undefined,
     ClientAccess {
         reason: String,
+        parent: VslIdent,
         transaction: ClientAccessTransactionType,
     },
     BackendAccess {
         reason: String,
+        parent: VslIdent,
         transaction: BackendAccessTransactionType,
     },
     Session
@@ -524,14 +526,16 @@ impl RecordBuilder {
         match vsl.tag {
             SLT_Begin => match self.record_type {
                 RecordType::Undefined => {
-                    let (record_type, _parent_ident, reason) = try!(vsl.parse_data(slt_begin));
+                    let (record_type, parent_ident, reason) = try!(vsl.parse_data(slt_begin));
                     match record_type {
                         "bereq" => self.record_type = RecordType::BackendAccess {
                             reason: reason.to_owned(),
+                            parent: parent_ident,
                             transaction: BackendAccessTransactionType::Full,
                         },
                         "req" => self.record_type = RecordType::ClientAccess {
                             reason: reason.to_owned(),
+                            parent: parent_ident,
                             transaction: ClientAccessTransactionType::Full,
                         },
                         "sess" => self.record_type = RecordType::Session,
@@ -940,7 +944,7 @@ impl RecordBuilder {
                 let request = try!(self.http_request.unwrap());
 
                 match self.record_type {
-                    RecordType::ClientAccess { reason, transaction } => {
+                    RecordType::ClientAccess { reason, parent, transaction } => {
                         let transaction = match transaction {
                             ClientAccessTransactionType::Full => {
                                 // SLT_End tag is completing the client response
@@ -990,6 +994,7 @@ impl RecordBuilder {
 
                         let record = ClientAccessRecord {
                             ident: self.ident,
+                            parent: parent,
                             reason: reason,
                             remote: try!(self.client_addr.ok_or(RecordBuilderError::RecordIncomplete("client_addr"))),
                             transaction: transaction,
@@ -1002,7 +1007,7 @@ impl RecordBuilder {
 
                         Ok(Record::ClientAccess(record))
                     }
-                    RecordType::BackendAccess { reason, transaction } => {
+                    RecordType::BackendAccess { reason, parent, transaction } => {
                         let transaction = match transaction {
                             BackendAccessTransactionType::Full => {
                                 let cache_object = try!(self.cache_object.unwrap());
@@ -1083,6 +1088,7 @@ impl RecordBuilder {
 
                         let record = BackendAccessRecord {
                             ident: self.ident,
+                            parent: parent,
                             reason: reason,
                             transaction: transaction,
                             start: start,
@@ -1138,7 +1144,7 @@ mod tests {
         builder.apply(&vsl(SLT_Begin, 123, "bereq 321 fetch")).unwrap();
 
         assert_matches!(builder.record_type,
-            RecordType::BackendAccess { ref reason, .. } if reason == "fetch");
+            RecordType::BackendAccess { parent: 321, ref reason, .. } if reason == "fetch");
     }
 
     #[test]

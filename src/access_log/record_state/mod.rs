@@ -168,6 +168,7 @@ mod tests {
         let client = record.unwrap_client_access();
         assert_matches!(client, ClientAccessRecord {
             ident: 4,
+            parent: 3,
             ref reason,
             transaction: ClientAccessTransaction::Full {
                 accounting: Accounting {
@@ -267,6 +268,7 @@ mod tests {
 
         assert_matches!(backend, BackendAccessRecord {
             ident: 123,
+            parent: 321,
             start: Some(1469180762.484544),
             end: Some(1469180763.484544),
             ref reason,

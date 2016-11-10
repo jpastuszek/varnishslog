@@ -77,6 +77,12 @@ impl<T> VslStore<T> {
         }
     }
 
+    //TODO: do they need to expire on get? if we try to access them then they are needed
+    // since we have them we should use them and not remove them!
+    // probably beter to GC them when space is low instead before we nuke
+    // also the GC would be by removing oldest records, so we should use another list that keeps
+    // them in order of epoch
+    // is nuking not enough? I could just log debug if nuked object is expired instead
     pub fn get_mut(&mut self, ident: &VslIdent) -> Option<&mut T> where T: Debug {
         let opt = self.map.get_refresh(ident);
         if let Some(&mut (epoch, ref mut t)) = opt {
@@ -88,6 +94,17 @@ impl<T> VslStore<T> {
             return Some(t)
         }
         None
+    }
+
+    //TODO: can't expire if not mutable; use RefCell?; can't bump LRU as well
+    // do I realy care about LRU? should that not just be ordered by epoch (BTree) and we just kill the
+    // oledest?
+    pub fn get(&self, ident: &VslIdent) -> Option<&T> {
+        self.map.get(ident).map(|&(_epoch, ref t)| t)
+    }
+
+    pub fn contains_key(&self, ident: &VslIdent) -> bool {
+        self.map.contains_key(ident)
     }
 
     pub fn remove(&mut self, ident: &VslIdent) -> Option<T> where T: Debug {
@@ -144,10 +161,6 @@ mod tests {
 
     use vsl::record::VslIdent;
     impl<T> VslStore<T> {
-        pub fn get(&self, ident: &VslIdent) -> Option<&T> {
-            self.map.get(ident).map(|v| &v.1)
-        }
-
         pub fn oldest(&self) -> Option<(&VslIdent, &T)> {
             self.map.front().map(|(i, v)| (i, &v.1))
         }
