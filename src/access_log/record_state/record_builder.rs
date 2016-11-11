@@ -911,7 +911,6 @@ impl RecordBuilder {
             SLT_Fetch_Body => {
                 let (_fetch_mode, fetch_mode_name, streamed) = try!(vsl.parse_data(slt_fetch_body));
 
-                self.cache_object.complete();
                 self.fetch_body = Some(FetchBody {
                     mode: fetch_mode_name.to_string(),
                     streamed: streamed,
@@ -1010,11 +1009,25 @@ impl RecordBuilder {
                     RecordType::BackendAccess { reason, parent, transaction } => {
                         let transaction = match transaction {
                             BackendAccessTransactionType::Full => {
+                                // safet to complete late
+                                self.cache_object.complete();
                                 let cache_object = try!(self.cache_object.build());
 
                                 let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
                                 let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
-                                let fetch_body = try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")));
+
+                                let fetch_body =
+                                    if reason == "bgfetch" {
+                                        // HACK: bgfetch won't have SLT_Fetch_Body as the client is gone
+                                        // already so we fake it to avoid having yet another transaction
+                                        // type or Option
+                                        FetchBody {
+                                            mode: "bgfetch".to_string(),
+                                            streamed: false
+                                        }
+                                    } else {
+                                        try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")))
+                                    };
 
                                 let cache_object = CacheObject {
                                     storage_type: obj_storage.stype,
@@ -1708,7 +1721,7 @@ mod tests {
                    32785, SLT_ReqMethod,      "GET";
                    32785, SLT_ReqURL,         "/sse";
                    32785, SLT_ReqProtocol,    "HTTP/1.1";
-                   32785, SLT_ReqHeader,      "Host: staging.eod.whatclinic.net";
+                   32785, SLT_ReqHeader,      "Host: staging.eod.example.net";
                    32785, SLT_ReqHeader,      "Accept: text/event-stream";
                    32785, SLT_VCL_call,       "RECV";
                    32785, SLT_VCL_Log,        "server_name: v4.dev.varnish";
@@ -1747,7 +1760,7 @@ mod tests {
         } if
             url == "/sse" &&
             headers == &[
-                ("Host".to_string(), "staging.eod.whatclinic.net".to_string()),
+                ("Host".to_string(), "staging.eod.example.net".to_string()),
                 ("Accept".to_string(), "text/event-stream".to_string())] &&
             backend_record == &Link::Unresolved(32786, "pipe".to_string())
         );
@@ -2310,7 +2323,7 @@ mod tests {
                    32786, SLT_BereqMethod,    "GET";
                    32786, SLT_BereqURL,       "/sse";
                    32786, SLT_BereqProtocol,  "HTTP/1.1";
-                   32786, SLT_BereqHeader,    "Host: staging.eod.whatclinic.net";
+                   32786, SLT_BereqHeader,    "Host: staging.eod.example.net";
                    32786, SLT_BereqHeader,    "Accept: text/event-stream";
                    32786, SLT_BereqHeader,    "Connection: close";
                    32786, SLT_VCL_call,       "PIPE";
@@ -2341,7 +2354,7 @@ mod tests {
            url == "/sse" &&
            protocol == "HTTP/1.1" &&
            headers == &[
-               ("Host".to_string(), "staging.eod.whatclinic.net".to_string()),
+               ("Host".to_string(), "staging.eod.example.net".to_string()),
                ("Accept".to_string(), "text/event-stream".to_string()),
                ("Connection".to_string(), "close".to_string())]
        );
@@ -2694,6 +2707,77 @@ mod tests {
                    );
 
        let record = apply_last!(builder, 32769, SLT_End, "")
+           .unwrap_backend_access();
+
+       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+           cache_object: CacheObject {
+               ref storage_type,
+               ref storage_name,
+               ..
+           },
+           ..
+       } if
+           storage_type == "malloc" &&
+           storage_name == "s0"
+       );
+   }
+
+    #[test]
+    fn apply_backend_access_record_bgfetch() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   120386761, SLT_Begin,          "bereq 120386760 bgfetch";
+                   120386761, SLT_Timestamp,      "Start: 1478876416.764800 0.000000 0.000000";
+                   120386761, SLT_BereqMethod,    "GET";
+                   120386761, SLT_BereqURL,       "/";
+                   120386761, SLT_BereqProtocol,  "HTTP/1.1";
+                   120386761, SLT_BereqHeader,    "Host: www.example.com";
+                   120386761, SLT_BereqHeader,    "Accept: */*";
+                   120386761, SLT_BereqHeader,    "User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1";
+                   120386761, SLT_BereqHeader,    "Accept-Encoding: gzip";
+                   120386761, SLT_BereqHeader,    "If-None-Match: W/\"371132087\"";
+                   120386761, SLT_BereqHeader,    "X-Varnish: 120386761";
+                   );
+                   apply_all!(builder,
+                   120386761, SLT_VCL_call,       "BACKEND_FETCH";
+                   120386761, SLT_BereqUnset,     "Accept-Encoding: gzip";
+                   120386761, SLT_BereqHeader,    "Accept-Encoding: gzip";
+                   120386761, SLT_VCL_return,     "fetch";
+                   120386761, SLT_BackendOpen,    "51 reload_2016-11-11T09:47:37.origin 10.1.1.22 2081 10.3.1.217 33152";
+                   120386761, SLT_BackendStart,   "10.1.1.22 2081";
+                   120386760, SLT_Link,           "bereq 120386761 bgfetch";
+                   120386761, SLT_Timestamp,      "Bereq: 1478876416.764860 0.000060 0.000060";
+                   120386761, SLT_Timestamp,      "Beresp: 1478876417.148921 0.384121 0.384061";
+                   120386761, SLT_BerespProtocol, "HTTP/1.1";
+                   120386761, SLT_BerespStatus,   "304";
+                   120386761, SLT_BerespReason,   "Not Modified";
+                   120386761, SLT_BerespHeader,   "Cache-Control: private, must-revalidate, s-maxage=3644";
+                   120386761, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
+                   120386761, SLT_TTL,            "RFC 3644 10 -1 1478876417 1478872579 1478872569 0 3644";
+                   120386761, SLT_BerespProtocol, "HTTP/1.1";
+                   120386761, SLT_BerespStatus,   "200";
+                   120386761, SLT_BerespReason,   "OK";
+                   120386761, SLT_BerespHeader,   "x-url: /";
+                   120386761, SLT_VCL_call,       "BACKEND_RESPONSE";
+                   120386761, SLT_TTL,            "VCL 3644 259200 0 1478872579";
+                   120386761, SLT_VCL_return,     "deliver";
+                   );
+                   apply_all!(builder,
+                   120386761, SLT_Storage,        "malloc s0";
+                   120386761, SLT_ObjProtocol,    "HTTP/1.1";
+                   120386761, SLT_ObjStatus,      "200";
+                   120386761, SLT_ObjReason,      "OK";
+                   120386761, SLT_ObjHeader,      "Cache-Control: private, must-revalidate, s-maxage=3644";
+                   120386761, SLT_ObjHeader,      "Content-Type: text/html; charset=utf-8";
+                   120386761, SLT_ObjHeader,      "Server: Microsoft-IIS/7.5";
+                   120386761, SLT_BackendReuse,   "51 reload_2016-11-11T09:47:37.origin";
+                   120386761, SLT_Timestamp,      "BerespBody: 1478876417.149090 0.384290 0.000168";
+                   120386761, SLT_Length,         "182259";
+                   120386761, SLT_BereqAcct,      "1041 0 1041 562 0 562";
+                   );
+
+       let record = apply_last!(builder, 120386761, SLT_End, "")
            .unwrap_backend_access();
 
        assert_matches!(record.transaction, BackendAccessTransaction::Full {
