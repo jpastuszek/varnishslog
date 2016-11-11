@@ -1,6 +1,7 @@
 #[cfg(test)]
 #[macro_use]
 mod test_helpers {
+    //TODO move to lib.rs?
     use vsl::record::{VslRecord, VslRecordTag, VslIdent};
     use std::sync::{Once, ONCE_INIT};
 

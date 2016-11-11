@@ -14,6 +14,7 @@
 // so we can tell if two VslIdent's are from two different times.
 
 use linked_hash_map::{self, LinkedHashMap};
+use std::cmp::min;
 use std::num::Wrapping;
 use std::fmt::Debug;
 use fnv::FnvHasher;
@@ -21,21 +22,25 @@ use std::hash::BuildHasherDefault;
 
 use vsl::record::VslIdent;
 
-pub type Epoch = u32;
+pub type Epoch = usize;
 
-// How many VslIdent recorts to keep in the map
-const MAX_SLOTS: u32 = 16_000;
+// How many VslIdent recorts to keep in the store
+const MAX_SLOTS: usize = 16_000;
 // How many inserts old a record can be before we drop it on remove
 const MAX_EPOCH_DIFF: Epoch = 1_000_000;
-// How many objects to nuke when we need to nuke as factor of MAX_SLOTS
+// Max number of objects to expire on insert
+const EXPIRE_COUNT: usize = 10;
+// How many objects to nuke when store is full as factor of MAX_SLOTS
 const NUKE_FACTOR: f32 = 0.01;
 
 #[derive(Debug)]
 pub struct VslStore<T> {
-    map: LinkedHashMap<VslIdent, (Wrapping<Epoch>, T), BuildHasherDefault<FnvHasher>>,
+    // in order of insertion, oldest (lowest epoch) records are at the front
+    store: LinkedHashMap<VslIdent, (Wrapping<Epoch>, T), BuildHasherDefault<FnvHasher>>,
     expired: Vec<VslIdent>,
-    slots_free: u32,
-    nuke_count: u32,
+    slots_free: usize,
+    expire_count: usize,
+    nuke_count: usize,
     epoch: Wrapping<Epoch>,
     max_epoch_diff: Wrapping<Epoch>,
 }
@@ -51,18 +56,21 @@ impl<T> VslStore<T> {
         Default::default()
     }
 
-    pub fn with_max_slots_and_epoch_diff(max_slots: u32, max_epoch_diff: Epoch) -> VslStore<T> {
+    pub fn with_max_slots_and_epoch_diff(max_slots: usize, max_epoch_diff: Epoch) -> VslStore<T> {
         VslStore {
-            map: LinkedHashMap::default(),
+            store: LinkedHashMap::default(),
             expired: Vec::new(),
             slots_free: max_slots,
-            nuke_count: (max_slots as f32 * NUKE_FACTOR).ceil() as u32,
+            expire_count: EXPIRE_COUNT,
+            nuke_count: (max_slots as f32 * NUKE_FACTOR).ceil() as usize,
             epoch: Wrapping(0),
             max_epoch_diff: Wrapping(max_epoch_diff),
         }
     }
 
-    pub fn insert(&mut self, ident: VslIdent, value: T) {
+    pub fn insert(&mut self, ident: VslIdent, value: T) where T: Debug {
+        // increase the epoch before we expire to make space for new insert
+        self.epoch = self.epoch + Wrapping(1);
         self.expire();
 
         if self.slots_free < 1 {
@@ -70,77 +78,55 @@ impl<T> VslStore<T> {
         }
         assert!(self.slots_free >= 1);
 
-        self.epoch = self.epoch + Wrapping(1);
-
-        if self.map.insert(ident, (self.epoch, value)).is_none() {
+        if self.store.insert(ident, (self.epoch, value)).is_none() {
             self.slots_free -= 1;
         }
     }
 
-    //TODO: do they need to expire on get? if we try to access them then they are needed
-    // since we have them we should use them and not remove them!
-    // probably beter to GC them when space is low instead before we nuke
-    // also the GC would be by removing oldest records, so we should use another list that keeps
-    // them in order of epoch
-    // is nuking not enough? I could just log debug if nuked object is expired instead
-    pub fn get_mut(&mut self, ident: &VslIdent) -> Option<&mut T> where T: Debug {
-        let opt = self.map.get_refresh(ident);
-        if let Some(&mut (epoch, ref mut t)) = opt {
-            if self.epoch - epoch > self.max_epoch_diff {
-                warn!("Adding old record to expirity list; current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, t);
-                self.expired.push(*ident);
-                return None
-            }
-            return Some(t)
-        }
-        None
+    pub fn get_mut(&mut self, ident: &VslIdent) -> Option<&mut T> {
+        self.store.get_mut(ident).map(|&mut (_epoch, ref mut t)| t)
     }
 
-    //TODO: can't expire if not mutable; use RefCell?; can't bump LRU as well
-    // do I realy care about LRU? should that not just be ordered by epoch (BTree) and we just kill the
-    // oledest?
     pub fn get(&self, ident: &VslIdent) -> Option<&T> {
-        self.map.get(ident).map(|&(_epoch, ref t)| t)
+        self.store.get(ident).map(|&(_epoch, ref t)| t)
     }
 
     pub fn contains_key(&self, ident: &VslIdent) -> bool {
-        self.map.contains_key(ident)
+        self.store.contains_key(ident)
     }
 
-    pub fn remove(&mut self, ident: &VslIdent) -> Option<T> where T: Debug {
-        let opt = self.map.remove(ident);
-        if let Some((epoch, t)) = opt {
-            self.slots_free += 1;
-            if self.is_expired(epoch) {
-                warn!("Dropping old record; current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, t);
-                return None
-            }
-            return Some(t)
-        }
-        None
+    pub fn remove(&mut self, ident: &VslIdent) -> Option<T> {
+        self.store.remove(ident).map(|(_epoch, t)| t)
     }
 
     pub fn values(&self) -> Values<T> {
-        Values(self.map.values())
+        Values(self.store.values())
     }
 
-    fn is_expired(&self, entry_epoch: Wrapping<Epoch>) -> bool {
-        self.epoch - entry_epoch > self.max_epoch_diff
-    }
+    fn expire(&mut self) where T: Debug {
+        let to_expire = self.store.values()
+            .take(self.expire_count)
+            .take_while(|&&(epoch, _)| self.epoch - epoch >= self.max_epoch_diff)
+            .count();
 
-    fn expire(&mut self) {
-        for expired_ident in self.expired.drain(..) {
-            self.map.remove(&expired_ident);
+        if to_expire == 0 {
+            return
+        }
+
+        warn!("Expiring {} records", to_expire);
+        for _ in 0..to_expire {
+            let (ident, (epoch, record)) = self.store.pop_front().unwrap();
+            info!("Removed expired record from store: current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, record);
         }
     }
 
-    fn nuke(&mut self) {
-        warn!("Nuking up to {} oldest records", self.nuke_count);
+    fn nuke(&mut self) where T: Debug {
+        let to_nuke: usize = min(self.nuke_count, self.store.len());
 
-        for _ in 0..self.nuke_count {
-            if self.map.pop_front().is_none() {
-                break;
-            }
+        warn!("Nuking {} oldest records", to_nuke);
+        for _ in 0..to_nuke {
+            let (ident, (epoch, record)) = self.store.pop_front().unwrap();
+            info!("Nuked record from store: current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, record);
             self.slots_free += 1;
         }
     }
@@ -162,60 +148,28 @@ mod tests {
     use vsl::record::VslIdent;
     impl<T> VslStore<T> {
         pub fn oldest(&self) -> Option<(&VslIdent, &T)> {
-            self.map.front().map(|(i, v)| (i, &v.1))
+            self.store.front().map(|(i, v)| (i, &v.1))
         }
     }
 
     #[test]
-    fn old_elements_should_be_removed_on_overflow() {
+    fn nuking() {
         let mut s = VslStore::with_max_slots_and_epoch_diff(10, 100);
-
-        for i in 0..1024 {
+for i in 0..13 {
             s.insert(i, i);
         }
 
-        assert_eq!(*s.oldest().unwrap().0, 1024 - 10);
+        assert_eq!(*s.oldest().unwrap().0, 13 - 10);
     }
 
     #[test]
-    fn old_elements_should_be_removed_on_overflow_with_remove() {
-        let mut s = VslStore::with_max_slots_and_epoch_diff(10, 100);
+    fn expire() {
+        let mut s = VslStore::with_max_slots_and_epoch_diff(100, 10);
 
-        for i in 0..1024 {
-            s.insert(i, i);
-            if i >= 4 && i % 4 == 0 {
-                s.remove(&(i - 2));
-            }
-        }
-
-        assert_eq!(*s.oldest().unwrap().0, 1024 - 10 - 2);
-    }
-
-    #[test]
-    fn old_elements_should_not_be_retruned_by_remove() {
-        let mut s = VslStore::with_max_slots_and_epoch_diff(1024, 100);
-
-        for i in 0..1024 {
+        for i in 0..13 {
             s.insert(i, i);
         }
 
-        assert!(s.remove(&0).is_none());
-        assert!(s.remove(&100).is_none());
-        assert!(s.remove(&(1023 - 101)).is_none());
-        assert!(s.remove(&(1023 - 100)).is_some());
-    }
-
-    #[test]
-    fn old_elements_should_not_be_retruned_by_get_mut() {
-        let mut s = VslStore::with_max_slots_and_epoch_diff(1024, 100);
-
-        for i in 0..1024 {
-            s.insert(i, i);
-        }
-
-        assert!(s.get_mut(&0).is_none());
-        assert!(s.get_mut(&100).is_none());
-        assert!(s.get_mut(&(1023 - 101)).is_none());
-        assert!(s.get_mut(&(1023 - 100)).is_some());
+        assert_eq!(*s.oldest().unwrap().0, 13 - 10);
     }
 }
