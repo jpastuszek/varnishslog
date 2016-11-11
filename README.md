@@ -287,18 +287,18 @@ ARGS:
 Bench results
 -------------
 
-Run against commit 3b792650e9b0c7e52dc6a7e3a0e982c3b2fe03d6 using 13480 VSL records making up 211 access records and 86 sessions and 86 client access records so about 157 VSL records per output client access record (benches/varnish20160816-4093-1xh1jbx808a493d5e74216e5.vsl).
-This was run on MacBook Air (13-inch, Mid 2013) and build with rustc 1.12.0 (3191fbae9 2016-09-23).
+Run against commit bede3866f78ccc05b382af8a4e4b3b0cc9b3c667 using 13480 VSL records making up 211 access records and 86 sessions and 86 client access records so about 157 VSL records per output client access record (benches/varnish20160816-4093-1xh1jbx808a493d5e74216e5.vsl).
+This was run on MacBook Air (13-inch, Mid 2013) and build with rustc 1.13.0 (2c6933acc 2016-11-07).
 
 ```
-test log_session_record_ncsa_json ... bench:  17,268,828 ns/iter (+/- 4,231,860)
-test log_session_record_json      ... bench:  17,232,030 ns/iter (+/- 7,914,488)
-test log_session_record_json_raw  ... bench:  10,231,954 ns/iter (+/- 9,468,751)
-test session_state                ... bench:   5,427,802 ns/iter (+/- 4,695,443)
+test log_session_record_ncsa_json ... bench:  14,714,262 ns/iter (+/- 1,535,154)
+test log_session_record_json      ... bench:  14,595,400 ns/iter (+/- 1,460,486)
+test log_session_record_json_raw  ... bench:  8,080,349 ns/iter  (+/- 702,717)
+test session_state                ... bench:   4,867,820 ns/iter (+/- 955,436)
 test default_buffer_from_file     ... bench:     408,024 ns/iter (+/- 163,009)
 ```
 
-* 5.0 K/s JSON records (indexed) or 780 K/s VSL records processed into serialized output
-* 8.4 K/s JSON records (raw) or 1317 K/s VSL records processed into serialized output
-* 15.8 K/s session records (correlated access records) or 2483 K/s VSL records processed (without serialization)
+* 5.9 K/s JSON records (indexed) or 924 K/s VSL records processed into serialized output
+* 10.6 K/s JSON records (raw) or 1668 K/s VSL records processed into serialized output
+* 17.7 K/s session records (correlated access records) or 2769 K/s VSL records processed (without serialization)
 * 33.0 M/s VSL records extracted from binary stream (message not parsed)
