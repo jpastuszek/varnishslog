@@ -65,7 +65,7 @@ impl RecordState {
             }
             Finalize => {
                 match self.builders.remove(&vsl.ident).unwrap() {
-                    Builder(builder) => match builder.unwrap() {
+                    Builder(builder) => match builder.build() {
                         Ok(record) => return Some(record),
                         Err(err) => {
                             error!("Error while finalizing record with ident {} after applying {}: {}", &vsl.ident, &vsl, &err);
