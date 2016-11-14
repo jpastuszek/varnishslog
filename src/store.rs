@@ -116,7 +116,7 @@ impl<T> VslStore<T> {
         warn!("Expiring {} records", to_expire);
         for _ in 0..to_expire {
             let (ident, (epoch, record)) = self.store.pop_front().unwrap();
-            info!("Removed expired record from store: current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, record);
+            info!("Removed expired record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", self.epoch, epoch, ident, record);
         }
     }
 
@@ -126,7 +126,7 @@ impl<T> VslStore<T> {
         warn!("Nuking {} oldest records", to_nuke);
         for _ in 0..to_nuke {
             let (ident, (epoch, record)) = self.store.pop_front().unwrap();
-            info!("Nuked record from store: current epoch {}, record epoch {}, ident: {}: {:?}", self.epoch, epoch, ident, record);
+            info!("Nuked record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", self.epoch, epoch, ident, record);
             self.slots_free += 1;
         }
     }

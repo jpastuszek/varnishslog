@@ -214,15 +214,15 @@ impl WriteRecord for SerdeWriter {
 
     fn log_reports(&self) {
         for client in self.state.unresolved_root_client_access_records() {
-            warn!("Root ClientAccessRecord left unresolved: {:?}", client)
+            warn!("Root ClientAccessRecord left unresolved:\n{:#?}", client)
         }
 
         for client in self.state.unresolved_client_access_records() {
-            warn!("ClientAccessRecord left unresolved: {:?}", client)
+            warn!("ClientAccessRecord left unresolved:\n{:#?}", client)
         }
 
         for backend in self.state.unresolved_backend_access_records() {
-            warn!("BackendAccessRecord left unresolved: {:?}", backend)
+            warn!("BackendAccessRecord left unresolved:\n{:#?}", backend)
         }
     }
 }

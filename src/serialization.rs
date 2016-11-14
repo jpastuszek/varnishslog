@@ -316,7 +316,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                 if let Some(record) = restart_record.get_resolved() {
                     follow_restarts(record, restart_count + 1)
                 } else {
-                    warn!("Found unresolved link {:?} in: {:?}", restart_record, record);
+                    warn!("Found unresolved link {:?} in:\n{:#?}", restart_record, record);
                     None
                 }
             },
@@ -523,7 +523,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                     BackendAccessTransaction::Piped { .. } => return block(None),
                 }
             } else {
-                warn!("Found unresolved link {:?} in: {:?}", record_link, client_record);
+                warn!("Found unresolved link {:?} in:\n{:#?}", record_link, client_record);
             }
         }
         block(None)
@@ -647,18 +647,18 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                                 backend_connection: backend_connection.as_ref(),
                             }))
                         } else {
-                            warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in: {:?}",
+                            warn!("Expected Piped ClientAccessRecord to link Piped BackendAccessTransaction; link {:?} in:\n{:#?}",
                                   backend_record, final_record);
                         }
                     } else {
-                        warn!("Found unresolved link {:?} in: {:?}", backend_record, final_record);
+                        warn!("Found unresolved link {:?} in:\n{:#?}", backend_record, final_record);
                     }
                 },
                 (_, &ClientAccessTransaction::RestartedEarly { .. }) => panic!("got ClientAccessTransaction::RestartedEarly as final final_record"),
                 (_, &ClientAccessTransaction::RestartedLate { .. }) => panic!("got ClientAccessTransaction::RestartedLate as final final_record"),
             }
         } else {
-            warn!("Failed to find final record for: {:?}", record);
+            warn!("Failed to find final record for:\n{:#?}", record);
         }
         block(None)
     }
@@ -692,7 +692,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                             if let Some(esi_record) = esi_record_link.get_resolved() {
                                 try!(log_client_access_record(format, out, esi_record, "esi_subrequest", config));
                             } else {
-                                warn!("Found unresolved ESI record link {:?} in: {:?}", esi_record_link, record);
+                                warn!("Found unresolved ESI record link {:?} in:\n{:#?}", esi_record_link, record);
                             }
                         }
 
@@ -905,7 +905,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                     }
                 }
             } else {
-                warn!("No log entry found for linked client access record {:?}", record);
+                warn!("No log entry found for linked client access record:\n{:#?}", record);
                 Ok(())
             }
         })
