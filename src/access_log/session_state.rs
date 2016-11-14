@@ -297,26 +297,9 @@ impl SessionState {
 
                 self.root.remove(&root_ident)
             }
-            Some(Record::Session(session)) => {
-                for client_record_link in &session.client_records {
-                    if let &Link::Unresolved(ref ident, _) = client_record_link {
-                        if let Some(ref client_record) = self.root.get(ident) {
-                            // bgfetch records may be logged after session is closed as the are
-                            // async to the client request
-                            // TODO: this will not follow restarts
-                            if let ClientAccessTransaction::Full {
-                                backend_record: Some(Link::Unresolved(_, ref reason)),
-                                ..
-                            } = client_record.transaction {
-                                if reason == "bgfetch" {
-                                    continue
-                                }
-                            }
-
-                            warn!("Unresolved root ClientAccessRecord found on session close: {:?} in session: {:?}", client_record, &session);
-                        }
-                    }
-                }
+            Some(Record::Session(_session)) => {
+                // when session is closed records are already resolved or are still building so nothing
+                // useful can be done here
                 None
             }
             None => None
