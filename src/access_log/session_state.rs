@@ -72,6 +72,7 @@
 //     6 SLT_End
 
 use store::VslStore;
+use store::Config as StoreConfig;
 use access_log::record_state::RecordState;
 use access_log::record::{
     Record,
@@ -248,18 +249,22 @@ fn find_root_mut_from_backend_record<'r>(record: &BackendAccessRecord, root_reco
 
 impl Default for SessionState {
     fn default() -> Self {
-        SessionState {
-            record_state: Default::default(),
-            root: VslStore::new("root"),
-            client: VslStore::new("client"),
-            backend: VslStore::new("backend"),
-        }
+        SessionState::new()
     }
 }
 
 impl SessionState {
     pub fn new() -> SessionState {
-        Default::default()
+        SessionState::with_config(&Default::default())
+    }
+
+    pub fn with_config(store_config: &StoreConfig) -> SessionState {
+        SessionState {
+            record_state: RecordState::with_config(store_config),
+            root: VslStore::with_config("root", store_config),
+            client: VslStore::with_config("client", store_config),
+            backend: VslStore::with_config("backend", store_config),
+        }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<ClientAccessRecord> {

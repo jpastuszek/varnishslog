@@ -927,7 +927,7 @@ impl RecordBuilder {
 
     pub fn build(mut self) -> Result<Record, RecordBuilderError> {
         match self.record_type {
-            RecordType::Undefined => Err(RecordBuilderError::RecordIncomplete("record type is not known")),
+            RecordType::Undefined => Err(RecordBuilderError::RecordIncomplete("record type is not known - have we missed/lost SLT_Begin record?")),
             RecordType::Session => {
                 let record = SessionRecord {
                     ident: self.ident,

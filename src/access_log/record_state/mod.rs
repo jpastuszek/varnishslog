@@ -1,6 +1,7 @@
 mod record_builder;
 use self::record_builder::{RecordBuilder, RecordBuilderError};
 use store::VslStore;
+use store::Config as StoreConfig;
 use vsl::record::VslRecord;
 use access_log::record::Record;
 
@@ -33,15 +34,19 @@ pub struct RecordState {
 
 impl Default for RecordState {
     fn default() -> Self {
-        RecordState {
-            builders: VslStore::new("builders"),
-        }
+        RecordState::new()
     }
 }
 
 impl RecordState {
     pub fn new() -> RecordState {
-        Default::default()
+        RecordState::with_config(&Default::default())
+    }
+
+    pub fn with_config(store_config: &StoreConfig) -> RecordState {
+        RecordState {
+            builders: VslStore::with_config("builders", store_config),
+        }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {

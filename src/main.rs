@@ -18,6 +18,7 @@ use clap::{Arg, App};
 use varnishslog::stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
 use varnishslog::vsl::record::VslRecord;
 use varnishslog::vsl::record::parser::{binary_vsl_tag, vsl_record_v4};
+use varnishslog::store::Config as StoreConfig;
 use varnishslog::access_log::session_state::SessionState;
 use varnishslog::access_log::record_state::RecordState;
 use varnishslog::serialization::{log_client_record, Config, Format, OutputError, JsonError};
@@ -124,7 +125,7 @@ fn process_vsl_records<R, W, P>(stream: &mut ReadStreamBuf<R>, mut writer: P, ou
     }
 }
 
-fn process_vsl_stream<R, W>(input: R, mut output: W, stream_buf_size: usize, output_format: OutputFormat, config: Config) -> Result<(), ProcessingError> where R: Read, W: Write {
+fn process_vsl_stream<R, W>(input: R, mut output: W, stream_buf_size: usize, output_format: OutputFormat, config: Config, store_config: &StoreConfig) -> Result<(), ProcessingError> where R: Read, W: Write {
     //TODO: make buffer size configurable
     let mut stream = ReadStreamBuf::with_capacity(input, stream_buf_size);
 
@@ -133,11 +134,11 @@ fn process_vsl_stream<R, W>(input: R, mut output: W, stream_buf_size: usize, out
     match output_format {
         OutputFormat::Log => process_vsl_records(&mut stream, LogWriter::default(), &mut output),
         OutputFormat::LogDebug => process_vsl_records(&mut stream, LogDebugWriter::default(), &mut output),
-        OutputFormat::RecordDebug => process_vsl_records(&mut stream, RecordDebugWriter::default(), &mut output),
-        OutputFormat::SessionDebug => process_vsl_records(&mut stream, SessionDebugWriter::default(), &mut output),
-        OutputFormat::Json => process_vsl_records(&mut stream, SerdeWriter::new(Format::Json, config), &mut output),
-        OutputFormat::JsonPretty => process_vsl_records(&mut stream, SerdeWriter::new(Format::JsonPretty, config), &mut output),
-        OutputFormat::NcsaJson => process_vsl_records(&mut stream, SerdeWriter::new(Format::NcsaJson, config), &mut output),
+        OutputFormat::RecordDebug => process_vsl_records(&mut stream, RecordDebugWriter::new(store_config), &mut output),
+        OutputFormat::SessionDebug => process_vsl_records(&mut stream, SessionDebugWriter::new(store_config), &mut output),
+        OutputFormat::Json => process_vsl_records(&mut stream, SerdeWriter::new(Format::Json, config, store_config), &mut output),
+        OutputFormat::JsonPretty => process_vsl_records(&mut stream, SerdeWriter::new(Format::JsonPretty, config, store_config), &mut output),
+        OutputFormat::NcsaJson => process_vsl_records(&mut stream, SerdeWriter::new(Format::NcsaJson, config, store_config), &mut output),
     }
 }
 
@@ -157,9 +158,16 @@ impl WriteRecord for LogDebugWriter {
     }
 }
 
-#[derive(Default)]
 struct RecordDebugWriter {
     state: RecordState,
+}
+
+impl RecordDebugWriter {
+    fn new(store_config: &StoreConfig) -> RecordDebugWriter {
+        RecordDebugWriter {
+            state: RecordState::with_config(store_config)
+        }
+    }
 }
 
 impl WriteRecord for RecordDebugWriter {
@@ -172,9 +180,16 @@ impl WriteRecord for RecordDebugWriter {
     }
 }
 
-#[derive(Default)]
 struct SessionDebugWriter {
     state: SessionState,
+}
+
+impl SessionDebugWriter {
+    fn new(store_config: &StoreConfig) -> SessionDebugWriter {
+        SessionDebugWriter {
+            state: SessionState::with_config(store_config)
+        }
+    }
 }
 
 impl WriteRecord for SessionDebugWriter {
@@ -194,9 +209,9 @@ struct SerdeWriter {
 }
 
 impl SerdeWriter {
-    fn new(format: Format, config: Config) -> SerdeWriter {
+    fn new(format: Format, config: Config, store_config: &StoreConfig) -> SerdeWriter {
         SerdeWriter {
-            state: SessionState::default(),
+            state: SessionState::with_config(store_config),
             format: format,
             config: config,
         }
@@ -240,6 +255,36 @@ arg_enum! {
     }
 }
 
+fn validate_max_record_slots(value: String) -> Result<(), String> {
+    let v = try!(value.parse::<usize>().map_err(|_| format!("max-record-slots expected to be an integer; got: {:?}", value)));
+
+    if !(v > 0) {
+        Err(format!("max-record-slots must be greater than zero; got: {}", v))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_max_epoch_diff(value: String) -> Result<(), String> {
+    let v = try!(value.parse::<usize>().map_err(|_| format!("max-epoch-diff expected to be an integer; got: {:?}", value)));
+
+    if !(v > 0) {
+        Err(format!("max-epoch-diff must be greater than zero; got: {}", v))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_evict_factor(value: String) -> Result<(), String> {
+    let v = try!(value.parse::<f32>().map_err(|_| format!("evict-factor expected to be an integer; got: {:?}", value)));
+
+    if !(v > 0.0) {
+        Err(format!("evict-factor must be greater than zero; got: {}", v))
+    } else {
+        Ok(())
+    }
+}
+
 fn main() {
     let arguments = App::new("Varnish Structured Logger")
         .version(crate_version!())
@@ -277,9 +322,27 @@ fn main() {
              .help("Keep raw header name/value pairs; any indices are moved to top level"))
         .arg(Arg::with_name("stream-buffer-size")
              .long("stream-buffer-size")
-             .short("s")
+             .display_order(2000)
              .help("Size of stream buffer in bytes - must be bigger than biggest VSL record")
              .default_value("262144"))
+        .arg(Arg::with_name("max-record-slots")
+             .long("max-record-slots")
+             .display_order(2000)
+             .help("Maximum number of records being built or corelated at the same time")
+             .validator(validate_max_record_slots)
+             .default_value("4000"))
+        .arg(Arg::with_name("max-epoch-diff")
+             .long("max-epoch-diff")
+             .display_order(2000)
+             .help("Consider record being built or correlated as stale after that many more new records porcessed")
+             .validator(validate_max_epoch_diff)
+             .default_value("100000"))
+        .arg(Arg::with_name("evict-factor")
+             .long("evict-factor")
+             .help("Remove that many records at a time when doing eviction or nucking (ratio to max-record-slots)")
+             .display_order(2000)
+             .validator(validate_evict_factor)
+             .default_value("0.01"))
         .arg(Arg::with_name("vsl-file")
              .value_name("VSL_FILE")
              .help("VSL file to process (read from standard input if not specified)"))
@@ -299,16 +362,22 @@ fn main() {
         keep_raw_headers: arguments.is_present("keep-raw-headers"),
     };
 
+    let store_config = StoreConfig::new(
+        value_t!(arguments, "max-record-slots", usize).unwrap_or_else(|e| e.exit()),
+        value_t!(arguments, "max-epoch-diff", usize).unwrap_or_else(|e| e.exit()),
+        value_t!(arguments, "evict-factor", f32).unwrap_or_else(|e| e.exit())
+    ).unwrap();
+
     let result = if let Some(path) = arguments.value_of("vsl-file") {
         let file = File::open(path);
         match file {
-            Ok(file) => process_vsl_stream(file, output, stream_buf_size, output_format, config),
+            Ok(file) => process_vsl_stream(file, output, stream_buf_size, output_format, config, &store_config),
             Err(err) => program::exit_with_error(&format!("Failed to open VSL file: {}: {}", path, err), 1),
         }
     } else {
         let stdin = stdin();
         let stdin = stdin.lock();
-        process_vsl_stream(stdin, output, stream_buf_size, output_format, config)
+        process_vsl_stream(stdin, output, stream_buf_size, output_format, config, &store_config)
     };
 
     if let Err(err) = result {
