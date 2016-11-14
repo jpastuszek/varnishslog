@@ -206,8 +206,8 @@ named!(pub slt_fetch_body<&[u8], (FetchMode, &str, bool)>, tuple!(
             |s| s == b"stream"
             ), eof)));
 
-named!(pub slt_gzip<&[u8], (CompressionOperation, CompressionDirection, bool, ByteCount, ByteCount,
-                            BitCount, BitCount, BitCount)>, tuple!(
+named!(pub slt_gzip<&[u8], Result<(CompressionOperation, CompressionDirection, bool, ByteCount, ByteCount, BitCount, BitCount, BitCount), &MaybeStr> >, alt_complete!(
+       map!(tuple!(
         // 'G': Gzip, 'U': Gunzip, 'u': Gunzip-test\n"
         // Note: somehow match won't compile here
         terminated!(map!(alt!(tag!(b"G") | tag!(b"U") | tag!(b"u")),
@@ -233,7 +233,8 @@ named!(pub slt_gzip<&[u8], (CompressionOperation, CompressionDirection, bool, By
         byte_count,
         bit_count,
         bit_count,
-        bit_count));
+        bit_count), |t| Ok(t)) |
+        map!(maybe_str!(non_empty), |m| Err(m))));
 
 named!(pub slt_vcl_log<&[u8], &MaybeStr>, maybe_str!(
         non_empty));

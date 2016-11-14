@@ -898,15 +898,16 @@ impl RecordBuilder {
             }
             SLT_Gzip => {
                 // Note: direction and ESI values will be known form context
-                let (operation, _direction, _esi,
-                     bytes_in, bytes_out,
-                     _bit_first, _bit_last, _bit_len) = try!(vsl.parse_data(slt_gzip));
-
-                self.compression = Some(Compression {
-                    operation: operation,
-                    bytes_in: bytes_in,
-                    bytes_out: bytes_out,
-                });
+                match try!(vsl.parse_data(slt_gzip)) {
+                    Ok((operation, _direction, _esi,
+                       bytes_in, bytes_out,
+                       _bit_first, _bit_last, _bit_len)) => self.compression = Some(Compression {
+                        operation: operation,
+                        bytes_in: bytes_in,
+                        bytes_out: bytes_out,
+                    }),
+                    Err(message) => self.log.push(LogEntry::Error(message.to_lossy_string()))
+                }
             }
             SLT_Fetch_Body => {
                 let (_fetch_mode, fetch_mode_name, streamed) = try!(vsl.parse_data(slt_fetch_body));
@@ -2777,19 +2778,62 @@ mod tests {
                    120386761, SLT_BereqAcct,      "1041 0 1041 562 0 562";
                    );
 
-       let record = apply_last!(builder, 120386761, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 120386761, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Full {
-           cache_object: CacheObject {
-               ref storage_type,
-               ref storage_name,
-               ..
-           },
-           ..
-       } if
-           storage_type == "malloc" &&
-           storage_name == "s0"
-       );
-   }
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ref storage_type,
+                    ref storage_name,
+                    ..
+                },
+                ..
+            } if
+                storage_type == "malloc" &&
+                storage_name == "s0"
+        );
+    }
+
+    #[test]
+    fn apply_client_access_record_gzip_error() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   7, SLT_Begin,        "req 6 rxreq";
+                   7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+                   7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+                   7, SLT_ReqStart,     "127.0.0.1 39798";
+                   7, SLT_ReqMethod,    "GET";
+                   7, SLT_ReqURL,       "/retry";
+                   7, SLT_ReqProtocol,  "HTTP/1.1";
+                   7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   7, SLT_VCL_call,     "RECV";
+                   7, SLT_VCL_return,   "pass";
+                   7, SLT_VCL_call,     "HASH";
+                   7, SLT_VCL_return,   "lookup";
+                   7, SLT_VCL_call,     "PASS";
+                   7, SLT_Link,         "bereq 8 fetch";
+                   7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+                   7, SLT_RespProtocol, "HTTP/1.1";
+                   7, SLT_RespStatus,   "200";
+                   7, SLT_RespReason,   "OK";
+                   7, SLT_RespHeader,   "Content-Type: image/jpeg";
+                   7, SLT_VCL_return,   "deliver";
+                   7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+                   7, SLT_RespHeader,   "Accept-Ranges: bytes";
+                   7, SLT_RespHeader,   "Connection: keep-alive";
+                   7, SLT_Gzip,         "G(un)zip error: -3 ((null))";
+                   7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+                   7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
+                   );
+
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_matches!(record.compression, None);
+
+        assert_eq!(record.log, &[
+                   LogEntry::Error("G(un)zip error: -3 ((null))".to_string()),
+        ]);
+    }
 }
