@@ -35,9 +35,9 @@ const NUKE_FACTOR: f32 = 0.01;
 
 #[derive(Debug)]
 pub struct VslStore<T> {
+    name: &'static str,
     // in order of insertion, oldest (lowest epoch) records are at the front
     store: LinkedHashMap<VslIdent, (Wrapping<Epoch>, T), BuildHasherDefault<FnvHasher>>,
-    expired: Vec<VslIdent>,
     slots_free: usize,
     expire_count: usize,
     nuke_count: usize,
@@ -45,21 +45,15 @@ pub struct VslStore<T> {
     max_epoch_diff: Wrapping<Epoch>,
 }
 
-impl<T> Default for VslStore<T> {
-    fn default() -> Self {
-        VslStore::with_max_slots_and_epoch_diff(MAX_SLOTS, MAX_EPOCH_DIFF)
-    }
-}
-
 impl<T> VslStore<T> {
-    pub fn new() -> VslStore<T> {
-        Default::default()
+    pub fn new(name: &'static str) -> VslStore<T> {
+        VslStore::with_max_slots_and_epoch_diff(name, MAX_SLOTS, MAX_EPOCH_DIFF)
     }
 
-    pub fn with_max_slots_and_epoch_diff(max_slots: usize, max_epoch_diff: Epoch) -> VslStore<T> {
+    pub fn with_max_slots_and_epoch_diff(name: &'static str, max_slots: usize, max_epoch_diff: Epoch) -> VslStore<T> {
         VslStore {
+            name: name,
             store: LinkedHashMap::default(),
-            expired: Vec::new(),
             slots_free: max_slots,
             expire_count: EXPIRE_COUNT,
             nuke_count: (max_slots as f32 * NUKE_FACTOR).ceil() as usize,
@@ -113,20 +107,20 @@ impl<T> VslStore<T> {
             return
         }
 
-        warn!("Expiring {} records", to_expire);
+        warn!("VslStore[{}]: Expiring {} records", &self.name, to_expire);
         for _ in 0..to_expire {
             let (ident, (epoch, record)) = self.store.pop_front().unwrap();
-            info!("Removed expired record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", self.epoch, epoch, ident, record);
+            info!("VslStore[{}]: Removed expired record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", &self.name, self.epoch, epoch, ident, record);
         }
     }
 
     fn nuke(&mut self) where T: Debug {
         let to_nuke: usize = min(self.nuke_count, self.store.len());
 
-        warn!("Nuking {} oldest records", to_nuke);
+        warn!("VslStore[{}]: Nuking {} oldest records", &self.name, to_nuke);
         for _ in 0..to_nuke {
             let (ident, (epoch, record)) = self.store.pop_front().unwrap();
-            info!("Nuked record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", self.epoch, epoch, ident, record);
+            info!("VslStore[{}]: Nuked record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", &self.name, self.epoch, epoch, ident, record);
             self.slots_free += 1;
         }
     }
@@ -154,7 +148,7 @@ mod tests {
 
     #[test]
     fn nuking() {
-        let mut s = VslStore::with_max_slots_and_epoch_diff(10, 100);
+        let mut s = VslStore::with_max_slots_and_epoch_diff("foo", 10, 100);
 for i in 0..13 {
             s.insert(i, i);
         }
@@ -164,7 +158,7 @@ for i in 0..13 {
 
     #[test]
     fn expire() {
-        let mut s = VslStore::with_max_slots_and_epoch_diff(100, 10);
+        let mut s = VslStore::with_max_slots_and_epoch_diff("foo", 100, 10);
 
         for i in 0..13 {
             s.insert(i, i);

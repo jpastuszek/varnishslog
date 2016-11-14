@@ -83,7 +83,7 @@ use access_log::record::{
 };
 use vsl::record::VslRecord;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SessionState {
     record_state: RecordState,
     root: VslStore<ClientAccessRecord>,
@@ -244,6 +244,17 @@ fn find_root_mut_from_backend_record<'r>(record: &BackendAccessRecord, root_reco
     }
 
     None
+}
+
+impl Default for SessionState {
+    fn default() -> Self {
+        SessionState {
+            record_state: Default::default(),
+            root: VslStore::new("root"),
+            client: VslStore::new("client"),
+            backend: VslStore::new("backend"),
+        }
+    }
 }
 
 impl SessionState {

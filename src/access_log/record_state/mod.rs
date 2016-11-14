@@ -26,9 +26,17 @@ use self::SlotAction::*;
 // to make sure that old records that could potentially have same VslIdent are gone log
 // beofore.
 //
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct RecordState {
     builders: VslStore<Slot>
+}
+
+impl Default for RecordState {
+    fn default() -> Self {
+        RecordState {
+            builders: VslStore::new("builders"),
+        }
+    }
 }
 
 impl RecordState {
