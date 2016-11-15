@@ -80,6 +80,7 @@ pub enum Link<T> {
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
+    pub root: bool,
     pub ident: VslIdent,
     pub parent: VslIdent,
     pub reason: String,

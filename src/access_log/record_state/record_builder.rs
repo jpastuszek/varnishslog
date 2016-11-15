@@ -1005,6 +1005,7 @@ impl RecordBuilder {
                         };
 
                         let record = ClientAccessRecord {
+                            root: reason == "rxreq",
                             ident: self.ident,
                             parent: parent,
                             reason: reason,

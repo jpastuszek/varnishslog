@@ -270,9 +270,7 @@ impl SessionState {
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<ClientAccessRecord> {
         match self.record_state.apply(vsl) {
             Some(Record::ClientAccess(mut record)) => {
-                // TODO: move the predicate out to ClientAccessRecord
-                // or even create a newtype?!?
-                if record.reason == "rxreq" {
+                if record.root {
                     if try_resolve_client_record(&mut record, &mut self.client, &mut self.backend) {
                         return Some(record)
                     }
