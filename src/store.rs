@@ -112,11 +112,17 @@ impl<T> VslStore<T> {
     pub fn insert(&mut self, ident: VslIdent, value: T) where T: Debug {
         // increase the epoch before we expire to make space for new insert
         self.epoch = self.epoch + Wrapping(1);
-        self.expire();
+
+        if self.epoch % Wrapping(self.expire_count) == Wrapping(0) || self.slots_free < 1 {
+            // expire every expire_count insert to bulk it up
+            // try to expire if storage is full before nuking
+            self.expire();
+        }
 
         if self.slots_free < 1 {
             self.nuke();
         }
+
         assert!(self.slots_free >= 1);
 
         if self.store.insert(ident, (self.epoch, value)).is_none() {
@@ -153,28 +159,25 @@ impl<T> VslStore<T> {
             .take(self.expire_count)
             .take_while(|&&(epoch, _)| self.epoch - epoch >= self.max_epoch_diff)
             .count();
-        //trace!("to_expire: {} expire_count: {} store:\n{:#?}", to_expire, self.expire_count, self);
 
         if to_expire == 0 {
             return
         }
 
-        warn!("VslStore[{}]: Expiring {} records", &self.name, to_expire);
         for _ in 0..to_expire {
             let (ident, (epoch, record)) = self.store.pop_front().unwrap();
             self.slots_free += 1;
-            info!("VslStore[{}]: Removed expired record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", &self.name, self.epoch, epoch, ident, record);
+            warn!("VslStore[{}]: Removed expired record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", &self.name, self.epoch, epoch, ident, record);
         }
     }
 
     fn nuke(&mut self) where T: Debug {
         let to_nuke: usize = min(self.nuke_count, self.store.len());
 
-        warn!("VslStore[{}]: Nuking {} oldest records", &self.name, to_nuke);
         for _ in 0..to_nuke {
             let (ident, (epoch, record)) = self.store.pop_front().unwrap();
             self.slots_free += 1;
-            info!("VslStore[{}]: Nuked record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", &self.name, self.epoch, epoch, ident, record);
+            warn!("VslStore[{}]: Nuked record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", &self.name, self.epoch, epoch, ident, record);
         }
     }
 }
@@ -234,10 +237,11 @@ mod tests {
     fn expire() {
         let mut s = VslStore::with_config("foo", &Config::new(200, 10, 0.1).unwrap());
 
-        for i in 0..130 {
+        // will expire every 20 records (200 * 0.1)
+        for i in 0..140 {
             s.insert(i, i);
         }
 
-        assert_eq!(*s.oldest().unwrap().0, 130 - 10);
+        assert_eq!(*s.oldest().unwrap().0, 140 - 10);
     }
 }
