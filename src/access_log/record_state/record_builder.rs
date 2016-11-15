@@ -1030,18 +1030,14 @@ impl RecordBuilder {
                                 let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
                                 let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
 
-                                let fetch_body =
-                                    if reason == "bgfetch" {
+                                let fetch_body = self.fetch_body.unwrap_or(
                                         // HACK: bgfetch won't have SLT_Fetch_Body as the client is gone
-                                        // already so we fake it to avoid having yet another transaction
-                                        // type or Option
+                                        // HACK: also some other rare case!
                                         FetchBody {
-                                            mode: "bgfetch".to_string(),
+                                            mode: reason.to_string(),
                                             streamed: false
                                         }
-                                    } else {
-                                        try!(self.fetch_body.ok_or(RecordBuilderError::RecordIncomplete("fetch_body")))
-                                    };
+                                    );
 
                                 let cache_object = CacheObject {
                                     storage_type: obj_storage.stype,
