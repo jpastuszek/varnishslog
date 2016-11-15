@@ -113,6 +113,7 @@
 
 use maybe_string::{MaybeStr, MaybeString};
 use vsl::record::{
+    VslRecordTag,
     VslIdent,
     VslRecord,
     VslRecordParseError,
@@ -146,6 +147,9 @@ use access_log::record::{
 quick_error! {
     #[derive(Debug)]
     pub enum RecordBuilderError {
+        UnexpectedTag(tag: VslRecordTag, expected: VslRecordTag) {
+            display("Got unexpected tag: {:?} expected: {:?}", tag, expected)
+        }
         UnimplementedTransactionType(record_type: String) {
             display("Unimplemented record type '{}'", record_type)
         }
@@ -523,6 +527,14 @@ impl RecordBuilder {
     }
 
     pub fn apply<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
+        match self.record_type {
+            RecordType::Undefined if vsl.tag != SLT_Begin => {
+                // we have missed the SLT_Begin record - fail early
+                return Err(RecordBuilderError::UnexpectedTag(vsl.tag, SLT_Begin))
+            }
+            _ => ()
+        }
+
         match vsl.tag {
             SLT_Begin => match self.record_type {
                 RecordType::Undefined => {
@@ -1166,6 +1178,7 @@ mod tests {
         let mut builder = RecordBuilder::new(1);
 
         apply_all!(builder,
+                   1, SLT_Begin,          "bereq 6 rxreq";
                    1, SLT_VCL_Log,        "X-Varnish-Privileged-Client: false";
                    1, SLT_VCL_Log,        "X-Varnish-User-Agent-Class: Unknown-Bot";
                    1, SLT_VCL_Log,        "X-Varnish-Force-Failure: false";
@@ -1184,6 +1197,15 @@ mod tests {
         let result = builder.apply(&vsl(SLT_Begin, 123, "foo 231 fetch"));
         assert_matches!(result.unwrap_err(),
             RecordBuilderError::UnimplementedTransactionType(ref record_type) if record_type == "foo");
+    }
+
+    #[test]
+    fn apply_begin_missing_begin() {
+        let mut builder = RecordBuilder::new(123);
+
+        let result = builder.apply(&vsl(SLT_BereqURL, 123, "/foobar"));
+        assert_matches!(result.unwrap_err(),
+            RecordBuilderError::UnexpectedTag(SLT_BereqURL, SLT_Begin));
     }
 
     #[test]
@@ -1220,6 +1242,7 @@ mod tests {
         let mut builder = RecordBuilder::new(123);
 
         apply_all!(builder,
+                   123, SLT_Begin,            "bereq 6 rxreq";
                    123, SLT_BereqMethod,      "GET";
                    123, SLT_BereqURL,         "/foobar";
                    123, SLT_BereqProtocol,    "HTTP/1.1";
@@ -1261,6 +1284,7 @@ mod tests {
 
         // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
         apply_all!(builder,
+                   15, SLT_Begin,         "req 6 rxreq";
                    15, SLT_ReqMethod,     "GET";
                    15, SLT_ReqURL,        "/test_page/abc";
                    15, SLT_ReqProtocol,   "HTTP/1.1";
@@ -1319,6 +1343,7 @@ mod tests {
 
         // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
         apply_all!(builder,
+                   15, SLT_Begin,          "req 6 rxreq";
                    15, SLT_ReqMethod,     "POST";
                    15, SLT_ReqURL,        "/foo/bar";
                    15, SLT_ReqProtocol,   "HTTP/1.0";
@@ -1350,6 +1375,7 @@ mod tests {
 
         // logs/varnish20160804-3752-1krgp8j808a493d5e74216e5.vsl
         apply_all!(builder,
+                   15, SLT_Begin,          "req 6 rxreq";
                    15, SLT_RespProtocol,   "HTTP/1.1";
                    15, SLT_RespStatus,     "200";
                    15, SLT_RespReason,     "OK";
@@ -1386,6 +1412,7 @@ mod tests {
 
         // synth from deliver
         apply_all!(builder,
+                   15, SLT_Begin,          "req 6 rxreq";
                    15, SLT_RespProtocol,   "HTTP/1.1";
                    15, SLT_RespStatus,     "500";
                    15, SLT_RespReason,     "Error";
@@ -1430,6 +1457,7 @@ mod tests {
         let mut builder = RecordBuilder::new(123);
 
         apply_all!(builder,
+                   123, SLT_Begin,          "bereq 6 rxreq";
                    123, SLT_BereqMethod,    "GET";
                    123, SLT_BereqURL,       "/foobar";
                    123, SLT_BereqProtocol,  "HTTP/1.1";
@@ -1466,6 +1494,7 @@ mod tests {
         let mut builder = RecordBuilder::new(123);
 
         apply_all!(builder,
+                   123, SLT_Begin,          "bereq 6 rxreq";
                    123, SLT_BereqMethod,    "GET";
                   );
 
