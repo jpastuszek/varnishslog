@@ -82,7 +82,6 @@ impl RecordState {
                         Ok(record) => return Some(record),
                         Err(err) => {
                             error!("Error while finalizing record with ident {} after applying {}: {}", &vsl.ident, &vsl, &err);
-                            self.builders.insert(vsl.ident, Tombstone(err));
                         }
                     },
                     _ => unreachable!()
@@ -90,6 +89,7 @@ impl RecordState {
             }
             Kill(err) => {
                 error!("Error while building record with ident {} while applying {}: {}", &vsl.ident, &vsl, &err);
+                // catch all following records
                 self.builders.insert(vsl.ident, Tombstone(err));
             }
             Continue => (),
