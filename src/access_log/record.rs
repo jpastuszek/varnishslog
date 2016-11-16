@@ -154,8 +154,8 @@ pub struct CacheObject {
     /// Reference time for object lifetime (now - Age)
     pub origin: TimeStamp,
     /// Text description of body fetch mode
-    pub fetch_mode: String,
-    pub fetch_streamed: bool,
+    pub fetch_mode: Option<String>,
+    pub fetch_streamed: Option<bool>,
     pub response: HttpResponse
 }
 

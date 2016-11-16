@@ -298,8 +298,8 @@ pub struct CacheObject<'a: 'i, 'i> {
     pub keep_duration: Option<f64>,
     pub since_timestamp: f64,
     pub origin_timestamp: f64,
-    pub fetch_mode: &'a str,
-    pub fetch_streamed: bool,
+    pub fetch_mode: Option<&'a str>,
+    pub fetch_streamed: Option<bool>,
     pub response: HttpResponse<'a, 'i>,
 }
 

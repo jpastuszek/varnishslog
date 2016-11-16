@@ -219,7 +219,7 @@ impl<'a> AsSer<'a> for CacheObject {
             keep_duration: self.keep,
             since_timestamp: self.since,
             origin_timestamp: self.origin,
-            fetch_mode: self.fetch_mode.as_str(),
+            fetch_mode: self.fetch_mode.as_ref().map(|f| f.as_str()),
             fetch_streamed: self.fetch_streamed,
             response: self.response.as_ser(),
         }
@@ -237,7 +237,7 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for CacheObject {
             keep_duration: self.keep,
             since_timestamp: self.since,
             origin_timestamp: self.origin,
-            fetch_mode: self.fetch_mode.as_str(),
+            fetch_mode: self.fetch_mode.as_ref().map(|f| f.as_str()),
             fetch_streamed: self.fetch_streamed,
             response: self.response.as_ser_indexed(index),
         }

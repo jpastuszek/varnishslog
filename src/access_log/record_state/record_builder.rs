@@ -1030,14 +1030,10 @@ impl RecordBuilder {
                                 let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
                                 let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
 
-                                let fetch_body = self.fetch_body.unwrap_or(
-                                        // HACK: bgfetch won't have SLT_Fetch_Body as the client is gone
-                                        // HACK: also some other rare case!
-                                        FetchBody {
-                                            mode: reason.to_string(),
-                                            streamed: false
-                                        }
-                                    );
+                                let (fetch_mode, fetch_streamed) = match self.fetch_body {
+                                    Some(f) => (Some(f.mode), Some(f.streamed)),
+                                    None => (None, None)
+                                };
 
                                 let cache_object = CacheObject {
                                     storage_type: obj_storage.stype,
@@ -1047,8 +1043,8 @@ impl RecordBuilder {
                                     keep: obj_ttl.keep,
                                     since: obj_ttl.since,
                                     origin: obj_ttl.origin.unwrap_or(obj_ttl.since),
-                                    fetch_mode: fetch_body.mode,
-                                    fetch_streamed: fetch_body.streamed,
+                                    fetch_mode: fetch_mode,
+                                    fetch_streamed: fetch_streamed,
                                     response: cache_object,
                                 };
 
@@ -2582,8 +2578,8 @@ mod tests {
            },
            ..
        } if
-           fetch_streamed == true &&
-           fetch_mode == "length" &&
+           *fetch_streamed.as_ref().unwrap() == true &&
+           fetch_mode.as_ref().unwrap() == "length" &&
            protocol == "HTTP/1.1" &&
            status == 200 &&
            reason == "OK" &&
