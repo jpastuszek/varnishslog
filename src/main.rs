@@ -13,6 +13,11 @@ extern crate varnishslog;
 use std::io::{self, stdin, Read, Write};
 use std::fs::File;
 use std::error::Error;
+use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::num::Wrapping;
+use std::time::Duration;
+use std::thread;
+
 use clap::{Arg, App};
 
 use varnishslog::stream_buf::{StreamBuf, ReadStreamBuf, FillError, FillApplyError};
@@ -24,6 +29,24 @@ use varnishslog::access_log::record_state::RecordState;
 use varnishslog::serialization::{log_client_record, Config, Format, OutputError, JsonError};
 
 mod program;
+
+static EPOCH: AtomicUsize = ATOMIC_USIZE_INIT;
+
+fn spawn_epoch_timer() -> thread::JoinHandle<()> {
+    thread::Builder::new()
+        .name("epoch timer".to_string())
+        .spawn(|| {
+        loop {
+            thread::sleep(Duration::from_secs(1));
+            let epoch = Wrapping(EPOCH.load(Ordering::Relaxed) as u64) + Wrapping(1);
+            EPOCH.store(epoch.0 as usize, Ordering::Relaxed);
+        }
+    }).expect("timer thread")
+}
+
+fn global_epoch(_epoch: Wrapping<u64>) -> Wrapping<u64> {
+    Wrapping(EPOCH.load(Ordering::Relaxed) as u64)
+}
 
 quick_error! {
     #[derive(Debug)]
@@ -307,7 +330,7 @@ fn main() {
              .value_name("LOG_LEVEL_SPEC")
              .help("Logging level specification, e.g: info")
              .takes_value(true)
-             .default_value("warn"))
+             .default_value("info"))
         .arg(Arg::with_name("output")
              .long("output-format")
              .short("o")
@@ -334,9 +357,10 @@ fn main() {
         .arg(Arg::with_name("stat-epoch-interval")
              .long("stat-epoch-interval")
              .short("s")
+             .help("Log store stats every epoch interval (~seconds) on record insert")
              .takes_value(true)
              .validator(validate_stat_epoch_inverval)
-             .help("Log store stats every epoch interval"))
+             .default_value("600"))
         .arg(Arg::with_name("stream-buffer-size")
              .long("stream-buffer-size")
              .display_order(2000)
@@ -351,9 +375,9 @@ fn main() {
         .arg(Arg::with_name("max-epoch-diff")
              .long("max-epoch-diff")
              .display_order(2000)
-             .help("Consider record being built or correlated as stale after that many more new records porcessed")
+             .help("Consider record being built or correlated as stale after that many epoch (~seconds) elapsed")
              .validator(validate_max_epoch_diff)
-             .default_value("100000"))
+             .default_value("14410"))
         .arg(Arg::with_name("evict-factor")
              .long("evict-factor")
              .help("Remove that many records at a time when doing eviction or nucking (ratio to max-record-slots)")
@@ -385,11 +409,14 @@ fn main() {
         None
     };
 
+    let _epoch_timer = spawn_epoch_timer();
+
     let store_config = StoreConfig::new(
         value_t!(arguments, "max-record-slots", usize).unwrap_or_else(|e| e.exit()),
         value_t!(arguments, "max-epoch-diff", u64).unwrap_or_else(|e| e.exit()),
         value_t!(arguments, "evict-factor", f32).unwrap_or_else(|e| e.exit()),
-        stat_epoch_interval
+        stat_epoch_interval,
+        Some(global_epoch)
     ).unwrap();
 
     let result = if let Some(path) = arguments.value_of("vsl-file") {

@@ -23,9 +23,9 @@ use std::hash::BuildHasherDefault;
 use vsl::record::VslIdent;
 
 // How many VslIdent recorts to keep in the store
-const MAX_SLOTS: usize = 4_000;
+const MAX_SLOTS: usize = 4000;
 // How many inserts old a record can be before we drop it on remove
-const MAX_EPOCH_DIFF: u64 = 100_000;
+const MAX_EPOCH_DIFF: u64 = 14410;
 // How many objects to nuke/expire when store is full or we are expiring as factor of MAX_SLOTS
 const EVICT_FACTOR: f32 = 0.01;
 
@@ -35,6 +35,7 @@ pub struct Config {
     max_epoch_diff: u64,
     evict_count: usize,
     stat_epoch_interval: Option<u64>,
+    epoch_source: fn(Wrapping<u64>) -> Wrapping<u64>,
 }
 
 #[derive(Debug)]
@@ -69,7 +70,7 @@ impl Display for Stats {
 
 impl Default for Config {
     fn default() -> Config {
-        Config::new(MAX_SLOTS, MAX_EPOCH_DIFF, EVICT_FACTOR, None).unwrap()
+        Config::new(MAX_SLOTS, MAX_EPOCH_DIFF, EVICT_FACTOR, None, None).unwrap()
     }
 }
 
@@ -91,8 +92,12 @@ quick_error! {
     }
 }
 
+fn sequential_epoch(epoch: Wrapping<u64>) -> Wrapping<u64> {
+    epoch + Wrapping(1)
+}
+
 impl Config {
-    pub fn new(max_slots: usize, max_epoch_diff: u64, evict_factor: f32, stat_epoch_interval: Option<u64>) -> Result<Config, ConfigError> {
+    pub fn new(max_slots: usize, max_epoch_diff: u64, evict_factor: f32, stat_epoch_interval: Option<u64>, epoch_source: Option<fn(Wrapping<u64>) -> Wrapping<u64>>) -> Result<Config, ConfigError> {
         let evict_count = (max_slots as f32 * evict_factor).ceil() as usize;
 
         if !(max_slots > 0) {
@@ -113,6 +118,7 @@ impl Config {
             max_epoch_diff: max_epoch_diff,
             evict_count: evict_count,
             stat_epoch_interval: stat_epoch_interval,
+            epoch_source: epoch_source.unwrap_or(sequential_epoch),
         })
     }
 }
@@ -126,9 +132,11 @@ pub struct VslStore<T> {
     expire_count: usize,
     nuke_count: usize,
     epoch: Wrapping<u64>,
-    max_epoch_diff: Wrapping<u64>,
+    epoch_source: fn(Wrapping<u64>) -> Wrapping<u64>,
+    max_epoch_diff: u64,
     stat_epoch_interval: Option<u64>,
     stats: Stats,
+    last_stats_epoch: Wrapping<u64>,
 }
 
 impl<T> VslStore<T> {
@@ -144,22 +152,19 @@ impl<T> VslStore<T> {
             expire_count: config.evict_count,
             nuke_count: config.evict_count,
             epoch: Wrapping(0),
-            max_epoch_diff: Wrapping(config.max_epoch_diff),
+            epoch_source: config.epoch_source,
+            max_epoch_diff: config.max_epoch_diff,
             stat_epoch_interval: config.stat_epoch_interval,
             stats: Stats::new(config.max_slots),
+            last_stats_epoch: Wrapping(0),
         }
     }
 
     pub fn insert(&mut self, ident: VslIdent, value: T) where T: Debug {
         // increase the epoch before we expire to make space for new insert
-        self.epoch = self.epoch + Wrapping(1);
+        self.epoch = (self.epoch_source)(self.epoch);
 
-        if self.epoch % Wrapping(self.expire_count as u64) == Wrapping(0) || self.slots_free < 1 {
-            // expire every expire_count insert to bulk it up
-            // try to expire if storage is full before nuking
-            self.expire();
-        }
-
+        self.expire();
         if self.slots_free < 1 {
             self.nuke();
         }
@@ -172,8 +177,9 @@ impl<T> VslStore<T> {
             self.stats.inserted += Wrapping(1);
         }
 
-        if let Some(true) = self.stat_epoch_interval.map(|i| self.epoch % Wrapping(i) == Wrapping(0)) {
-            info!("VslStore[{}]: Statistics: {}", self.name, self.stats);
+        if let Some(true) = self.stat_epoch_interval.map(|i| self.epoch - self.last_stats_epoch >= Wrapping(i)) {
+            info!("VslStore[{}] (epoch: {}): Statistics: {}", self.name, self.epoch, self.stats);
+            self.last_stats_epoch = self.epoch;
         }
     }
 
@@ -206,7 +212,7 @@ impl<T> VslStore<T> {
     fn expire(&mut self) where T: Debug {
         let to_expire = self.store.values()
             .take(self.expire_count)
-            .take_while(|&&(epoch, _)| self.epoch - epoch >= self.max_epoch_diff)
+            .take_while(|&&(epoch, _)| self.epoch - epoch >= Wrapping(self.max_epoch_diff))
             .count();
 
         if to_expire == 0 {
@@ -257,7 +263,7 @@ mod tests {
 
     #[test]
     fn nuking() {
-        let mut s = VslStore::with_config("foo", &Config::new(10, 200, 0.1, None).unwrap());
+        let mut s = VslStore::with_config("foo", &Config::new(10, 200, 0.1, None, None).unwrap());
         for i in 0..130 {
             s.insert(i, i);
         }
@@ -267,7 +273,7 @@ mod tests {
 
     #[test]
     fn slot_count() {
-        let mut s = VslStore::with_config("foo", &Config::new(10, 100, 0.1, None).unwrap());
+        let mut s = VslStore::with_config("foo", &Config::new(10, 100, 0.1, None, None).unwrap());
 
         for i in 0..10 {
             s.insert(i, i);
@@ -288,9 +294,8 @@ mod tests {
 
     #[test]
     fn expire() {
-        let mut s = VslStore::with_config("foo", &Config::new(200, 10, 0.1, None).unwrap());
+        let mut s = VslStore::with_config("foo", &Config::new(200, 10, 0.1, None, None).unwrap());
 
-        // will expire every 20 records (200 * 0.1)
         for i in 0..140 {
             s.insert(i, i);
         }
