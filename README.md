@@ -260,7 +260,7 @@ Usage
 There are few output options and control over indexing of headers and log messages:
 
 ```
-Varnish Structured Logger 0.1.4
+Varnish Structured Logger 0.4.0
 Jakub Pastuszek <jpastuszek@gmail.com>
 Reads Varnish VSL (binary) log stream and emits JSON log entries to standard output
 
@@ -276,9 +276,19 @@ FLAGS:
     -V, --version               Prints version information
 
 OPTIONS:
-    -d, --log-sepc <LOG_LEVEL_SPEC>                  Logging level specification, e.g: info [default: warn]
-    -o, --output-format <output>                     Format of the output [default: NcsaJson]  [values: Log, LogDebug, RecordDebug, SessionDebug, Json, JsonPretty, NcsaJson]
-    -s, --stream-buffer-size <stream-buffer-size>    Size of stream buffer in bytes - must be bigger than biggest VSL record [default: 262144]
+    -d, --log-sepc <LOG_LEVEL_SPEC>                    Logging level specification, e.g: info [default: info]
+    -o, --output-format <output>                       Format of the output [default: NcsaJson]  [values: Log, LogDebug,
+                                                       RecordDebug, SessionDebug, Json, JsonPretty, NcsaJson]
+    -s, --stat-epoch-interval <stat-epoch-interval>
+            Log store stats every epoch interval (~seconds) on record insert [default: 600]
+        --evict-factor <evict-factor>
+            Remove that many records at a time when doing expiration or nucking (ratio to max-record-slots) [default: 0.01]
+        --max-epoch-diff <max-epoch-diff>
+            Consider record being built or correlated as stale after that many epoch (~seconds) elapsed [default: 14410]
+        --max-record-slots <max-record-slots>
+            Maximum number of records being built or correlated at the same time [default: 4000]
+        --stream-buffer-size <stream-buffer-size>
+            Size of stream buffer in bytes - must be bigger than biggest VSL record [default: 262144]
 
 ARGS:
     <VSL_FILE>    VSL file to process (read from standard input if not specified)
