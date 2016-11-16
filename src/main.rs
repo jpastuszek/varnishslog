@@ -266,7 +266,7 @@ fn validate_max_record_slots(value: String) -> Result<(), String> {
 }
 
 fn validate_max_epoch_diff(value: String) -> Result<(), String> {
-    let v = try!(value.parse::<usize>().map_err(|_| format!("max-epoch-diff expected to be an integer; got: {:?}", value)));
+    let v = try!(value.parse::<u64>().map_err(|_| format!("max-epoch-diff expected to be an integer; got: {:?}", value)));
 
     if !(v > 0) {
         Err(format!("max-epoch-diff must be greater than zero; got: {}", v))
@@ -284,6 +284,17 @@ fn validate_evict_factor(value: String) -> Result<(), String> {
         Ok(())
     }
 }
+
+fn validate_stat_epoch_inverval(value: String) -> Result<(), String> {
+    let v = try!(value.parse::<u64>().map_err(|_| format!("stat-epoch-interval expected to be an integer; got: {:?}", value)));
+
+    if !(v > 0) {
+        Err(format!("stat-epoch-interval must be greater than zero; got: {}", v))
+    } else {
+        Ok(())
+    }
+}
+
 
 fn main() {
     let arguments = App::new("Varnish Structured Logger")
@@ -320,6 +331,12 @@ fn main() {
              .long("keep-raw-headers")
              .short("I")
              .help("Keep raw header name/value pairs; any indices are moved to top level"))
+        .arg(Arg::with_name("stat-epoch-interval")
+             .long("stat-epoch-interval")
+             .short("s")
+             .takes_value(true)
+             .validator(validate_stat_epoch_inverval)
+             .help("Log store stats every epoch interval"))
         .arg(Arg::with_name("stream-buffer-size")
              .long("stream-buffer-size")
              .display_order(2000)
@@ -362,10 +379,17 @@ fn main() {
         keep_raw_headers: arguments.is_present("keep-raw-headers"),
     };
 
+    let stat_epoch_interval = if arguments.is_present("stat-epoch-interval") {
+        Some(value_t!(arguments, "stat-epoch-interval", u64).unwrap_or_else(|e| e.exit()))
+    } else {
+        None
+    };
+
     let store_config = StoreConfig::new(
         value_t!(arguments, "max-record-slots", usize).unwrap_or_else(|e| e.exit()),
-        value_t!(arguments, "max-epoch-diff", usize).unwrap_or_else(|e| e.exit()),
-        value_t!(arguments, "evict-factor", f32).unwrap_or_else(|e| e.exit())
+        value_t!(arguments, "max-epoch-diff", u64).unwrap_or_else(|e| e.exit()),
+        value_t!(arguments, "evict-factor", f32).unwrap_or_else(|e| e.exit()),
+        stat_epoch_interval
     ).unwrap();
 
     let result = if let Some(path) = arguments.value_of("vsl-file") {
