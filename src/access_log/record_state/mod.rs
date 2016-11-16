@@ -88,7 +88,12 @@ impl RecordState {
                 }
             }
             Kill(err) => {
-                error!("Error while building record with ident {} while applying {}: {}", &vsl.ident, &vsl, &err);
+                match &err {
+                    &RecordBuilderError::SpuriousBegin(_) =>
+                        warn!("Cannot build record with ident {} after applying {}: {}", &vsl.ident, &vsl, &err),
+                    _ =>
+                        error!("Error while building record with ident {} while applying {}: {}", &vsl.ident, &vsl, &err)
+                }
                 // catch all following records
                 self.builders.insert(vsl.ident, Tombstone(err));
             }

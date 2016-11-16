@@ -147,8 +147,8 @@ use access_log::record::{
 quick_error! {
     #[derive(Debug)]
     pub enum RecordBuilderError {
-        UnexpectedTag(tag: VslRecordTag, expected: VslRecordTag) {
-            display("Got unexpected tag: {:?} expected: {:?}", tag, expected)
+        SpuriousBegin(tag: VslRecordTag) {
+            display("Unexpected first VSL record with tag: {:?}", tag)
         }
         UnimplementedTransactionType(record_type: String) {
             display("Unimplemented record type '{}'", record_type)
@@ -530,7 +530,7 @@ impl RecordBuilder {
         match self.record_type {
             RecordType::Undefined if vsl.tag != SLT_Begin => {
                 // we have missed the SLT_Begin record - fail early
-                return Err(RecordBuilderError::UnexpectedTag(vsl.tag, SLT_Begin))
+                return Err(RecordBuilderError::SpuriousBegin(vsl.tag))
             }
             _ => ()
         }
@@ -1198,7 +1198,7 @@ mod tests {
 
         let result = builder.apply(&vsl(SLT_BereqURL, 123, "/foobar"));
         assert_matches!(result.unwrap_err(),
-            RecordBuilderError::UnexpectedTag(SLT_BereqURL, SLT_Begin));
+            RecordBuilderError::SpuriousBegin(SLT_BereqURL));
     }
 
     #[test]
