@@ -1,3 +1,9 @@
+# Varnishslog &emsp; [![Latest Version](https://img.shields.io/crates/v/varnishslog.svg)](https://crates.io/crates/varnishlog)
+
+**`varnishslog` reads Varnish Cache VSL (binary) log stream and produces structured log records in JSON format**
+
+---
+
 `varnishslog` reads Varnish VSL (binary) log stream and builds a model of access session:
 
 ![Session Record Model](session_record_model.png)
