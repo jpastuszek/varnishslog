@@ -1,4 +1,4 @@
-# Varnishslog &emsp; [![Latest Version](https://img.shields.io/crates/v/varnishslog.svg)](https://crates.io/crates/varnishlog)
+# Varnishslog &emsp; [![Latest Version](https://img.shields.io/crates/v/varnishslog.svg)](https://crates.io/crates/varnishslog)
 
 **`varnishslog` reads Varnish Cache VSL (binary) log stream and produces structured log records in JSON format.**
 
