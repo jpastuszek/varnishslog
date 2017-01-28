@@ -12,6 +12,8 @@ keywords = ["varnish", "log"]
 categories = ["command-line-utilities"]
 license = "MIT"
 
+exclude = ["logs", "callgrind*"]
+
 [[bench]]
 harness = false
 name = "stream_buf"
