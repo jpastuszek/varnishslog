@@ -252,6 +252,13 @@ This data is then flattened down and serialised as JSON like this one:
 
 It can also prepend it with NCSA like log line to make it more compatible with standard access log processing tools.
 
+Compatibility
+----
+
+`varnishlog` v0.4.x and earlier was tested with Varnish v4.1.3.
+`varnishlog` will NOT work with Varnish v3 as there are significant differences in the VSL comparing to v4. I have no plans to support v3 as it is now discontinued.
+It was not tested it with Varnish v5.
+
 Usage
 -----
 
@@ -297,18 +304,18 @@ ARGS:
 Bench results
 -------------
 
-Run against commit bede3866f78ccc05b382af8a4e4b3b0cc9b3c667 using 13480 VSL records making up 211 access records and 86 sessions and 86 client access records so about 157 VSL records per output client access record (benches/varnish20160816-4093-1xh1jbx808a493d5e74216e5.vsl).
-This was run on MacBook Air (13-inch, Mid 2013) and build with rustc 1.13.0 (2c6933acc 2016-11-07).
+Run against v0.4.1 using 13480 VSL records making up 211 access records and 86 sessions and 86 client access records so about 157 VSL records per output client access record (benches/varnish20160816-4093-1xh1jbx808a493d5e74216e5.vsl).
+This was run on MacBook Air (13-inch, Mid 2013) and build with rustc 1.14.0.
 
 ```
-test log_session_record_ncsa_json ... bench:  14,714,262 ns/iter (+/- 1,535,154)
-test log_session_record_json      ... bench:  14,595,400 ns/iter (+/- 1,460,486)
-test log_session_record_json_raw  ... bench:  8,080,349 ns/iter  (+/- 702,717)
-test session_state                ... bench:   4,867,820 ns/iter (+/- 955,436)
-test default_buffer_from_file     ... bench:     408,024 ns/iter (+/- 163,009)
+test log_session_record_ncsa_json ... bench:  14,940,553 ns/iter (+/- 4,323,366)
+test log_session_record_json      ... bench:  15,029,912 ns/iter (+/- 3,922,717)
+test log_session_record_json_raw  ... bench:   7,898,497 ns/iter (+/- 1,309,983)
+test session_state                ... bench:   4,832,503 ns/iter (+/- 1,322,579)
+test default_buffer_from_file     ... bench:     323,345 ns/iter (+/- 366,780)
 ```
 
-* 5.9 K/s JSON records (indexed) or 924 K/s VSL records processed into serialized output
-* 10.6 K/s JSON records (raw) or 1668 K/s VSL records processed into serialized output
-* 17.7 K/s session records (correlated access records) or 2769 K/s VSL records processed (without serialization)
-* 33.0 M/s VSL records extracted from binary stream (message not parsed)
+* 5.8 K/s JSON records (indexed) or 902 K/s VSL records processed into serialized output
+* 10.9 K/s JSON records (raw) or 1668 K/s VSL records processed into serialized output
+* 17.8 K/s session records (correlated access records) or 2789 K/s VSL records processed (without serialization)
+* 41.6 M/s VSL records extracted from binary stream (message not parsed)
