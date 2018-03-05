@@ -246,5 +246,6 @@ named!(pub slt_req_start<&[u8], (&str, Port)>, tuple!(
 named!(pub slt_backend_open<&[u8], (FileDescriptor, &str, (&str, Port), (&str, Port))>, tuple!(
         file_descriptor,        // Connection file descriptor
         symbol,                 // Backend display name
+        // TODO: this can be <none> <none>
         tuple!(symbol, port),   // Remote IPv4/6 address Remote TCP port
         tuple!(symbol, port))); // Local IPv4/6 address Local TCP port

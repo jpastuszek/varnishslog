@@ -5,7 +5,9 @@ extern crate bitflags;
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate quick_error; #[macro_use]
+extern crate quick_error; 
+#[cfg(test)]
+#[macro_use]
 extern crate assert_matches;
 extern crate fnv;
 

@@ -6,8 +6,6 @@ extern crate log;
 extern crate quick_error;
 #[macro_use]
 extern crate clap;
-
-#[macro_use]
 extern crate varnishslog;
 
 use std::io::{self, stdin, Read, Write};
