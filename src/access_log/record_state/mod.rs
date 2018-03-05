@@ -285,13 +285,19 @@ mod tests {
         let backend = record.unwrap_backend_access();
 
         assert_matches!(backend, BackendAccessRecord {
-            ident: 123,
-            parent: 321,
-            start: Some(1469180762.484544),
-            end: Some(1469180763.484544),
+            ident,
+            parent,
+            start,
+            end,
             ref reason,
             ..
-        } if reason == "fetch");
+        } =>
+            assert_eq!(ident, 123),
+            assert_eq!(parent, 321),
+            assert_eq!(reason, "fetch"),
+            assert_eq!(start, Some(parse!("1469180762.484544"))),
+            assert_eq!(end, Some(parse!("1469180763.484544")))
+        );
 
         assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
             request: HttpRequest {

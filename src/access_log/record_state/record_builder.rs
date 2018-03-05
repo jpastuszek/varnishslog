@@ -1605,17 +1605,20 @@ mod tests {
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
 
-        assert_eq!(record.start, 1471355414.450311);
-        assert_eq!(record.end, Some(1471355414.450428));
+        assert_eq!(record.start, parse!("1471355414.450311"));
+        assert_eq!(record.end, Some(parse!("1471355414.450428")));
 
         assert_matches!(record.transaction, ClientAccessTransaction::RestartedEarly {
             request: HttpRequest {
                 ref url,
                 ..
             },
-            process: Some(0.0),
+            process,
             restart_record: Link::Unresolved(5, _),
-        } if url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
+        } if 
+            url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure" && 
+            process == Some(parse!("0.0"))
+        );
     }
 
     #[test]
