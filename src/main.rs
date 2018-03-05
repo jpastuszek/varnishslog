@@ -375,7 +375,7 @@ fn main() {
              .display_order(2000)
              .help("Consider record being built or correlated as stale after that many epoch (~seconds) elapsed")
              .validator(validate_max_epoch_diff)
-             .default_value("14410"))
+             .default_value("43200"))
         .arg(Arg::with_name("evict-factor")
              .long("evict-factor")
              .help("Remove that many records at a time when doing expiration or nucking (ratio to max-record-slots)")
