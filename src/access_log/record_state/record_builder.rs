@@ -1563,18 +1563,23 @@ mod tests {
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
 
-        assert_eq!(record.start, 1470403413.664824);
-        assert_eq!(record.end, Some(1470403414.672458));
+        assert_eq!(record.start, parse!("1470403413.664824"));
+        assert_eq!(record.end, Some(parse!("1470403414.672458")));
 
         assert_eq!(record.handling, Handling::Miss);
 
         assert_matches!(record.transaction, ClientAccessTransaction::Full {
-            process: Some(1.0),
-            fetch: Some(0.007491),
-            ttfb: 1.007601,
-            serve: 1.007634,
-            ..
-        });
+                process: Some(process),
+                fetch: Some(fetch),
+                ttfb,
+                serve,
+                ..
+            } =>
+            assert_eq!(process, parse!("1.0")),
+            assert_eq!(fetch, parse!("0.007491")),
+            assert_eq!(ttfb, parse!("1.007601")),
+            assert_eq!(serve, parse!("1.007634"))
+        );
     }
 
     #[test]
@@ -1609,15 +1614,16 @@ mod tests {
         assert_eq!(record.end, Some(parse!("1471355414.450428")));
 
         assert_matches!(record.transaction, ClientAccessTransaction::RestartedEarly {
-            request: HttpRequest {
-                ref url,
-                ..
-            },
-            process,
-            restart_record: Link::Unresolved(5, _),
-        } if 
-            url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure" && 
-            process == Some(parse!("0.0"))
+                request: HttpRequest {
+                    ref url,
+                    ..
+                },
+                process,
+                restart_record: Link::Unresolved(link_id, _),
+            } =>
+            assert_eq!(link_id, 5),
+            assert_eq!(url, "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure"),
+            assert_eq!(process, Some(parse!("0.0")))
         );
     }
 
@@ -1658,24 +1664,27 @@ mod tests {
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
 
-        assert_eq!(record.start, 1471355414.450311);
-        assert_eq!(record.end, Some(1471355414.450428));
+        assert_eq!(record.start, parse!("1471355414.450311"));
+        assert_eq!(record.end, Some(parse!("1471355414.450428")));
 
         assert_matches!(record.transaction, ClientAccessTransaction::RestartedLate {
-            request: HttpRequest {
-                ref url,
-                ..
-            },
-            response: HttpResponse {
-                status,
-                ..
-            },
-            backend_record: Some(Link::Unresolved(3, _)),
-            process: Some(0.0),
-            restart_record: Link::Unresolved(5, _),
-        } if
-            url == "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure" &&
-            status == 301
+                request: HttpRequest {
+                    ref url,
+                    ..
+                },
+                response: HttpResponse {
+                    status,
+                    ..
+                },
+                backend_record: Some(Link::Unresolved(backend_record_link, _)),
+                process: Some(process),
+                restart_record: Link::Unresolved(restart_record_link, _),
+            } =>
+            assert_eq!(backend_record_link, 3),
+            assert_eq!(process, parse!("0.0")),
+            assert_eq!(url, "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure"),
+            assert_eq!(status, 301),
+            assert_eq!(restart_record_link, 5)
         );
     }
 
@@ -1708,30 +1717,34 @@ mod tests {
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
 
-        assert_eq!(record.start, 1471355444.744141);
-        assert_eq!(record.end, Some(1471355444.751368));
+        assert_eq!(record.start, parse!("1471355444.744141"));
+        assert_eq!(record.end, Some(parse!("1471355444.751368")));
 
         assert_eq!(record.handling, Handling::Pipe);
 
         assert_matches!(record.transaction, ClientAccessTransaction::Piped {
-            request: HttpRequest {
-                ref url,
-                ref headers,
-                ..
-            },
-            ref backend_record,
-            process: Some(0.0),
-            ttfb: Some(0.000209),
-            accounting: PipeAccounting {
-                recv_total: 268,
-                sent_total: 480,
-            }
-        } if
-            url == "/websocket" &&
-            headers == &[
+                request: HttpRequest {
+                    ref url,
+                    ref headers,
+                    ..
+                },
+                ref backend_record,
+                process: Some(process),
+                ttfb: Some(ttfb),
+                accounting: PipeAccounting {
+                    recv_total,
+                    sent_total,
+                }
+            } =>
+            assert_eq!(url, "/websocket"),
+            assert_eq!(headers, &[
                 ("Upgrade".to_string(), "websocket".to_string()),
-                ("Connection".to_string(), "Upgrade".to_string())] &&
-            backend_record == &Link::Unresolved(5, "pipe".to_string())
+                ("Connection".to_string(), "Upgrade".to_string())]),
+            assert_eq!(backend_record, &Link::Unresolved(5, "pipe".to_string())),
+            assert_eq!(process, parse!("0.0")),
+            assert_eq!(ttfb, parse!("0.000209")),
+            assert_eq!(recv_total, 268),
+            assert_eq!(sent_total, 480)
         );
     }
 
@@ -1765,30 +1778,33 @@ mod tests {
         let record = apply_last!(builder, 32785, SLT_End, "")
             .unwrap_client_access();
 
-        assert_eq!(record.start, 1475491757.258461);
+        assert_eq!(record.start, parse!("1475491757.258461"));
         assert_eq!(record.end, None);
 
         assert_eq!(record.handling, Handling::Pipe);
 
         assert_matches!(record.transaction, ClientAccessTransaction::Piped {
-            request: HttpRequest {
-                ref url,
-                ref headers,
-                ..
-            },
-            ref backend_record,
-            process: Some(0.0),
-            ttfb: None,
-            accounting: PipeAccounting {
-                recv_total: 350,
-                sent_total: 0,
-            }
-        } if
-            url == "/sse" &&
-            headers == &[
+                request: HttpRequest {
+                    ref url,
+                    ref headers,
+                    ..
+                },
+                ref backend_record,
+                process: Some(process),
+                ttfb: None,
+                accounting: PipeAccounting {
+                    recv_total,
+                    sent_total,
+                }
+            } =>
+            assert_eq!(url, "/sse"),
+            assert_eq!(headers, &[
                 ("Host".to_string(), "staging.eod.example.net".to_string()),
-                ("Accept".to_string(), "text/event-stream".to_string())] &&
-            backend_record == &Link::Unresolved(32786, "pipe".to_string())
+                ("Accept".to_string(), "text/event-stream".to_string())]),
+            assert_eq!(backend_record, &Link::Unresolved(32786, "pipe".to_string())),
+            assert_eq!(process, parse!("0.0")),
+            assert_eq!(recv_total, 350),
+            assert_eq!(sent_total, 0)
         );
     }
 
@@ -1831,16 +1847,23 @@ mod tests {
         assert_eq!(record.handling, Handling::Pass);
 
         assert_matches!(record.transaction, ClientAccessTransaction::Full {
-            accounting: Accounting {
-                recv_header: 82,
-                recv_body: 2,
-                recv_total: 84,
-                sent_header: 304,
-                sent_body: 6962,
-                sent_total: 7266,
-            },
-            ..
-        });
+                accounting: Accounting {
+                    recv_header,
+                    recv_body,
+                    recv_total,
+                    sent_header,
+                    sent_body,
+                    sent_total,
+                },
+                ..
+            } =>
+            assert_eq!(recv_header, 82),
+            assert_eq!(recv_body, 2),
+            assert_eq!(recv_total, 84),
+            assert_eq!(sent_header, 304),
+            assert_eq!(sent_body, 6962),
+            assert_eq!(sent_total, 7266)
+        );
     }
 
     #[test]
@@ -1881,10 +1904,13 @@ mod tests {
             .unwrap_client_access();
 
         assert_matches!(record.compression, Some(Compression {
-            operation: CompressionOperation::Gunzip,
-            bytes_in: 29,
-            bytes_out: 9,
-        }));
+                operation: CompressionOperation::Gunzip,
+                bytes_in,
+                bytes_out,
+            }) =>
+            assert_eq!(bytes_in, 29),
+            assert_eq!(bytes_out, 9),
+        );
     }
 
     #[test]
@@ -1928,16 +1954,23 @@ mod tests {
         assert_eq!(record.handling, Handling::HitPass(5));
 
         assert_matches!(record.transaction, ClientAccessTransaction::Full {
-            accounting: Accounting {
-                recv_header: 82,
-                recv_body: 2,
-                recv_total: 84,
-                sent_header: 304,
-                sent_body: 6962,
-                sent_total: 7266,
-            },
-            ..
-        });
+                accounting: Accounting {
+                    recv_header,
+                    recv_body,
+                    recv_total,
+                    sent_header,
+                    sent_body,
+                    sent_total,
+                },
+                ..
+            } =>
+            assert_eq!(recv_header, 82),
+            assert_eq!(recv_body, 2),
+            assert_eq!(recv_total, 84),
+            assert_eq!(sent_header, 304),
+            assert_eq!(sent_body, 6962),
+            assert_eq!(sent_total, 7266)
+        );
     }
 
     //TODO: test backend access record: Full, Failed, Aborted, Abandoned, Piped
@@ -1983,49 +2016,53 @@ mod tests {
        let record = apply_last!(builder, 5, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(1471354579.281173));
+       assert_eq!(record.start, Some(parse!("1471354579.281173")));
        assert_eq!(record.end, None);
 
        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-           send: 0.000128,
-           ttfb: 0.007524,
-           wait: 0.007396,
-           fetch: None,
-           ..
-       });
+                send,
+                ttfb,
+                wait,
+                fetch: None,
+                ..
+            } =>
+            assert_eq!(send, parse!("0.000128")),
+            assert_eq!(ttfb, parse!("0.007524")),
+            assert_eq!(wait, parse!("0.007396"))
+        );
 
         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-            request: HttpRequest {
-                ref method,
-                ref url,
-                ref protocol,
-                ref headers,
-            },
-            ..
-        } if
-            method == "GET" &&
-            url == "/test_page/123.html" &&
-            protocol == "HTTP/1.1" &&
-            headers == &[
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } =>
+            assert_eq!(method, "GET"),
+            assert_eq!(url, "/test_page/123.html"),
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(headers, &[
                 ("Date".to_string(), "Tue, 16 Aug 2016 13:36:19 GMT".to_string()),
                 ("Host".to_string(), "127.0.0.1:1202".to_string()),
-                ("Accept-Encoding".to_string(), "gzip".to_string())]
+                ("Accept-Encoding".to_string(), "gzip".to_string())])
         );
 
        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-           response: HttpResponse {
-               ref protocol,
-               status,
-               ref reason,
-               ref headers,
-           },
-           ..
-       } if
-           protocol == "HTTP/1.1" &&
-           status == 500 &&
-           reason == "Internal Server Error" &&
-           headers == &[
-               ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
+                response: HttpResponse {
+                    ref protocol,
+                    status,
+                    ref reason,
+                    ref headers,
+                },
+                ..
+            } =>
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(status, 500),
+            assert_eq!(reason, "Internal Server Error"),
+            assert_eq!(headers, &[
+               ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
        );
     }
 
@@ -2067,16 +2104,21 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(1470403414.669375));
-       assert_eq!(record.end, Some(1470403414.672290));
+       assert_eq!(record.start, Some(parse!("1470403414.669375")));
+       assert_eq!(record.end, Some(parse!("1470403414.672290")));
 
        assert_matches!(record.transaction, BackendAccessTransaction::Full {
-           send: 0.004549,
-           ttfb: 0.007262,
-           wait: 0.002713,
-           fetch: 0.007367,
-           ..
-       });
+                send,
+                ttfb,
+                wait,
+                fetch,
+                ..
+            } =>
+            assert_eq!(send, parse!("0.004549")),
+            assert_eq!(ttfb, parse!("0.007262")),
+            assert_eq!(wait, parse!("0.002713")),
+            assert_eq!(fetch, parse!("0.007367")),
+       );
     }
 
     #[test]
@@ -2111,16 +2153,21 @@ mod tests {
        let record = apply_last!(builder, 32769, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(1470403414.669375));
-       assert_eq!(record.end, Some(1470403414.672290));
+       assert_eq!(record.start, Some(parse!("1470403414.669375")));
+       assert_eq!(record.end, Some(parse!("1470403414.672290")));
 
        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-           send: 0.004549,
-           ttfb: 0.007262,
-           wait: 0.002713,
-           fetch: Some(0.007367),
-           ..
-       });
+                send,
+                ttfb,
+                wait,
+                fetch: Some(fetch),
+                ..
+            } =>
+            assert_eq!(send, parse!("0.004549")),
+            assert_eq!(ttfb, parse!("0.007262")),
+            assert_eq!(wait, parse!("0.002713")),
+            assert_eq!(fetch, parse!("0.007367"))
+       );
     }
 
     #[test]
@@ -2163,10 +2210,13 @@ mod tests {
            .unwrap_backend_access();
 
        assert_matches!(record.compression, Some(Compression {
-           operation: CompressionOperation::Gzip,
-           bytes_in: 861,
-           bytes_out: 41,
-       }));
+                operation: CompressionOperation::Gzip,
+                bytes_in,
+                bytes_out,
+            }) =>
+            assert_eq!(bytes_in, 861),
+            assert_eq!(bytes_out, 41)
+       );
     }
 
     #[test]
@@ -2214,47 +2264,49 @@ mod tests {
        let record = apply_last!(builder, 5, SLT_End, "")
            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(1471355385.239334));
-       assert_eq!(record.end, Some(1471355385.239427));
+       assert_eq!(record.start, Some(parse!("1471355385.239334")));
+       assert_eq!(record.end, Some(parse!("1471355385.239427")));
 
        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
-           synth: 0.000093,
-           ..
-       });
+                synth,
+                ..
+            } =>
+            assert_eq!(synth, parse!("0.000093"))
+        );
 
         assert_matches!(record.transaction, BackendAccessTransaction::Failed {
-            request: HttpRequest {
-                ref method,
-                ref url,
-                ref protocol,
-                ref headers,
-            },
-            ..
-        } if
-            method == "GET" &&
-            url == "/test_page/123.html" &&
-            protocol == "HTTP/1.1" &&
-            headers == &[
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } =>
+            assert_eq!(method, "GET"),
+            assert_eq!(url, "/test_page/123.html"),
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(headers, &[
                 ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-                ("Host".to_string(), "127.0.0.1:1236".to_string())]
+                ("Host".to_string(), "127.0.0.1:1236".to_string())])
         );
 
        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
-           synth_response: HttpResponse {
-               ref protocol,
-               status,
-               ref reason,
-               ref headers,
-           },
-           ..
-       } if
-           protocol == "HTTP/1.1" &&
-           status == 503 &&
-           reason == "Backend fetch failed" &&
-           headers == &[
-               ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-               ("Server".to_string(), "Varnish".to_string()),
-               ("Retry-After".to_string(), "20".to_string())]
+                synth_response: HttpResponse {
+                    ref protocol,
+                    status,
+                    ref reason,
+                    ref headers,
+                },
+                ..
+            } =>
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(status, 503),
+            assert_eq!(reason, "Backend fetch failed"),
+            assert_eq!(headers, &[
+                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                ("Server".to_string(), "Varnish".to_string()),
+                ("Retry-After".to_string(), "20".to_string())])
        );
     }
 
@@ -2281,18 +2333,20 @@ mod tests {
                    32769, SLT_VCL_call,         "BACKEND_ERROR";
                    32769, SLT_Length,           "6962";
                    32769, SLT_BereqAcct,        "0 0 0 0 0 0";
-                  );
+                );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(1470304835.059425));
-       assert_eq!(record.end, Some(1470304835.059479));
+        assert_eq!(record.start, Some(parse!("1470304835.059425")));
+        assert_eq!(record.end, Some(parse!("1470304835.059479")));
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Failed {
-           synth: 0.000054,
-           ..
-       });
+        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+                synth,
+                ..
+            } =>
+            assert_eq!(synth, parse!("0.000054")),
+        );
     }
 
     #[test]
@@ -2314,29 +2368,29 @@ mod tests {
                    5, SLT_Timestamp,      "Bereq: 1471355444.744344 0.000000 0.000000";
                    5, SLT_BackendClose,   "20 boot.default";
                    5, SLT_BereqAcct,      "0 0 0 0 0 0";
-                  );
+                );
 
-       let record = apply_last!(builder, 5, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(1471355444.744344));
-       assert_eq!(record.end, None);
+        assert_eq!(record.start, Some(parse!("1471355444.744344")));
+        assert_eq!(record.end, None);
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Piped {
-           request: HttpRequest {
-               ref method,
-               ref url,
-               ref protocol,
-               ref headers,
-           },
-           ..
-       } if
-           method == "GET" &&
-           url == "/websocket" &&
-           protocol == "HTTP/1.1" &&
-           headers == &[
-               ("Connection".to_string(), "Upgrade".to_string()),
-               ("Upgrade".to_string(), "websocket".to_string())]
+        assert_matches!(record.transaction, BackendAccessTransaction::Piped {
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } =>
+            assert_eq!(method, "GET"),
+            assert_eq!(url, "/websocket"),
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(headers, &[
+                ("Connection".to_string(), "Upgrade".to_string()),
+                ("Upgrade".to_string(), "websocket".to_string())])
        );
     }
 
@@ -2361,29 +2415,29 @@ mod tests {
                    32786, SLT_BereqAcct,      "0 0 0 0 0 0";
                   );
 
-       let record = apply_last!(builder, 32786, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32786, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.start, None);
-       assert_eq!(record.end, None);
+        assert_eq!(record.start, None);
+        assert_eq!(record.end, None);
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Piped {
-           request: HttpRequest {
-               ref method,
-               ref url,
-               ref protocol,
-               ref headers,
-           },
-           ..
-       } if
-           method == "GET" &&
-           url == "/sse" &&
-           protocol == "HTTP/1.1" &&
-           headers == &[
-               ("Host".to_string(), "staging.eod.example.net".to_string()),
-               ("Accept".to_string(), "text/event-stream".to_string()),
-               ("Connection".to_string(), "close".to_string())]
-       );
+        assert_matches!(record.transaction, BackendAccessTransaction::Piped {
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } =>
+            assert_eq!(method, "GET"),
+            assert_eq!(url, "/sse"),
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(headers, &[
+                ("Host".to_string(), "staging.eod.example.net".to_string()),
+                ("Accept".to_string(), "text/event-stream".to_string()),
+                ("Connection".to_string(), "close".to_string())])
+        );
     }
 
     #[test]
@@ -2404,28 +2458,28 @@ mod tests {
                    5, SLT_BereqAcct,      "0 0 0 0 0 0";
                   );
 
-       let record = apply_last!(builder, 5, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(1471449766.106695));
-       assert_eq!(record.end, None);
+        assert_eq!(record.start, Some(parse!("1471449766.106695")));
+        assert_eq!(record.end, None);
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Aborted {
-           request: HttpRequest {
-               ref method,
-               ref url,
-               ref protocol,
-               ref headers,
-           },
-           ..
-       } if
-           method == "GET" &&
-           url == "/" &&
-           protocol == "HTTP/1.1" &&
-           headers == &[
-               ("User-Agent".to_string(), "curl/7.40.0".to_string()),
-               ("Host".to_string(), "localhost:1080".to_string())]
-       );
+        assert_matches!(record.transaction, BackendAccessTransaction::Aborted {
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } =>
+            assert_eq!(method, "GET"),
+            assert_eq!(url, "/"),
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(headers, &[
+                ("User-Agent".to_string(), "curl/7.40.0".to_string()),
+                ("Host".to_string(), "localhost:1080".to_string())])
+        );
     }
 
     #[test]
@@ -2564,32 +2618,32 @@ mod tests {
                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
                    );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Full {
-           cache_object: CacheObject {
-               ref fetch_mode,
-               fetch_streamed,
-               response: HttpResponse {
-                   ref protocol,
-                   status,
-                   ref reason,
-                   ref headers
-               },
-               ..
-           },
-           ..
-       } if
-           *fetch_streamed.as_ref().unwrap() == true &&
-           fetch_mode.as_ref().unwrap() == "length" &&
-           protocol == "HTTP/1.1" &&
-           status == 200 &&
-           reason == "OK" &&
-           headers == &[
-               ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
-               ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]
-       );
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ref fetch_mode,
+                    fetch_streamed,
+                    response: HttpResponse {
+                        ref protocol,
+                        status,
+                        ref reason,
+                        ref headers
+                    },
+                    ..
+                },
+                ..
+            } =>
+            assert_eq!(*fetch_streamed.as_ref().unwrap(), true),
+            assert_eq!(fetch_mode.as_ref().unwrap(), "length"),
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(status, 200),
+            assert_eq!(reason, "OK"),
+            assert_eq!(headers, &[
+                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
+                ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())])
+        );
    }
 
     #[test]
@@ -2627,20 +2681,25 @@ mod tests {
                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
                    );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Full {
-           cache_object: CacheObject {
-               ttl: Some(120.0),
-               grace: Some(10.0),
-               keep: None,
-               since: 1471339883.0,
-               origin: 1471339880.0,
-               ..
-           },
-           ..
-       });
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ttl: Some(ttl),
+                    grace: Some(grace),
+                    keep: None,
+                    since,
+                    origin,
+                    ..
+                },
+                ..
+            } =>
+            assert_eq!(ttl, parse!("120.0")),
+            assert_eq!(grace, parse!("10.0")),
+            assert_eq!(since, parse!("1471339883.0")),
+            assert_eq!(origin, parse!("1471339880.0"))
+        );
    }
 
     #[test]
@@ -2679,22 +2738,28 @@ mod tests {
                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
                    );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Full {
-           cache_object: CacheObject {
-               ttl: Some(12345.0),
-               grace: Some(259200.0),
-               keep: Some(0.0),
-               since: 1470304807.0,
-               // Keep time from RFC so we can calculate origin TTL etc
-               origin: 1471339880.0,
-               ..
-           },
-           ..
-       });
-   }
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ttl: Some(ttl),
+                    grace: Some(grace),
+                    keep: Some(keep),
+                    since,
+                    origin,
+                    ..
+                },
+                ..
+            } =>
+            assert_eq!(ttl, parse!("12345.0")),
+            assert_eq!(grace, parse!("259200.0")),
+            assert_eq!(keep, parse!("0.0")),
+            assert_eq!(since, parse!("1470304807.0")),
+            // Keep time from RFC so we can calculate origin TTL etc
+            assert_eq!(origin, parse!("1471339880.0"))
+        );
+    }
 
     #[test]
     fn apply_backend_access_record_cache_object_storage() {
@@ -2732,21 +2797,21 @@ mod tests {
                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
                    );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Full {
-           cache_object: CacheObject {
-               ref storage_type,
-               ref storage_name,
-               ..
-           },
-           ..
-       } if
-           storage_type == "malloc" &&
-           storage_name == "s0"
-       );
-   }
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ref storage_type,
+                    ref storage_name,
+                    ..
+                },
+                ..
+            } =>
+            assert_eq!(storage_type, "malloc"),
+            assert_eq!(storage_name, "s0")
+        );
+    }
 
     #[test]
     fn apply_backend_access_record_bgfetch() {
@@ -2813,9 +2878,9 @@ mod tests {
                     ..
                 },
                 ..
-            } if
-                storage_type == "malloc" &&
-                storage_name == "s0"
+            } =>
+            assert_eq!(storage_type, "malloc"),
+            assert_eq!(storage_name, "s0")
         );
     }
 
@@ -2858,7 +2923,7 @@ mod tests {
         assert_matches!(record.compression, None);
 
         assert_eq!(record.log, &[
-                   LogEntry::Error("G(un)zip error: -3 ((null))".to_string()),
+            LogEntry::Error("G(un)zip error: -3 ((null))".to_string()),
         ]);
     }
 }
