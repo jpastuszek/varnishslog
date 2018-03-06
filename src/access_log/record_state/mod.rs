@@ -366,16 +366,16 @@ mod tests {
                 ident,
                 open,
                 duration,
-                local: Some(local),
-                remote,
-                client_records
+                local: Some(ref local),
+                ref remote,
+                ref client_records
             } =>
             assert_eq!(ident, 123),
             assert_eq!(open, parse!("1469180762.484344")),
             assert_eq!(duration, parse!("0.001")),
-            assert_eq!(local, ("127.0.0.1".to_string(), 1080)),
-            assert_eq!(remote, ("192.168.1.10".to_string(), 40078)),
-            assert_eq!(client_records, vec![Link::Unresolved(32773, "rxreq".to_string())])
+            assert_eq!(local, &("127.0.0.1".to_string(), 1080)),
+            assert_eq!(remote, &("192.168.1.10".to_string(), 40078)),
+            assert_eq!(client_records, &[Link::Unresolved(32773, "rxreq".to_string())])
         );
     }
 

@@ -437,7 +437,7 @@ mod tests {
             assert_eq!(method, "GET"),
             assert_eq!(url, "/foobar"),
             assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &vec![
+            assert_eq!(headers, &[
                 ("Host".to_string(), "localhost:8080".to_string()),
                 ("User-Agent".to_string(), "curl/7.40.0".to_string())])
         );
@@ -454,64 +454,65 @@ mod tests {
             assert_eq!(protocol, "HTTP/1.1"),
             assert_eq!(status, 503),
             assert_eq!(reason, "Backend fetch failed"),
-            assert_eq!(headers, &vec![
+            assert_eq!(headers, &[
                 ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
         );
 
-        if let ClientAccessTransaction::Full { backend_record: Some(ref backend_record), .. } = client_record.transaction {
-            let backend_record = backend_record.get_resolved().unwrap();
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
+                backend_record: Some(ref backend_record), 
+                .. 
+            } => {
+                let backend_record = backend_record.get_resolved().unwrap();
 
-            assert_matches!(backend_record, &BackendAccessRecord {
-                    ident,
-                    start: Some(start),
-                    end: Some(end),
-                    ref reason,
-                    ..
-                } =>
-                assert_eq!(reason, "fetch"),
-                assert_eq!(ident, 1000),
-                assert_eq!(start, parse!("1469180762.484544")),
-                assert_eq!(end, parse!("1469180764.484544"))
-            );
-
-            assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
-                    request: HttpRequest {
-                        ref method,
-                        ref url,
-                        ref protocol,
-                        ref headers
-                    },
-                    ..
-                } =>
-                assert_eq!(method, "GET"),
-                assert_eq!(url, "/foobar"),
-                assert_eq!(protocol, "HTTP/1.1"),
-                assert_eq!(headers, &vec![
-                    ("Host".to_string(), "localhost:8080".to_string()),
-                    ("User-Agent".to_string(), "curl/7.40.0".to_string())])
-            );
-            assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
-                    synth_response: HttpResponse {
-                        ref protocol,
-                        status,
+                assert_matches!(backend_record, &BackendAccessRecord {
+                        ident,
+                        start: Some(start),
+                        end: Some(end),
                         ref reason,
-                        ref headers
-                    },
-                    ..
-                } =>
-                assert_eq!(protocol, "HTTP/1.1"),
-                assert_eq!(status, 503),
-                assert_eq!(reason, "Backend fetch failed"),
-                assert_eq!(headers, &vec![
-                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                    ("Server".to_string(), "Varnish".to_string()),
-                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
-            );
-        } else {
-            unreachable!()
-        }
+                        ..
+                    } =>
+                    assert_eq!(reason, "fetch"),
+                    assert_eq!(ident, 1000),
+                    assert_eq!(start, parse!("1469180762.484544")),
+                    assert_eq!(end, parse!("1469180764.484544"))
+                );
+                assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
+                        request: HttpRequest {
+                            ref method,
+                            ref url,
+                            ref protocol,
+                            ref headers
+                        },
+                        ..
+                    } =>
+                    assert_eq!(method, "GET"),
+                    assert_eq!(url, "/foobar"),
+                    assert_eq!(protocol, "HTTP/1.1"),
+                    assert_eq!(headers, &[
+                        ("Host".to_string(), "localhost:8080".to_string()),
+                        ("User-Agent".to_string(), "curl/7.40.0".to_string())])
+                );
+                assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
+                        synth_response: HttpResponse {
+                            ref protocol,
+                            status,
+                            ref reason,
+                            ref headers
+                        },
+                        ..
+                    } =>
+                    assert_eq!(protocol, "HTTP/1.1"),
+                    assert_eq!(status, 503),
+                    assert_eq!(reason, "Backend fetch failed"),
+                    assert_eq!(headers, &[
+                        ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                        ("Server".to_string(), "Varnish".to_string()),
+                        ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
+                );
+            }
+        );
     }
 
     #[test]
@@ -690,29 +691,20 @@ mod tests {
         let client_record = apply_final!(state, 65538, SLT_End, "");
 
         // We will have esi_transactions in client request
-        if let ClientAccessTransaction::Full { ref esi_records, .. } =
-            client_record.transaction {
-            assert_eq!(esi_records[0].get_resolved().unwrap().reason, "esi".to_string());
-
-            if let ClientAccessTransaction::Full {
-                ref esi_records,
-                backend_record: Some(ref backend_record),
-                ..
-            } = esi_records[0].get_resolved().unwrap().transaction {
-                assert!(esi_records.is_empty());
-                assert_matches!(backend_record.get_resolved().unwrap(),
-                    &BackendAccessRecord {
-                        ref reason,
-                        ..
-                    } if reason == "fetch"
-                );
-
-            } else {
-                unreachable!()
-            }
-        } else {
-            unreachable!()
-        }
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
+                ref esi_records, 
+                .. 
+            } => 
+            assert_eq!(esi_records[0].get_resolved().unwrap().reason, "esi".to_string()),
+            assert_matches!(esi_records[0].get_resolved().unwrap().transaction, ClientAccessTransaction::Full {
+                    ref esi_records,
+                    backend_record: Some(ref backend_record),
+                    ..
+                } =>
+                assert!(esi_records.is_empty()),
+                assert_eq!(backend_record.get_resolved().unwrap().reason, "fetch")
+            )
+        );
     }
 
     #[test]
@@ -781,12 +773,12 @@ mod tests {
        let client_record = apply_final!(state, 65541, SLT_End, "");
 
        // It is handled as ususal; only difference is backend request reason
-       if let ClientAccessTransaction::Full { backend_record: Some(ref backend_record), .. } =
-           client_record.transaction {
-           assert_eq!(backend_record.get_resolved().unwrap().reason, "bgfetch".to_string());
-       } else {
-           unreachable!()
-       }
+       assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
+                backend_record: Some(ref backend_record), 
+                .. 
+            } =>
+           assert_eq!(backend_record.get_resolved().unwrap().reason, "bgfetch".to_string())
+       );
     }
 
     #[test]
@@ -873,13 +865,12 @@ mod tests {
         let client_record = apply_final!(state, 32772, SLT_End, "");
 
         // We should have restarted transaction
-        if let ClientAccessTransaction::RestartedEarly { ref restart_record, .. } =
-            client_record.transaction {
-            // It should have a full transaction
-            assert_matches!(restart_record.get_resolved().unwrap().transaction, ClientAccessTransaction::Full { .. });
-        } else {
-            unreachable!()
-        }
+        assert_matches!(client_record.transaction, ClientAccessTransaction::RestartedEarly { 
+                ref restart_record, 
+                .. 
+            } =>
+            assert_matches!(restart_record.get_resolved().unwrap().transaction, ClientAccessTransaction::Full { .. })
+        );
     }
 
     #[test]
@@ -970,37 +961,39 @@ mod tests {
         let client_record = apply_final!(state, 7, SLT_End, "");
 
         // It is handled as ususal; only difference is backend request reason
-        if let ClientAccessTransaction::Full { backend_record: Some(ref backend_record), .. } =
-            client_record.transaction {
-            let backend_record = backend_record.get_resolved().unwrap();
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
+                backend_record: Some(ref backend_record), 
+                .. 
+            } => {
+                let backend_record = backend_record.get_resolved().unwrap();
 
-            // Backend transaction request record will be the one from before retry (triggering)
-            assert_matches!(backend_record.transaction, BackendAccessTransaction::Abandoned {
-                request: HttpRequest {
-                    ref url,
-                    ..
-                },
-                ..
-            } if url == "/retry");
-
-            if let BackendAccessTransaction::Abandoned { retry_record: Some(ref retry_record), .. } =
-                backend_record.transaction {
-                let backend_record = retry_record.get_resolved().unwrap();
-
-                assert_eq!(backend_record.reason, "retry".to_string());
-                assert_matches!(backend_record.transaction, BackendAccessTransaction::Full {
-                    request: HttpRequest {
-                        ref url,
+                // Backend transaction request record will be the one from before retry (triggering)
+                assert_matches!(backend_record.transaction, BackendAccessTransaction::Abandoned {
+                        request: HttpRequest {
+                            ref url,
+                            ..
+                        },
+                        retry_record: Some(ref retry_record), 
                         ..
-                    },
-                    ..
-                } if url == "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg");
-            } else {
-                unreachable!()
+                    } => 
+                    assert_eq!(url, "/retry"),
+                    {
+                        let backend_record = retry_record.get_resolved().unwrap();
+
+                        assert_eq!(backend_record.reason, "retry".to_string());
+                        assert_matches!(backend_record.transaction, BackendAccessTransaction::Full {
+                                request: HttpRequest {
+                                    ref url,
+                                    ..
+                                },
+                                ..
+                            } => 
+                            assert_eq!(url, "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg")
+                        );
+                    }
+                )
             }
-        } else {
-            unreachable!()
-        }
+        );
     }
 
     #[test]
@@ -1045,11 +1038,11 @@ mod tests {
 
         let client_record = apply_final!(state, 4, SLT_End, "");
 
-        if let ClientAccessTransaction::Piped { ref backend_record, .. } =
-            client_record.transaction {
-            assert_matches!(backend_record.get_resolved().unwrap().transaction, BackendAccessTransaction::Piped { .. });
-        } else {
-            unreachable!()
-        }
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Piped { 
+                ref backend_record, 
+                .. 
+            } =>
+            assert_matches!(backend_record.get_resolved().unwrap().transaction, BackendAccessTransaction::Piped { .. })
+        );
     }
 }
