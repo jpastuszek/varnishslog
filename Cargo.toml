@@ -26,7 +26,8 @@ name = "access_log"
 serde_codegen = "0.8.4"
 
 [dependencies]
-assert_matches = "1.0.1"
+#assert_matches = "1.0.1"
+assert_matches = { git = "https://github.com/jpastuszek/assert_matches" }
 bitflags = "0.7.0"
 boolinator = "0.1.0"
 chrono = "0.2.25"

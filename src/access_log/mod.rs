@@ -72,66 +72,6 @@ mod test_helpers {
             ::std::str::FromStr::from_str($e).expect(&format!("failed to parse '{:?}'", $e))
         }
     }
-
-    //TODO: warning if pattern match cannot fail
-    macro_rules! assert_matches {
-        ( $e:expr , $pat:pat ) => {
-            match $e {
-                $pat => (),
-                ref e => panic!("assertion failed: `{:?}` does not match `{}`",
-                    e, stringify!($pat))
-            }
-        };
-        ( $e:expr , $pat:pat if $cond:expr ) => {
-            match $e {
-                $pat if $cond => (),
-                ref e => panic!("assertion failed: `{:?}` does not match `{} if {}`",
-                    e, stringify!($pat), stringify!($cond))
-            }
-        };
-        ( $e:expr , $pat:pat => $($arm:tt)* ) => {
-            match $e {
-                $pat => ($($arm)*),
-                ref e => panic!("assertion failed: `{:?}` does not match `{}`",
-                    e, stringify!($pat))
-            };
-        };
-        ( $e:expr , $pat:pat if $cond:expr => $($arm:tt)* ) => {
-            match $e {
-                $pat if $cond => ($($arm)*),
-                ref e => panic!("assertion failed: `{:?}` does not match `{} if {}`",
-                    e, stringify!($pat), stringify!($cond))
-            }
-        };
-        ( $e:expr , $pat:pat , $arg:expr ) => {
-            match $e {
-                $pat => (),
-                ref e => panic!("assertion failed: `{:?}` does not match `{}`: {}",
-                    e, stringify!($pat), format_args!($arg))
-            }
-        };
-        ( $e:expr , $pat:pat if $cond:expr , $arg:expr ) => {
-            match $e {
-                $pat if $cond => (),
-                ref e => panic!("assertion failed: `{:?}` does not match `{} if {}`: {}",
-                    e, stringify!($pat), stringify!($cond), format_args!($arg))
-            }
-        };
-        ( $e:expr , $pat:pat , $arg:expr => $($arm:tt)* ) => {
-            match $e {
-                $pat => ($($arm)*),
-                ref e => panic!("assertion failed: `{:?}` does not match `{}`: {}",
-                    e, stringify!($pat), format_args!($arg))
-            }
-        };
-        ( $e:expr , $pat:pat if $cond:expr , $arg:expr => $($arm:tt)* ) => {
-            match $e {
-                $pat if $cond => ($($arm)*),
-                ref e => panic!("assertion failed: `{:?}` does not match `{} if {}`: {}",
-                    e, stringify!($pat), stringify!($cond), format_args!($arg))
-            }
-        };
-    }
 }
 
 pub mod record;

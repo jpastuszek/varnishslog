@@ -1909,7 +1909,7 @@ mod tests {
                 bytes_out,
             }) =>
             assert_eq!(bytes_in, 29),
-            assert_eq!(bytes_out, 9),
+            assert_eq!(bytes_out, 9)
         );
     }
 
@@ -2117,7 +2117,7 @@ mod tests {
             assert_eq!(send, parse!("0.004549")),
             assert_eq!(ttfb, parse!("0.007262")),
             assert_eq!(wait, parse!("0.002713")),
-            assert_eq!(fetch, parse!("0.007367")),
+            assert_eq!(fetch, parse!("0.007367"))
         );
     }
 
@@ -2345,7 +2345,7 @@ mod tests {
                 synth,
                 ..
             } =>
-            assert_eq!(synth, parse!("0.000054")),
+            assert_eq!(synth, parse!("0.000054"))
         );
     }
 
