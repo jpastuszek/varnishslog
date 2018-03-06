@@ -13,8 +13,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "assert_matches"
-version = "1.1.0"
-source = "git+https://github.com/jpastuszek/assert_matches#3bfe38eb240957acb706b45f367b39bcb76ff5e7"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "atty"
@@ -391,7 +391,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "varnishslog"
 version = "0.4.1"
 dependencies = [
- "assert_matches 1.1.0 (git+https://github.com/jpastuszek/assert_matches)",
+ "assert_matches 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bencher 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitflags 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "boolinator 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -447,7 +447,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [metadata]
 "checksum aho-corasick 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "2b3fb52b09c1710b961acb35390d514be82e4ac96a9969a8e38565a29b878dc9"
 "checksum ansi_term 0.10.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6b3568b48b7cefa6b8ce125f9bb4989e52fbcc29ebea88df04cc7c5f12f70455"
-"checksum assert_matches 1.1.0 (git+https://github.com/jpastuszek/assert_matches)" = "<none>"
+"checksum assert_matches 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "664470abf00fae0f31c0eb6e1ca12d82961b2a2541ef898bc9dd51a9254d218b"
 "checksum atty 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "8352656fd42c30a0c3c89d26dea01e3b77c0ab2af18230835c15e2e13cd51859"
 "checksum bencher 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f8cebcc66a7c86de233f4c37873f258cb844bb2bf3632135c588d2ca348b384c"
 "checksum bitflags 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "aad18937a628ec6abcd26d1489012cc0e18c21798210f491af69ded9b881106d"
