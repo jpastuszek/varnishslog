@@ -407,84 +407,108 @@ mod tests {
         let client_record = apply_final!(state, 1000, SLT_End, "");
 
         assert_matches!(client_record, ClientAccessRecord {
-            ident: 100,
-            start: 1469180762.484544,
-            end: Some(1469180766.484544),
-            ref reason,
-            transaction: ClientAccessTransaction::Full {
-                backend_record: Some(_),
-                ref esi_records,
+                ident,
+                start,
+                end: Some(end),
+                ref reason,
+                transaction: ClientAccessTransaction::Full {
+                    backend_record: Some(_),
+                    ref esi_records,
+                    ..
+                },
                 ..
-            },
-            ..
-        } if
-            reason == "rxreq" &&
-            esi_records.is_empty()
+            } =>
+            assert_eq!(ident, 100),
+            assert_eq!(start, parse!("1469180762.484544")),
+            assert_eq!(end, parse!("1469180766.484544")),
+            assert_eq!(reason, "rxreq"),
+            assert!(esi_records.is_empty())
         );
 
         assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
-            ref request,
-            ..
-        } if
-            request == &HttpRequest {
-                method: "GET".to_string(),
-                url: "/foobar".to_string(),
-                protocol: "HTTP/1.1".to_string(),
-                headers: vec![
-                    ("Host".to_string(), "localhost:8080".to_string()),
-                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]
-        });
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers
+                },
+                ..
+            } =>
+            assert_eq!(method, "GET"),
+            assert_eq!(url, "/foobar"),
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(headers, &vec![
+                ("Host".to_string(), "localhost:8080".to_string()),
+                ("User-Agent".to_string(), "curl/7.40.0".to_string())])
+        );
 
         assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
-            ref response,
-            ..
-        } if
-            response == &HttpResponse {
-                protocol: "HTTP/1.1".to_string(),
-                status: 503,
-                reason: "Backend fetch failed".to_string(),
-                headers: vec![
-                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                    ("Server".to_string(), "Varnish".to_string()),
-                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-        });
+                response: HttpResponse {
+                    ref protocol,
+                    status,
+                    ref reason,
+                    ref headers
+                },
+                ..
+            } =>
+            assert_eq!(protocol, "HTTP/1.1"),
+            assert_eq!(status, 503),
+            assert_eq!(reason, "Backend fetch failed"),
+            assert_eq!(headers, &vec![
+                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                ("Server".to_string(), "Varnish".to_string()),
+                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
+        );
 
         if let ClientAccessTransaction::Full { backend_record: Some(ref backend_record), .. } = client_record.transaction {
             let backend_record = backend_record.get_resolved().unwrap();
 
             assert_matches!(backend_record, &BackendAccessRecord {
-                ident: 1000,
-                start: Some(1469180762.484544),
-                end: Some(1469180764.484544),
-                ref reason,
-                ..
-            } if reason == "fetch");
+                    ident,
+                    start: Some(start),
+                    end: Some(end),
+                    ref reason,
+                    ..
+                } =>
+                assert_eq!(reason, "fetch"),
+                assert_eq!(ident, 1000),
+                assert_eq!(start, parse!("1469180762.484544")),
+                assert_eq!(end, parse!("1469180764.484544"))
+            );
 
             assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
-                ref request,
-                ..
-            } if
-                request == &HttpRequest {
-                    method: "GET".to_string(),
-                    url: "/foobar".to_string(),
-                    protocol: "HTTP/1.1".to_string(),
-                    headers: vec![
-                        ("Host".to_string(), "localhost:8080".to_string()),
-                        ("User-Agent".to_string(), "curl/7.40.0".to_string())]
-            });
+                    request: HttpRequest {
+                        ref method,
+                        ref url,
+                        ref protocol,
+                        ref headers
+                    },
+                    ..
+                } =>
+                assert_eq!(method, "GET"),
+                assert_eq!(url, "/foobar"),
+                assert_eq!(protocol, "HTTP/1.1"),
+                assert_eq!(headers, &vec![
+                    ("Host".to_string(), "localhost:8080".to_string()),
+                    ("User-Agent".to_string(), "curl/7.40.0".to_string())])
+            );
             assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
-                ref synth_response,
-                ..
-            } if
-                synth_response == &HttpResponse {
-                    protocol: "HTTP/1.1".to_string(),
-                    status: 503,
-                    reason: "Backend fetch failed".to_string(),
-                    headers: vec![
-                        ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                        ("Server".to_string(), "Varnish".to_string()),
-                        ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]
-            });
+                    synth_response: HttpResponse {
+                        ref protocol,
+                        status,
+                        ref reason,
+                        ref headers
+                    },
+                    ..
+                } =>
+                assert_eq!(protocol, "HTTP/1.1"),
+                assert_eq!(status, 503),
+                assert_eq!(reason, "Backend fetch failed"),
+                assert_eq!(headers, &vec![
+                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                    ("Server".to_string(), "Varnish".to_string()),
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
+            );
         } else {
             unreachable!()
         }

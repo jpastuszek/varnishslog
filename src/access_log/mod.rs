@@ -73,6 +73,7 @@ mod test_helpers {
         }
     }
 
+    //TODO: warning if pattern match cannot fail
     macro_rules! assert_matches {
         ( $e:expr , $pat:pat ) => {
             match $e {
