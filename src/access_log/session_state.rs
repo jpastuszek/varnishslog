@@ -417,12 +417,13 @@ mod tests {
                     ..
                 },
                 ..
-            } =>
-            assert_eq!(ident, 100),
-            assert_eq!(start, parse!("1469180762.484544")),
-            assert_eq!(end, parse!("1469180766.484544")),
-            assert_eq!(reason, "rxreq"),
-            assert!(esi_records.is_empty())
+            } => {
+                assert_eq!(ident, 100);
+                assert_eq!(start, parse!("1469180762.484544"));
+                assert_eq!(end, parse!("1469180766.484544"));
+                assert_eq!(reason, "rxreq");
+                assert!(esi_records.is_empty());
+            }
         );
 
         assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
@@ -433,13 +434,14 @@ mod tests {
                     ref headers
                 },
                 ..
-            } =>
-            assert_eq!(method, "GET"),
-            assert_eq!(url, "/foobar"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &[
-                ("Host".to_string(), "localhost:8080".to_string()),
-                ("User-Agent".to_string(), "curl/7.40.0".to_string())])
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/foobar");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Host".to_string(), "localhost:8080".to_string()),
+                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
+            }
         );
 
         assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
@@ -450,14 +452,15 @@ mod tests {
                     ref headers
                 },
                 ..
-            } =>
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(status, 503),
-            assert_eq!(reason, "Backend fetch failed"),
-            assert_eq!(headers, &[
-                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                ("Server".to_string(), "Varnish".to_string()),
-                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 503);
+                assert_eq!(reason, "Backend fetch failed");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                    ("Server".to_string(), "Varnish".to_string()),
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]);
+            }
         );
 
         assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
@@ -472,11 +475,12 @@ mod tests {
                         end: Some(end),
                         ref reason,
                         ..
-                    } =>
-                    assert_eq!(reason, "fetch"),
-                    assert_eq!(ident, 1000),
-                    assert_eq!(start, parse!("1469180762.484544")),
-                    assert_eq!(end, parse!("1469180764.484544"))
+                    } => {
+                        assert_eq!(reason, "fetch");
+                        assert_eq!(ident, 1000);
+                        assert_eq!(start, parse!("1469180762.484544"));
+                        assert_eq!(end, parse!("1469180764.484544"));
+                    }
                 );
                 assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
                         request: HttpRequest {
@@ -486,13 +490,14 @@ mod tests {
                             ref headers
                         },
                         ..
-                    } =>
-                    assert_eq!(method, "GET"),
-                    assert_eq!(url, "/foobar"),
-                    assert_eq!(protocol, "HTTP/1.1"),
-                    assert_eq!(headers, &[
-                        ("Host".to_string(), "localhost:8080".to_string()),
-                        ("User-Agent".to_string(), "curl/7.40.0".to_string())])
+                    } => {
+                        assert_eq!(method, "GET");
+                        assert_eq!(url, "/foobar");
+                        assert_eq!(protocol, "HTTP/1.1");
+                        assert_eq!(headers, &[
+                            ("Host".to_string(), "localhost:8080".to_string()),
+                            ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
+                    }
                 );
                 assert_matches!(backend_record.transaction, BackendAccessTransaction::Failed {
                         synth_response: HttpResponse {
@@ -502,14 +507,15 @@ mod tests {
                             ref headers
                         },
                         ..
-                    } =>
-                    assert_eq!(protocol, "HTTP/1.1"),
-                    assert_eq!(status, 503),
-                    assert_eq!(reason, "Backend fetch failed"),
-                    assert_eq!(headers, &[
-                        ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                        ("Server".to_string(), "Varnish".to_string()),
-                        ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
+                    } => {
+                        assert_eq!(protocol, "HTTP/1.1");
+                        assert_eq!(status, 503);
+                        assert_eq!(reason, "Backend fetch failed");
+                        assert_eq!(headers, &[
+                            ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                            ("Server".to_string(), "Varnish".to_string()),
+                            ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]);
+                    }
                 );
             }
         );
@@ -694,16 +700,18 @@ mod tests {
         assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
                 ref esi_records, 
                 .. 
-            } => 
-            assert_eq!(esi_records[0].get_resolved().unwrap().reason, "esi".to_string()),
-            assert_matches!(esi_records[0].get_resolved().unwrap().transaction, ClientAccessTransaction::Full {
-                    ref esi_records,
-                    backend_record: Some(ref backend_record),
-                    ..
-                } =>
-                assert!(esi_records.is_empty()),
-                assert_eq!(backend_record.get_resolved().unwrap().reason, "fetch")
-            )
+            } => {
+                assert_eq!(esi_records[0].get_resolved().unwrap().reason, "esi".to_string());
+                assert_matches!(esi_records[0].get_resolved().unwrap().transaction, ClientAccessTransaction::Full {
+                        ref esi_records,
+                        backend_record: Some(ref backend_record),
+                        ..
+                    } => {
+                        assert!(esi_records.is_empty());
+                        assert_eq!(backend_record.get_resolved().unwrap().reason, "fetch");
+                    }
+                );
+            }
         );
     }
 
@@ -975,9 +983,9 @@ mod tests {
                         },
                         retry_record: Some(ref retry_record), 
                         ..
-                    } => 
-                    assert_eq!(url, "/retry"),
-                    {
+                    } =>  {
+                        assert_eq!(url, "/retry");
+
                         let backend_record = retry_record.get_resolved().unwrap();
 
                         assert_eq!(backend_record.reason, "retry".to_string());

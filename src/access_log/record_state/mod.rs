@@ -204,18 +204,19 @@ mod tests {
                 start,
                 end: Some(end),
                 ..
-            } =>
-            assert_eq!(recv_header, 95),
-            assert_eq!(recv_body, 0),
-            assert_eq!(recv_total, 95),
-            assert_eq!(sent_header, 1050),
-            assert_eq!(sent_body, 1366),
-            assert_eq!(sent_total, 2416),
-            assert_eq!(reason, "rxreq"),
-            assert_eq!(backend_record, &Link::Unresolved(5, "fetch".to_string())),
-            assert!(esi_records.is_empty()),
-            assert_eq!(start, parse!("1471355385.239203")),
-            assert_eq!(end, parse!("1471355385.239652"))
+            } => {
+                assert_eq!(recv_header, 95);
+                assert_eq!(recv_body, 0);
+                assert_eq!(recv_total, 95);
+                assert_eq!(sent_header, 1050);
+                assert_eq!(sent_body, 1366);
+                assert_eq!(sent_total, 2416);
+                assert_eq!(reason, "rxreq");
+                assert_eq!(backend_record, &Link::Unresolved(5, "fetch".to_string()));
+                assert!(esi_records.is_empty());
+                assert_eq!(start, parse!("1471355385.239203"));
+                assert_eq!(end, parse!("1471355385.239652"));
+            }
         );
 
         assert_matches!(client.transaction, ClientAccessTransaction::Full {
@@ -226,13 +227,14 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(method, "GET"),
-            assert_eq!(url, "/test_page/123.html"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-                ("Host".to_string(), "127.0.0.1:1236".to_string())])
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/test_page/123.html");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                    ("Host".to_string(), "127.0.0.1:1236".to_string())]);
+            }
         );
 
         assert_matches!(client.transaction, ClientAccessTransaction::Full {
@@ -243,14 +245,15 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(status, 503),
-            assert_eq!(reason, "Backend fetch failed"),
-            assert_eq!(headers, &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-                ("Server".to_string(), "Varnish".to_string()),
-                ("Content-Length".to_string(), "1366".to_string())])
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 503);
+                assert_eq!(reason, "Backend fetch failed");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                    ("Server".to_string(), "Varnish".to_string()),
+                    ("Content-Length".to_string(), "1366".to_string())]);
+            }
         );
     }
 
@@ -299,12 +302,13 @@ mod tests {
                 end: Some(end),
                 ref reason,
                 ..
-            } =>
-            assert_eq!(ident, 123),
-            assert_eq!(parent, 321),
-            assert_eq!(reason, "fetch"),
-            assert_eq!(start, parse!("1469180762.484544")),
-            assert_eq!(end, parse!("1469180763.484544"))
+            } => {
+                assert_eq!(ident, 123);
+                assert_eq!(parent, 321);
+                assert_eq!(reason, "fetch");
+                assert_eq!(start, parse!("1469180762.484544"));
+                assert_eq!(end, parse!("1469180763.484544"));
+            }
         );
 
         assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
@@ -315,13 +319,14 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(method, "GET"),
-            assert_eq!(url, "/foobar"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &[
-                ("Host".to_string(), "localhost:8080".to_string()),
-                ("User-Agent".to_string(), "curl/7.40.0".to_string())])
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/foobar");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Host".to_string(), "localhost:8080".to_string()),
+                    ("User-Agent".to_string(), "curl/7.40.0".to_string())]);
+            }
         );
 
         assert_matches!(backend.transaction, BackendAccessTransaction::Failed {
@@ -332,14 +337,15 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(status, 503),
-            assert_eq!(reason, "Backend fetch failed"),
-            assert_eq!(headers, &[
-                ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
-                ("Server".to_string(), "Varnish".to_string()),
-                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 503);
+                assert_eq!(reason, "Backend fetch failed");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Fri, 22 Jul 2016 09:46:02 GMT".to_string()),
+                    ("Server".to_string(), "Varnish".to_string()),
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]);
+            }
         );
     }
 
@@ -369,13 +375,14 @@ mod tests {
                 local: Some(ref local),
                 ref remote,
                 ref client_records
-            } =>
-            assert_eq!(ident, 123),
-            assert_eq!(open, parse!("1469180762.484344")),
-            assert_eq!(duration, parse!("0.001")),
-            assert_eq!(local, &("127.0.0.1".to_string(), 1080)),
-            assert_eq!(remote, &("192.168.1.10".to_string(), 40078)),
-            assert_eq!(client_records, &[Link::Unresolved(32773, "rxreq".to_string())])
+            } => {
+                assert_eq!(ident, 123);
+                assert_eq!(open, parse!("1469180762.484344"));
+                assert_eq!(duration, parse!("0.001"));
+                assert_eq!(local, &("127.0.0.1".to_string(), 1080));
+                assert_eq!(remote, &("192.168.1.10".to_string(), 40078));
+                assert_eq!(client_records, &[Link::Unresolved(32773, "rxreq".to_string())]);
+            }
         );
     }
 

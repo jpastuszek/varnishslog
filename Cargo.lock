@@ -14,7 +14,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "assert_matches"
 version = "1.1.0"
-source = "git+https://github.com/jpastuszek/assert_matches#a2bf3f8d7b931403a6599f9f3b2a97fbdbc6a768"
+source = "git+https://github.com/jpastuszek/assert_matches#f3cb46a725c68982232dd77e619273081da25c48"
 
 [[package]]
 name = "atty"

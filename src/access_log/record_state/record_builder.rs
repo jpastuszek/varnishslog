@@ -1574,11 +1574,12 @@ mod tests {
                 ttfb,
                 serve,
                 ..
-            } =>
-            assert_eq!(process, parse!("1.0")),
-            assert_eq!(fetch, parse!("0.007491")),
-            assert_eq!(ttfb, parse!("1.007601")),
-            assert_eq!(serve, parse!("1.007634"))
+            } => {
+                assert_eq!(process, parse!("1.0"));
+                assert_eq!(fetch, parse!("0.007491"));
+                assert_eq!(ttfb, parse!("1.007601"));
+                assert_eq!(serve, parse!("1.007634"));
+            }
         );
     }
 
@@ -1620,10 +1621,11 @@ mod tests {
                 },
                 process,
                 restart_record: Link::Unresolved(link_id, _),
-            } =>
-            assert_eq!(link_id, 5),
-            assert_eq!(url, "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure"),
-            assert_eq!(process, Some(parse!("0.0")))
+            } => {
+                assert_eq!(link_id, 5);
+                assert_eq!(url, "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
+                assert_eq!(process, Some(parse!("0.0")));
+            }
         );
     }
 
@@ -1679,12 +1681,13 @@ mod tests {
                 backend_record: Some(Link::Unresolved(backend_record_link, _)),
                 process: Some(process),
                 restart_record: Link::Unresolved(restart_record_link, _),
-            } =>
-            assert_eq!(backend_record_link, 3),
-            assert_eq!(process, parse!("0.0")),
-            assert_eq!(url, "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure"),
-            assert_eq!(status, 301),
-            assert_eq!(restart_record_link, 5)
+            } => {
+                assert_eq!(backend_record_link, 3);
+                assert_eq!(process, parse!("0.0"));
+                assert_eq!(url, "/foo/thumbnails/foo/4006450256177f4a/bar.jpg?type=brochure");
+                assert_eq!(status, 301);
+                assert_eq!(restart_record_link, 5);
+            }
         );
     }
 
@@ -1735,16 +1738,17 @@ mod tests {
                     recv_total,
                     sent_total,
                 }
-            } =>
-            assert_eq!(url, "/websocket"),
-            assert_eq!(headers, &[
-                ("Upgrade".to_string(), "websocket".to_string()),
-                ("Connection".to_string(), "Upgrade".to_string())]),
-            assert_eq!(backend_record, &Link::Unresolved(5, "pipe".to_string())),
-            assert_eq!(process, parse!("0.0")),
-            assert_eq!(ttfb, parse!("0.000209")),
-            assert_eq!(recv_total, 268),
-            assert_eq!(sent_total, 480)
+            } => {
+                assert_eq!(url, "/websocket");
+                assert_eq!(headers, &[
+                    ("Upgrade".to_string(), "websocket".to_string()),
+                    ("Connection".to_string(), "Upgrade".to_string())]);
+                assert_eq!(backend_record, &Link::Unresolved(5, "pipe".to_string()));
+                assert_eq!(process, parse!("0.0"));
+                assert_eq!(ttfb, parse!("0.000209"));
+                assert_eq!(recv_total, 268);
+                assert_eq!(sent_total, 480);
+            }
         );
     }
 
@@ -1796,15 +1800,16 @@ mod tests {
                     recv_total,
                     sent_total,
                 }
-            } =>
-            assert_eq!(url, "/sse"),
-            assert_eq!(headers, &[
-                ("Host".to_string(), "staging.eod.example.net".to_string()),
-                ("Accept".to_string(), "text/event-stream".to_string())]),
-            assert_eq!(backend_record, &Link::Unresolved(32786, "pipe".to_string())),
-            assert_eq!(process, parse!("0.0")),
-            assert_eq!(recv_total, 350),
-            assert_eq!(sent_total, 0)
+            } => {
+                assert_eq!(url, "/sse");
+                assert_eq!(headers, &[
+                    ("Host".to_string(), "staging.eod.example.net".to_string()),
+                    ("Accept".to_string(), "text/event-stream".to_string())]);
+                assert_eq!(backend_record, &Link::Unresolved(32786, "pipe".to_string()));
+                assert_eq!(process, parse!("0.0"));
+                assert_eq!(recv_total, 350);
+                assert_eq!(sent_total, 0);
+            }
         );
     }
 
@@ -1856,13 +1861,14 @@ mod tests {
                     sent_total,
                 },
                 ..
-            } =>
-            assert_eq!(recv_header, 82),
-            assert_eq!(recv_body, 2),
-            assert_eq!(recv_total, 84),
-            assert_eq!(sent_header, 304),
-            assert_eq!(sent_body, 6962),
-            assert_eq!(sent_total, 7266)
+            } => {
+                assert_eq!(recv_header, 82);
+                assert_eq!(recv_body, 2);
+                assert_eq!(recv_total, 84);
+                assert_eq!(sent_header, 304);
+                assert_eq!(sent_body, 6962);
+                assert_eq!(sent_total, 7266);
+            }
         );
     }
 
@@ -1907,9 +1913,10 @@ mod tests {
                 operation: CompressionOperation::Gunzip,
                 bytes_in,
                 bytes_out,
-            }) =>
-            assert_eq!(bytes_in, 29),
-            assert_eq!(bytes_out, 9)
+            }) => {
+                assert_eq!(bytes_in, 29);
+                assert_eq!(bytes_out, 9);
+            }
         );
     }
 
@@ -1963,13 +1970,14 @@ mod tests {
                     sent_total,
                 },
                 ..
-            } =>
-            assert_eq!(recv_header, 82),
-            assert_eq!(recv_body, 2),
-            assert_eq!(recv_total, 84),
-            assert_eq!(sent_header, 304),
-            assert_eq!(sent_body, 6962),
-            assert_eq!(sent_total, 7266)
+            } => {
+                assert_eq!(recv_header, 82);
+                assert_eq!(recv_body, 2);
+                assert_eq!(recv_total, 84);
+                assert_eq!(sent_header, 304);
+                assert_eq!(sent_body, 6962);
+                assert_eq!(sent_total, 7266);
+            }
         );
     }
 
@@ -2025,10 +2033,11 @@ mod tests {
                 wait,
                 fetch: None,
                 ..
-            } =>
-            assert_eq!(send, parse!("0.000128")),
-            assert_eq!(ttfb, parse!("0.007524")),
-            assert_eq!(wait, parse!("0.007396"))
+            } => {
+                assert_eq!(send, parse!("0.000128"));
+                assert_eq!(ttfb, parse!("0.007524"));
+                assert_eq!(wait, parse!("0.007396"));
+            }
         );
 
         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
@@ -2039,14 +2048,15 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(method, "GET"),
-            assert_eq!(url, "/test_page/123.html"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:36:19 GMT".to_string()),
-                ("Host".to_string(), "127.0.0.1:1202".to_string()),
-                ("Accept-Encoding".to_string(), "gzip".to_string())])
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/test_page/123.html");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Tue, 16 Aug 2016 13:36:19 GMT".to_string()),
+                    ("Host".to_string(), "127.0.0.1:1202".to_string()),
+                    ("Accept-Encoding".to_string(), "gzip".to_string())]);
+            }
         );
 
         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
@@ -2057,12 +2067,13 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(status, 500),
-            assert_eq!(reason, "Internal Server Error"),
-            assert_eq!(headers, &[
-               ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 500);
+                assert_eq!(reason, "Internal Server Error");
+                assert_eq!(headers, &[
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]);
+            }
         );
     }
 
@@ -2113,11 +2124,12 @@ mod tests {
                 wait,
                 fetch,
                 ..
-            } =>
-            assert_eq!(send, parse!("0.004549")),
-            assert_eq!(ttfb, parse!("0.007262")),
-            assert_eq!(wait, parse!("0.002713")),
-            assert_eq!(fetch, parse!("0.007367"))
+            } => {
+                assert_eq!(send, parse!("0.004549"));
+                assert_eq!(ttfb, parse!("0.007262"));
+                assert_eq!(wait, parse!("0.002713"));
+                assert_eq!(fetch, parse!("0.007367"));
+            }
         );
     }
 
@@ -2162,11 +2174,12 @@ mod tests {
                 wait,
                 fetch: Some(fetch),
                 ..
-            } =>
-            assert_eq!(send, parse!("0.004549")),
-            assert_eq!(ttfb, parse!("0.007262")),
-            assert_eq!(wait, parse!("0.002713")),
-            assert_eq!(fetch, parse!("0.007367"))
+            } => {
+                assert_eq!(send, parse!("0.004549"));
+                assert_eq!(ttfb, parse!("0.007262"));
+                assert_eq!(wait, parse!("0.002713"));
+                assert_eq!(fetch, parse!("0.007367"));
+            }
         );
     }
 
@@ -2213,9 +2226,10 @@ mod tests {
                 operation: CompressionOperation::Gzip,
                 bytes_in,
                 bytes_out,
-            }) =>
-            assert_eq!(bytes_in, 861),
-            assert_eq!(bytes_out, 41)
+            }) => {
+                assert_eq!(bytes_in, 861);
+                assert_eq!(bytes_out, 41);
+            }
         );
     }
 
@@ -2282,13 +2296,14 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(method, "GET"),
-            assert_eq!(url, "/test_page/123.html"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-                ("Host".to_string(), "127.0.0.1:1236".to_string())])
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/test_page/123.html");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                    ("Host".to_string(), "127.0.0.1:1236".to_string())]);
+            }
         );
 
         assert_matches!(record.transaction, BackendAccessTransaction::Failed {
@@ -2299,14 +2314,15 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(status, 503),
-            assert_eq!(reason, "Backend fetch failed"),
-            assert_eq!(headers, &[
-                ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-                ("Server".to_string(), "Varnish".to_string()),
-                ("Retry-After".to_string(), "20".to_string())])
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 503);
+                assert_eq!(reason, "Backend fetch failed");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                    ("Server".to_string(), "Varnish".to_string()),
+                    ("Retry-After".to_string(), "20".to_string())]);
+            }
         );
     }
 
@@ -2384,13 +2400,14 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(method, "GET"),
-            assert_eq!(url, "/websocket"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &[
-                ("Connection".to_string(), "Upgrade".to_string()),
-                ("Upgrade".to_string(), "websocket".to_string())])
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/websocket");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Connection".to_string(), "Upgrade".to_string()),
+                    ("Upgrade".to_string(), "websocket".to_string())]);
+            }
        );
     }
 
@@ -2429,14 +2446,15 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(method, "GET"),
-            assert_eq!(url, "/sse"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &[
-                ("Host".to_string(), "staging.eod.example.net".to_string()),
-                ("Accept".to_string(), "text/event-stream".to_string()),
-                ("Connection".to_string(), "close".to_string())])
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/sse");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Host".to_string(), "staging.eod.example.net".to_string()),
+                    ("Accept".to_string(), "text/event-stream".to_string()),
+                    ("Connection".to_string(), "close".to_string())]);
+            }
         );
     }
 
@@ -2456,7 +2474,7 @@ mod tests {
                    5, SLT_BereqUnset,     "Accept-Encoding: gzip";
                    5, SLT_VCL_return,     "abandon";
                    5, SLT_BereqAcct,      "0 0 0 0 0 0";
-                  );
+                );
 
         let record = apply_last!(builder, 5, SLT_End, "")
             .unwrap_backend_access();
@@ -2472,13 +2490,14 @@ mod tests {
                     ref headers,
                 },
                 ..
-            } =>
-            assert_eq!(method, "GET"),
-            assert_eq!(url, "/"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(headers, &[
-                ("User-Agent".to_string(), "curl/7.40.0".to_string()),
-                ("Host".to_string(), "localhost:1080".to_string())])
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("User-Agent".to_string(), "curl/7.40.0".to_string()),
+                    ("Host".to_string(), "localhost:1080".to_string())]);
+            }
         );
     }
 
@@ -2634,15 +2653,16 @@ mod tests {
                     ..
                 },
                 ..
-            } =>
-            assert_eq!(*fetch_streamed.as_ref().unwrap(), true),
-            assert_eq!(fetch_mode.as_ref().unwrap(), "length"),
-            assert_eq!(protocol, "HTTP/1.1"),
-            assert_eq!(status, 200),
-            assert_eq!(reason, "OK"),
-            assert_eq!(headers, &[
-                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
-                ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())])
+            } => {
+                assert_eq!(*fetch_streamed.as_ref().unwrap(), true);
+                assert_eq!(fetch_mode.as_ref().unwrap(), "length");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 200);
+                assert_eq!(reason, "OK");
+                assert_eq!(headers, &[
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
+                    ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]);
+            }
         );
    }
 
@@ -2694,11 +2714,12 @@ mod tests {
                     ..
                 },
                 ..
-            } =>
-            assert_eq!(ttl, parse!("120.0")),
-            assert_eq!(grace, parse!("10.0")),
-            assert_eq!(since, parse!("1471339883.0")),
-            assert_eq!(origin, parse!("1471339880.0"))
+            } => {
+                assert_eq!(ttl, parse!("120.0"));
+                assert_eq!(grace, parse!("10.0"));
+                assert_eq!(since, parse!("1471339883.0"));
+                assert_eq!(origin, parse!("1471339880.0"));
+            }
         );
    }
 
@@ -2751,13 +2772,14 @@ mod tests {
                     ..
                 },
                 ..
-            } =>
-            assert_eq!(ttl, parse!("12345.0")),
-            assert_eq!(grace, parse!("259200.0")),
-            assert_eq!(keep, parse!("0.0")),
-            assert_eq!(since, parse!("1470304807.0")),
-            // Keep time from RFC so we can calculate origin TTL etc
-            assert_eq!(origin, parse!("1471339880.0"))
+            } => {
+                assert_eq!(ttl, parse!("12345.0"));
+                assert_eq!(grace, parse!("259200.0"));
+                assert_eq!(keep, parse!("0.0"));
+                assert_eq!(since, parse!("1470304807.0"));
+                // Keep time from RFC so we can calculate origin TTL etc
+                assert_eq!(origin, parse!("1471339880.0"));
+            }
         );
     }
 
@@ -2807,9 +2829,10 @@ mod tests {
                     ..
                 },
                 ..
-            } =>
-            assert_eq!(storage_type, "malloc"),
-            assert_eq!(storage_name, "s0")
+            } => {
+                assert_eq!(storage_type, "malloc");
+                assert_eq!(storage_name, "s0");
+            }
         );
     }
 
@@ -2878,9 +2901,10 @@ mod tests {
                     ..
                 },
                 ..
-            } =>
-            assert_eq!(storage_type, "malloc"),
-            assert_eq!(storage_name, "s0")
+            } => {
+                assert_eq!(storage_type, "malloc");
+                assert_eq!(storage_name, "s0");
+            }
         );
     }
 
