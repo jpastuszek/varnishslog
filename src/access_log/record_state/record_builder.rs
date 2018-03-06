@@ -1175,11 +1175,11 @@ mod tests {
                    1, SLT_VCL_Log,        "X-Varnish-Privileged-Client: false";
                    1, SLT_VCL_Log,        "X-Varnish-User-Agent-Class: Unknown-Bot";
                    1, SLT_VCL_Log,        "X-Varnish-Force-Failure: false";
-                  );
+                );
         assert_eq!(builder.log, &[
-                   LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
-                   LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-                   LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),
+            LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
+            LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+            LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),
         ]);
     }
 
@@ -1252,7 +1252,7 @@ mod tests {
                    123, SLT_BerespHeader,     "Cache-Control: no-store";
                    123, SLT_BerespUnset,      "Cache-Control: no-store";
                    123, SLT_VCL_call,         "BACKEND_RESPONSE";
-                  );
+                );
 
         let request = builder.http_request.build().unwrap();
         assert_eq!(request.method, "GET".to_string());
@@ -1309,24 +1309,24 @@ mod tests {
                    15, SLT_ReqUnset,      "X-Varnish-Decision: Cacheable";
                    15, SLT_ReqHeader,     "X-Varnish-Decision: Uncacheable-NoCacheClass";
                    15, SLT_ReqHeader,     "X-Varnish-Decision:";
-                   );
+                );
 
         builder.http_request.complete();
 
         let request = builder.http_request.build().unwrap();
         assert_eq!(request.headers, &[
-                   ("Host".to_string(), "127.0.0.1:1209".to_string()),
-                   ("Test".to_string(), "1".to_string()),
-                   ("Test".to_string(), "2".to_string()),
-                   ("Test".to_string(), "3".to_string()),
-                   ("X-Varnish-Data-Source".to_string(), "Backend".to_string()),
-                   ("X-Forwarded-For".to_string(), "127.0.0.1".to_string()),
-                   ("X-Varnish-User-Agent-Class".to_string(), "Unknown-Bot".to_string()),
-                   ("X-Varnish-Client-Device".to_string(), "D".to_string()),
-                   ("X-Varnish-Client-Country".to_string(), "Unknown".to_string()),
-                   ("X-Varnish-Original-URL".to_string(), "/test_page/abc".to_string()),
-                   ("X-Varnish-Result".to_string(), "hit_for_pass".to_string()),
-                   ("X-Varnish-Decision".to_string(), "Uncacheable-NoCacheClass".to_string()),
+            ("Host".to_string(), "127.0.0.1:1209".to_string()),
+            ("Test".to_string(), "1".to_string()),
+            ("Test".to_string(), "2".to_string()),
+            ("Test".to_string(), "3".to_string()),
+            ("X-Varnish-Data-Source".to_string(), "Backend".to_string()),
+            ("X-Forwarded-For".to_string(), "127.0.0.1".to_string()),
+            ("X-Varnish-User-Agent-Class".to_string(), "Unknown-Bot".to_string()),
+            ("X-Varnish-Client-Device".to_string(), "D".to_string()),
+            ("X-Varnish-Client-Country".to_string(), "Unknown".to_string()),
+            ("X-Varnish-Original-URL".to_string(), "/test_page/abc".to_string()),
+            ("X-Varnish-Result".to_string(), "hit_for_pass".to_string()),
+            ("X-Varnish-Decision".to_string(), "Uncacheable-NoCacheClass".to_string()),
         ]);
     }
 
@@ -1348,7 +1348,7 @@ mod tests {
                    15, SLT_ReqProtocol,   "HTTP/1.1";
                    15, SLT_ReqHeader,     "Host: 127.0.0.1:1209";
                    15, SLT_ReqHeader,     "Test: 1";
-                  );
+                );
 
         builder.http_request.complete();
 
@@ -1357,8 +1357,8 @@ mod tests {
         assert_eq!(request.url, "/test_page/abc".to_string());
         assert_eq!(request.protocol, "HTTP/1.1".to_string());
         assert_eq!(request.headers, &[
-                   ("Host".to_string(), "127.0.0.1:1209".to_string()),
-                   ("Test".to_string(), "1".to_string()),
+            ("Host".to_string(), "127.0.0.1:1209".to_string()),
+            ("Test".to_string(), "1".to_string()),
         ]);
     }
 
@@ -1384,18 +1384,18 @@ mod tests {
                    15, SLT_RespHeader,     "Via: 1.1 test-varnish (Varnish)";
                    15, SLT_RespHeader,     "X-Request-ID: rid-15";
                    15, SLT_RespUnset,      "X-Varnish: 15";
-                  );
+                );
 
         builder.http_response.complete();
 
         let response = builder.http_response.build().unwrap();
         assert_eq!(response.headers, &[
-                   ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
-                   ("Test".to_string(), "1".to_string()),
-                   ("Test".to_string(), "3".to_string()),
-                   ("Age".to_string(), "0".to_string()),
-                   ("Via".to_string(), "1.1 test-varnish (Varnish)".to_string()),
-                   ("X-Request-ID".to_string(), "rid-15".to_string()),
+            ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
+            ("Test".to_string(), "1".to_string()),
+            ("Test".to_string(), "3".to_string()),
+            ("Age".to_string(), "0".to_string()),
+            ("Via".to_string(), "1.1 test-varnish (Varnish)".to_string()),
+            ("X-Request-ID".to_string(), "rid-15".to_string()),
         ]);
     }
 
@@ -1430,7 +1430,7 @@ mod tests {
                    15, SLT_RespHeader,     "Via: 1.1 test-varnish (Varnish)";
                    15, SLT_RespHeader,     "X-Request-ID: rid-15";
                    15, SLT_RespUnset,      "X-Varnish: 15";
-                   );
+                );
 
         builder.http_response.complete();
 
@@ -1471,7 +1471,7 @@ mod tests {
                    123, SLT_BereqProtocol,  "HTTP/2.0";
                    123, SLT_BereqHeader,    "Host: foobar:666";
                    123, SLT_BereqHeader,    "Baz: bar";
-                   );
+                );
 
         let requests = builder.http_request.build().unwrap();
         assert_eq!(requests.method, "GET".to_string());
@@ -1558,7 +1558,7 @@ mod tests {
                    7, SLT_RespHeader,   "Connection: keep-alive";
                    7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
                    7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
-                   );
+                );
 
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
@@ -1605,7 +1605,7 @@ mod tests {
                    4, SLT_VCL_return,     "restart";
                    4, SLT_Timestamp,      "Restart: 1471355414.450428 0.000117 0.000117";
                    4, SLT_Link,           "req 5 restart";
-                  );
+                );
 
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
@@ -1712,7 +1712,7 @@ mod tests {
                    4, SLT_Timestamp,      "Pipe: 1471355444.744349 0.000209 0.000209";
                    4, SLT_Timestamp,      "PipeSess: 1471355444.751368 0.007228 0.007019";
                    4, SLT_PipeAcct,       "268 761 0 480";
-                  );
+                );
 
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
@@ -1839,7 +1839,7 @@ mod tests {
                    7, SLT_RespHeader,   "Connection: keep-alive";
                    7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
                    7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
-                   );
+                );
 
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
@@ -1898,7 +1898,7 @@ mod tests {
                    7, SLT_Gzip,         "U D - 29 9 80 80 162";
                    7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
                    7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
-                   );
+                );
 
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
@@ -1946,7 +1946,7 @@ mod tests {
                    7, SLT_RespHeader,   "Connection: keep-alive";
                    7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
                    7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
-                   );
+                );
 
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
@@ -2013,13 +2013,13 @@ mod tests {
                    5, SLT_BereqAcct,      "541 0 541 375 0 375";
                    );
 
-       let record = apply_last!(builder, 5, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(parse!("1471354579.281173")));
-       assert_eq!(record.end, None);
+        assert_eq!(record.start, Some(parse!("1471354579.281173")));
+        assert_eq!(record.end, None);
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
                 send,
                 ttfb,
                 wait,
@@ -2049,7 +2049,7 @@ mod tests {
                 ("Accept-Encoding".to_string(), "gzip".to_string())])
         );
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
                 response: HttpResponse {
                     ref protocol,
                     status,
@@ -2063,7 +2063,7 @@ mod tests {
             assert_eq!(reason, "Internal Server Error"),
             assert_eq!(headers, &[
                ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())])
-       );
+        );
     }
 
     #[test]
@@ -2099,15 +2099,15 @@ mod tests {
                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
                    32769, SLT_Length,           "6962";
                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-                   );
+                );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(parse!("1470403414.669375")));
-       assert_eq!(record.end, Some(parse!("1470403414.672290")));
+        assert_eq!(record.start, Some(parse!("1470403414.669375")));
+        assert_eq!(record.end, Some(parse!("1470403414.672290")));
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Full {
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
                 send,
                 ttfb,
                 wait,
@@ -2118,7 +2118,7 @@ mod tests {
             assert_eq!(ttfb, parse!("0.007262")),
             assert_eq!(wait, parse!("0.002713")),
             assert_eq!(fetch, parse!("0.007367")),
-       );
+        );
     }
 
     #[test]
@@ -2148,15 +2148,15 @@ mod tests {
                    32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
                    32769, SLT_Link,             "bereq 32769 retry";
                    32769, SLT_BereqAcct,        "0 0 0 0 0 0";
-                   );
+                );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(parse!("1470403414.669375")));
-       assert_eq!(record.end, Some(parse!("1470403414.672290")));
+        assert_eq!(record.start, Some(parse!("1470403414.669375")));
+        assert_eq!(record.end, Some(parse!("1470403414.672290")));
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
                 send,
                 ttfb,
                 wait,
@@ -2167,7 +2167,7 @@ mod tests {
             assert_eq!(ttfb, parse!("0.007262")),
             assert_eq!(wait, parse!("0.002713")),
             assert_eq!(fetch, parse!("0.007367"))
-       );
+        );
     }
 
     #[test]
@@ -2204,19 +2204,19 @@ mod tests {
                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
                    32769, SLT_Length,           "6962";
                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-                   );
+                );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_matches!(record.compression, Some(Compression {
+        assert_matches!(record.compression, Some(Compression {
                 operation: CompressionOperation::Gzip,
                 bytes_in,
                 bytes_out,
             }) =>
             assert_eq!(bytes_in, 861),
             assert_eq!(bytes_out, 41)
-       );
+        );
     }
 
     #[test]
@@ -2259,15 +2259,15 @@ mod tests {
                    5, SLT_ObjHeader,      "Retry-After: 20";
                    5, SLT_Length,         "1366";
                    5, SLT_BereqAcct,      "0 0 0 0 0 0";
-                   );
+                );
 
-       let record = apply_last!(builder, 5, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.start, Some(parse!("1471355385.239334")));
-       assert_eq!(record.end, Some(parse!("1471355385.239427")));
+        assert_eq!(record.start, Some(parse!("1471355385.239334")));
+        assert_eq!(record.end, Some(parse!("1471355385.239427")));
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
                 synth,
                 ..
             } =>
@@ -2291,7 +2291,7 @@ mod tests {
                 ("Host".to_string(), "127.0.0.1:1236".to_string())])
         );
 
-       assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
                 synth_response: HttpResponse {
                     ref protocol,
                     status,
@@ -2307,7 +2307,7 @@ mod tests {
                 ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
                 ("Server".to_string(), "Varnish".to_string()),
                 ("Retry-After".to_string(), "20".to_string())])
-       );
+        );
     }
 
     #[test]
@@ -2525,21 +2525,21 @@ mod tests {
                    7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
                    );
 
-         let record = apply_last!(builder, 7, SLT_End, "")
-             .unwrap_client_access();
+            let record = apply_last!(builder, 7, SLT_End, "")
+                .unwrap_client_access();
 
-         assert_eq!(record.log, &[
-                    LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
-                    LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
-                    LogEntry::Acl(AclResult::NoMatch, "trusted_networks".to_string(), None),
-                    LogEntry::Acl(AclResult::Match, "external_proxies".to_string(), Some("\"127.0.0.1\"".to_string())),
-                    LogEntry::Debug("XXXX HIT-FOR-PASS".to_string()),
-                    LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-                    LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),
-                    LogEntry::Debug("RES_MODE 2".to_string()),
-                    LogEntry::Error("oh no!".to_string()),
-                    LogEntry::Warning("Failed HTTP header operation due to resource exhaustion or configured limits; header was: SetCookie: foo=bar".to_string()),
-         ]);
+            assert_eq!(record.log, &[
+                LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
+                LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
+                LogEntry::Acl(AclResult::NoMatch, "trusted_networks".to_string(), None),
+                LogEntry::Acl(AclResult::Match, "external_proxies".to_string(), Some("\"127.0.0.1\"".to_string())),
+                LogEntry::Debug("XXXX HIT-FOR-PASS".to_string()),
+                LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+                LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),
+                LogEntry::Debug("RES_MODE 2".to_string()),
+                LogEntry::Error("oh no!".to_string()),
+                LogEntry::Warning("Failed HTTP header operation due to resource exhaustion or configured limits; header was: SetCookie: foo=bar".to_string()),
+            ]);
     }
 
     #[test]
@@ -2572,16 +2572,16 @@ mod tests {
                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
                    );
 
-       let record = apply_last!(builder, 32769, SLT_End, "")
-           .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-       assert_eq!(record.log, &[
-                  LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
-                  LogEntry::Debug("RES_MODE 2".to_string()),
-                  LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-                  LogEntry::FetchError("no backend connection".to_string()),
-                  LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
-       ]);
+        assert_eq!(record.log, &[
+            LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
+            LogEntry::Debug("RES_MODE 2".to_string()),
+            LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+            LogEntry::FetchError("no backend connection".to_string()),
+            LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
+        ]);
     }
     #[test]
     fn apply_backend_access_record_cache_object() {
