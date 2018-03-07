@@ -118,20 +118,11 @@ pub struct PipeSession<'a: 'i, 'i> {
     pub ttfb_duration: Option<f64>,
     pub recv_total_bytes: u64,
     pub sent_total_bytes: u64,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log: Option<RawLog<'a>>,
+    pub log: Log<'a, 'i>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub request_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub backend_request_header_index: Option<Index<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log_vars: Option<LogVarsIndex<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub log_messages: Option<LogMessages<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub acl_matched: Option<LogMessages<'a, 'i>>,
-    #[serde(skip_serializing_if="Option::is_none")]
-    pub acl_not_matched: Option<LogMessages<'a, 'i>>,
 }
 
 impl<'a: 'i, 'i> EntryType for PipeSession<'a, 'i> {

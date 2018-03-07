@@ -880,6 +880,14 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                             indexed_backend_request = backend_request.as_ser_indexed(backend_request_header_index.as_ref().unwrap());
                         }
 
+                        let log = ser::Log {
+                            raw_log: (config.no_log_processing | config.keep_raw_log).as_some_from(|| final_record.log.as_ser()),
+                            vars: log_index.as_ref().map(|v| v.vars.as_ser()),
+                            messages: log_index.as_ref().map(|v| v.messages.as_ser()),
+                            acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
+                            acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
+                        };
+
                         let pipe_session = ser::PipeSession {
                             record_type: "pipe_session",
                             vxid: record.ident,
@@ -892,14 +900,10 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                             ttfb_duration: ttfb_duration,
                             recv_total_bytes: accounting.recv_total,
                             sent_total_bytes: accounting.sent_total,
-                            log: (config.no_log_processing | config.keep_raw_log).as_some_from(|| final_record.log.as_ser()),
+                            log: log,
                             backend_connection: backend_connection.map(|b| b.as_ser()),
                             request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                             backend_request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| backend_request_header_index.as_ref().unwrap().as_ser()),
-                            log_vars: log_index.as_ref().map(|v| v.vars.as_ser()),
-                            log_messages: log_index.as_ref().map(|v| v.messages.as_ser()),
-                            acl_matched: log_index.as_ref().map(|v| v.acl_matched.as_ser()),
-                            acl_not_matched: log_index.as_ref().map(|v| v.acl_not_matched.as_ser()),
                         };
                         write(format, out, &pipe_session)
                     }
