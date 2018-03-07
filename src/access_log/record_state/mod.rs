@@ -4,6 +4,8 @@ use store::VslStore;
 use store::Config as StoreConfig;
 use vsl::record::VslRecord;
 use access_log::record::Record;
+use std::num::Wrapping;
+use vsl::record::VslIdent;
 
 #[derive(Debug)]
 enum Slot {
@@ -45,8 +47,15 @@ impl RecordState {
 
     pub fn with_config(store_config: &StoreConfig) -> RecordState {
         RecordState {
-            builders: VslStore::with_config("builders", store_config),
+            builders: VslStore::with_config("builders", Self::on_expire as fn(&str, Wrapping<u64>, Wrapping<u64>, u32, &Slot), None, store_config),
         }
+    }
+
+    fn on_expire(store_name: &str, current_epoch: Wrapping<u64>, record_epoch: Wrapping<u64>, record_ident: VslIdent, record: &Slot) -> () {
+        if let &Slot::Tombstone(_) = record {
+            return; // it is normal to expire Tombstone
+        }
+        VslStore::log_expire(store_name, current_epoch, record_epoch, record_ident, record);
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<Record> {

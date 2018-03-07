@@ -123,8 +123,18 @@ impl Config {
     }
 }
 
+type Callback<T> = fn(&str, Wrapping<u64>, Wrapping<u64>, VslIdent, &T) -> (); 
+
+// Wrapper that implements Debug
+struct DebugCallback<T>(T);
+impl<T> fmt::Debug for DebugCallback<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<Callback>")
+    }
+}
+
 #[derive(Debug)]
-pub struct VslStore<T> {
+pub struct VslStore<T: Debug> {
     name: &'static str,
     // in order of insertion, oldest (lowest epoch) records are at the front
     store: LinkedHashMap<VslIdent, (Wrapping<u64>, T), BuildHasherDefault<FnvHasher>>,
@@ -137,14 +147,16 @@ pub struct VslStore<T> {
     stat_epoch_interval: Option<u64>,
     stats: Stats,
     last_stats_epoch: Wrapping<u64>,
+    on_expire: DebugCallback<Callback<T>>,
+    on_nuke: DebugCallback<Callback<T>>,
 }
 
-impl<T> VslStore<T> {
-    pub fn new(name: &'static str) -> VslStore<T> {
-        VslStore::with_config(name, &Default::default())
+impl<T: Debug> VslStore<T> {
+    pub fn new<OptCBE: Into<Option<Callback<T>>>, OptCBN: Into<Option<Callback<T>>>>(name: &'static str, on_expire: OptCBE, on_nuke: OptCBN) -> VslStore<T> {
+        VslStore::with_config(name, on_expire, on_nuke, &Default::default())
     }
 
-    pub fn with_config(name: &'static str, config: &Config) -> VslStore<T> {
+    pub fn with_config<OptCBE: Into<Option<Callback<T>>>, OptCBN: Into<Option<Callback<T>>>>(name: &'static str, on_expire: OptCBE, on_nuke: OptCBN, config: &Config) -> VslStore<T> {
         VslStore {
             name: name,
             store: LinkedHashMap::default(),
@@ -157,7 +169,16 @@ impl<T> VslStore<T> {
             stat_epoch_interval: config.stat_epoch_interval,
             stats: Stats::new(config.max_slots),
             last_stats_epoch: Wrapping(0),
+            on_expire: DebugCallback(on_expire.into().unwrap_or(Self::log_expire)),
+            on_nuke: DebugCallback(on_nuke.into().unwrap_or(Self::log_nuke)),
         }
+    }
+
+    pub fn log_expire(store_name: &str, current_epoch: Wrapping<u64>, record_epoch: Wrapping<u64>, record_ident: VslIdent, record: &T) -> () {
+        warn!("VslStore[{}]: Removed expired record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", store_name, current_epoch, record_epoch, record_ident, record);
+    }
+    pub fn log_nuke(store_name: &str, current_epoch: Wrapping<u64>, record_epoch: Wrapping<u64>, record_ident: VslIdent, record: &T) -> () {
+        warn!("VslStore[{}]: Nuked record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", store_name, current_epoch, record_epoch, record_ident, record);
     }
 
     pub fn insert(&mut self, ident: VslIdent, value: T) where T: Debug {
@@ -224,7 +245,7 @@ impl<T> VslStore<T> {
             self.slots_free += 1;
             self.stats.slots_free = self.slots_free;
             self.stats.expired += Wrapping(1);
-            warn!("VslStore[{}]: Removed expired record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", &self.name, self.epoch, epoch, ident, record);
+            self.on_expire.0(&self.name, self.epoch, epoch, ident, &record);
         }
     }
 
@@ -236,7 +257,7 @@ impl<T> VslStore<T> {
             self.slots_free += 1;
             self.stats.slots_free = self.slots_free;
             self.stats.nuked += Wrapping(1);
-            warn!("VslStore[{}]: Nuked record from store: current epoch {}, record epoch {}, ident: {}:\n{:#?}", &self.name, self.epoch, epoch, ident, record);
+            self.on_nuke.0(&self.name, self.epoch, epoch, ident, &record);
         }
     }
 }
@@ -255,7 +276,7 @@ mod tests {
     pub use super::*;
 
     use vsl::record::VslIdent;
-    impl<T> VslStore<T> {
+    impl<T: Debug> VslStore<T> {
         pub fn oldest(&self) -> Option<(&VslIdent, &T)> {
             self.store.front().map(|(i, v)| (i, &v.1))
         }
@@ -263,7 +284,7 @@ mod tests {
 
     #[test]
     fn nuking() {
-        let mut s = VslStore::with_config("foo", &Config::new(10, 200, 0.1, None, None).unwrap());
+        let mut s = VslStore::with_config("foo", None, None, &Config::new(10, 200, 0.1, None, None).unwrap());
         for i in 0..130 {
             s.insert(i, i);
         }
@@ -273,7 +294,7 @@ mod tests {
 
     #[test]
     fn slot_count() {
-        let mut s = VslStore::with_config("foo", &Config::new(10, 100, 0.1, None, None).unwrap());
+        let mut s = VslStore::with_config("foo", None, None, &Config::new(10, 100, 0.1, None, None).unwrap());
 
         for i in 0..10 {
             s.insert(i, i);
@@ -294,7 +315,7 @@ mod tests {
 
     #[test]
     fn expire() {
-        let mut s = VslStore::with_config("foo", &Config::new(200, 10, 0.1, None, None).unwrap());
+        let mut s = VslStore::with_config("foo", None, None, &Config::new(200, 10, 0.1, None, None).unwrap());
 
         for i in 0..140 {
             s.insert(i, i);

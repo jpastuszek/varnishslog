@@ -261,9 +261,9 @@ impl SessionState {
     pub fn with_config(store_config: &StoreConfig) -> SessionState {
         SessionState {
             record_state: RecordState::with_config(store_config),
-            root: VslStore::with_config("root", store_config),
-            client: VslStore::with_config("client", store_config),
-            backend: VslStore::with_config("backend", store_config),
+            root: VslStore::with_config("root", None, None, store_config),
+            client: VslStore::with_config("client", None, None, store_config),
+            backend: VslStore::with_config("backend", None, None, store_config),
         }
     }
 
