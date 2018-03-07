@@ -163,7 +163,7 @@ pub struct CacheObject {
 pub struct BackendConnection {
     pub fd: FileDescriptor,
     pub name: String,
-    pub remote: Address,
+    pub remote: Option<Address>,
     pub local: Address,
 }
 

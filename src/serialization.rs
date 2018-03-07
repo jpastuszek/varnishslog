@@ -202,7 +202,7 @@ impl<'a> AsSer<'a> for BackendConnection {
         ser::BackendConnection {
             fd: self.fd,
             name: self.name.as_str(),
-            remote_address: self.remote.as_ser(),
+            remote_address: self.remote.as_ref().map(|r| r.as_ser()),
             local_address: self.local.as_ser(),
         }
     }

@@ -307,6 +307,6 @@ pub struct CacheObject<'a: 'i, 'i> {
 pub struct BackendConnection<'a> {
     pub fd: isize,
     pub name: &'a str,
-    pub remote_address: Address<'a>,
+    pub remote_address: Option<Address<'a>>,
     pub local_address: Address<'a>,
 }

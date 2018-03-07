@@ -734,13 +734,13 @@ impl RecordBuilder {
                 });
             }
             SLT_BackendOpen => {
-                let (fd, name, (remote_addr, remote_port), (local_addr, local_port)) =
+                let (fd, name, opt_remote, (local_addr, local_port)) =
                     try!(vsl.parse_data(slt_backend_open));
 
                 self.backend_connection = Some(BackendConnection {
                     fd: fd,
                     name: name.to_string(),
-                    remote: (remote_addr.to_string(), remote_port),
+                    remote: opt_remote.map(|(remote_addr, remote_port)| (remote_addr.to_string(), remote_port)),
                     local: (local_addr.to_string(), local_port),
                 });
             }
@@ -2074,6 +2074,52 @@ mod tests {
                 assert_eq!(headers, &[
                     ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]);
             }
+        );
+    }
+
+    #[test]
+    fn apply_backend_access_disconnected_socket() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   32769, SLT_Begin,            "bereq 8 retry";
+                   32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                   32769, SLT_BereqMethod,      "GET";
+                   32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                   32769, SLT_BereqProtocol,    "HTTP/1.1";
+                   32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                   // VTCP_hisname returns <none> <none> if backend socket is not connected
+                   32769, SLT_BackendOpen,      "19 boot.default <none> <none> 10.0.0.1 51058";
+                   32769, SLT_VCL_return,       "fetch";
+                   32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                   32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                   32769, SLT_BerespProtocol,   "HTTP/1.1";
+                   32769, SLT_BerespStatus,     "200";
+                   32769, SLT_BerespReason,     "OK";
+                   32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+                   32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   32769, SLT_BackendReuse,     "19 boot.iss";
+                   32769, SLT_Storage,          "malloc s0";
+                   32769, SLT_ObjProtocol,      "HTTP/1.1";
+                   32769, SLT_ObjStatus,        "200";
+                   32769, SLT_ObjReason,        "OK";
+                   32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+                   32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+                   32769, SLT_Fetch_Body,       "3 length stream";
+                   32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                   32769, SLT_Length,           "6962";
+                   32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+                );
+
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
+
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                backend_connection,
+                ..
+            } => assert!(backend_connection.remote.is_none())
         );
     }
 

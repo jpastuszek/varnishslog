@@ -243,9 +243,9 @@ named!(pub slt_req_start<&[u8], (&str, Port)>, tuple!(
         symbol, // Client IP4/6 address
         port));  // Client Port number
 
-named!(pub slt_backend_open<&[u8], (FileDescriptor, &str, (&str, Port), (&str, Port))>, tuple!(
+named!(pub slt_backend_open<&[u8], (FileDescriptor, &str, Option<(&str, Port)>, (&str, Port))>, tuple!(
         file_descriptor,        // Connection file descriptor
         symbol,                 // Backend display name
-        // TODO: this can be <none> <none>
-        tuple!(symbol, port),   // Remote IPv4/6 address Remote TCP port
+        // Note: this can be <none> <none> if backend socket is not connected
+        alt!(map!(terminated!(tag!(b"<none> <none>"), space), |_| None) | map!(tuple!(symbol, port), |t| Some(t))),   // Remote IPv4/6 address Remote TCP port
         tuple!(symbol, port))); // Local IPv4/6 address Local TCP port
