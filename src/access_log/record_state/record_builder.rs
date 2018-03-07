@@ -807,6 +807,11 @@ impl RecordBuilder {
 
                 self.handling = Some(Handling::HitPass(object_ident));
             }
+            SLT_HitMiss => {
+                let (object_ident, remaining_ttl) = try!(vsl.parse_data(slt_hit_miss));
+
+                self.handling = Some(Handling::HitMiss(object_ident, remaining_ttl));
+            }
 
             SLT_VCL_call => {
                 let method = try!(vsl.parse_data(slt_vcl_call));

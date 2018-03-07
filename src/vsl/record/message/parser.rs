@@ -162,6 +162,10 @@ named!(pub slt_hit<&[u8], VslIdent>, call!(
 named!(pub slt_hit_pass<&[u8], VslIdent>, call!(
         vsl_ident)); // Hit-for-pass object looked up in cache; Shows the VXID of the hit-for-pass object
 
+named!(pub slt_hit_miss<&[u8], (VslIdent, Duration)>, tuple!(
+        vsl_ident,  // VXID of the object
+        duration)); // Remaining TTL
+
 named!(pub slt_vcl_call<&[u8], &str>, call!(
         symbol));   // VCL method name
 

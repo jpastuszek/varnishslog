@@ -56,8 +56,10 @@ pub enum Handling {
     Miss,
     /// Served from backend as request was not cacheable
     Pass,
-    /// Served from backend as previous response was not cacheable
+    /// Served from backend via pass as previous response was not cacheable
     HitPass(VslIdent),
+    /// Served from backend via miss as previous response was not cacheable
+    HitMiss(VslIdent, Duration),
     /// Response generated internally by Varnish
     Synth,
     /// This request and any further communication is passed to the backend

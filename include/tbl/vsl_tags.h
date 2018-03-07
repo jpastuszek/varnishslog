@@ -43,10 +43,11 @@
  */
 
 /*lint -save -e525 -e539 */
+
 #define NODEF_NOTICE \
     "NB: This log record is masked by default.\n\n"
 
-SLTM(Debug, SLT_F_BINARY, "Debug messages",
+SLTM(Debug, SLT_F_UNSAFE, "Debug messages",
 	"Debug messages can normally be ignored, but are sometimes"
 	" helpful during trouble-shooting.  Most debug messages must"
 	" be explicitly enabled with parameters.\n\n"
@@ -69,26 +70,16 @@ SLTM(SessOpen, 0, "Client connection opened",
 	"\t%s %d %s %s %s %d\n"
 	"\t|  |  |  |  |  |\n"
 	"\t|  |  |  |  |  +- File descriptor number\n"
-	"\t|  |  |  |  +---- Local TCP port ('-' if !$log_local_addr)\n"
-	"\t|  |  |  +------- Local IPv4/6 address ('-' if !$log_local_addr)\n"
-	"\t|  |  +---------- Listen socket (-a argument)\n"
+	"\t|  |  |  |  +---- Local TCP port\n"
+	"\t|  |  |  +------- Local IPv4/6 address\n"
+	"\t|  |  +---------- Socket name (from -a argument)\n"
 	"\t|  +------------- Remote TCP port\n"
 	"\t+---------------- Remote IPv4/6 address\n"
 	"\n"
 )
 
-/*
- * XXX: compilers are _so_ picky, and won't let us do an #include
- * XXX: in the middle of a macro invocation :-(
- * XXX: If we could, these three lines would have described the
- * XXX: 'reason' field below.
-#define SESS_CLOSE(nm, s, err, desc) "    " #nm "\n\t" desc "\n\n"
-#include "tbl/sess_close.h"
-#undef SESS_CLOSE
-*/
-
 SLTM(SessClose, 0, "Client connection closed",
-	"SessionClose is the last record for any client connection.\n\n"
+	"SessClose is the last record for any client connection.\n\n"
 	"The format is::\n\n"
 	"\t%s %f\n"
 	"\t|  |\n"
@@ -135,7 +126,7 @@ SLTM(BackendClose, 0, "Backend connection closed",
 	"\n"
 )
 
-SLTM(HttpGarbage, SLT_F_BINARY, "Unparseable HTTP request",
+SLTM(HttpGarbage, SLT_F_UNSAFE, "Unparseable HTTP request",
 	"Logs the content of unparseable HTTP requests.\n\n"
 )
 
@@ -149,6 +140,8 @@ SLTM(Proxy, 0, "PROXY protocol information",
 	"\t|  |  +------- client port\n"
 	"\t|  +---------- client ip\n"
 	"\t+------------- PROXY protocol version\n"
+	"\t\n"
+	"\tAll fields are \"local\" for PROXY local connections (command 0x0)\n"
 	"\n"
 )
 
@@ -208,6 +201,7 @@ SLTM(BogoHeader, 0, "Bogus HTTP received",
 	"Contains the first 20 characters of received HTTP headers we could"
 	" not make sense of.  Applies to both req.http and beresp.http.\n\n"
 )
+
 SLTM(LostHeader, 0, "Failed attempt to set HTTP header",
 	"Logs the header name of a failed HTTP header operation due to"
 	" resource exhaustion or configured limits.\n\n"
@@ -227,12 +221,13 @@ SLTM(TTL, 0, "TTL set on object",
 	"\t|  |  |  +------------------ Keep\n"
 	"\t|  |  +--------------------- Grace\n"
 	"\t|  +------------------------ TTL\n"
-	"\t+--------------------------- \"RFC\" or \"VCL\"\n"
+	"\t+--------------------------- \"RFC\", \"VCL\" or \"HFP\"\n"
 	"\n"
 	"The last four fields are only present in \"RFC\" headers.\n\n"
 	"Examples::\n\n"
 	"\tRFC 60 10 -1 1312966109 1312966109 1312966109 0 60\n"
 	"\tVCL 120 10 0 1312966111\n"
+	"\tHFP 2 0 0 1312966113\n"
 	"\n"
 )
 
@@ -258,11 +253,13 @@ SLTM(VCL_call, 0, "VCL method called",
 SLTM(VCL_trace, 0, "VCL trace data",
 	"Logs VCL execution trace data.\n\n"
 	"The format is::\n\n"
-	"\t%u %u.%u\n"
-	"\t|  |  |\n"
-	"\t|  |  +- VCL program line position\n"
-	"\t|  +---- VCL program line number\n"
-	"\t+------- VCL trace point index\n"
+	"\t%s %u %u.%u.%u\n"
+	"\t|  |  |  |  |\n"
+	"\t|  |  |  |  +- VCL program line position\n"
+	"\t|  |  |  +---- VCL program line number\n"
+	"\t|  |  +------- VCL program source index\n"
+	"\t|  +---------- VCL trace point index\n"
+	"\t+------------- VCL configname\n"
 	"\n"
 	NODEF_NOTICE
 )
@@ -272,23 +269,37 @@ SLTM(VCL_return, 0, "VCL method return value",
 )
 
 SLTM(ReqStart, 0, "Client request start",
-	"Start of request processing. Logs the client IP address and port"
-	" number.\n\n"
+	"Start of request processing. Logs the client address, port number "
+	" and listener endpoint name (from the -a command-line argument).\n\n"
 	"The format is::\n\n"
-	"\t%s %s\n"
-	"\t|  |\n"
-	"\t|  +- Client Port number\n"
-	"\t+---- Client IP4/6 address\n"
+	"\t%s %s %s\n"
+	"\t|  |  |\n"
+	"\t|  |  +-- Listener name (from -a)\n"
+	"\t|  +----- Client Port number (0 for Unix domain sockets)\n"
+	"\t+-------- Client IP4/6 address (0.0.0.0 for UDS)\n"
 	"\n"
 )
 
 SLTM(Hit, 0, "Hit object in cache",
-	"Object looked up in cache. Shows the VXID of the object.\n\n"
+	"Object looked up in cache.\n\n"
+	"The format is::\n\n"
+	"\t%u %f %f %f\n"
+	"\t|  |  |  |\n"
+	"\t|  |  |  +- Keep period\n"
+	"\t|  |  +---- Grace period\n"
+	"\t|  +------- Remaining TTL\n"
+	"\t+---------- VXID of the object\n"
+	"\n"
 )
 
 SLTM(HitPass, 0, "Hit for pass object in cache.",
-	"Hit-for-pass object looked up in cache. Shows the VXID of the"
-	" hit-for-pass object.\n\n"
+	"Hit-for-pass object looked up in cache.\n\n"
+	"The format is::\n\n"
+	"\t%u %f\n"
+	"\t|  |\n"
+	"\t|  +- Remaining TTL\n"
+	"\t+---- VXID of the object\n"
+	"\n"
 )
 
 SLTM(ExpBan, 0, "Object evicted due to ban",
@@ -352,7 +363,7 @@ SLTM(ESI_xmlerror, 0, "ESI parser error or warning message",
 	" The log record describes the problem encountered."
 )
 
-SLTM(Hash, SLT_F_BINARY, "Value added to hash",
+SLTM(Hash, SLT_F_UNSAFE, "Value added to hash",
 	"This value was added to the object lookup hash.\n\n"
 	NODEF_NOTICE
 )
@@ -432,7 +443,7 @@ SLTM(End, 0, "Marks the end of a VXID",
 )
 
 SLTM(VSL, 0, "VSL API warnings and error message",
-	"Warnings and error messages genererated by the VSL API while"
+	"Warnings and error messages generated by the VSL API while"
 	" reading the shared memory log.\n\n"
 )
 
@@ -451,8 +462,8 @@ SLTM(Timestamp, 0, "Timing information",
 	"Time stamps are issued by Varnish on certain events,"
 	" and show the absolute time of the event, the time spent since the"
 	" start of the work unit, and the time spent since the last timestamp"
-	" was logged. See vsl(7) for information about the individual"
-	" timestamps.\n\n"
+	" was logged. See the TIMESTAMPS section below for information about"
+	" the individual time stamps.\n\n"
 	"The format is::\n\n"
 	"\t%s: %f %f %f\n"
 	"\t|   |  |  |\n"
@@ -465,9 +476,10 @@ SLTM(Timestamp, 0, "Timing information",
 
 SLTM(ReqAcct, 0, "Request handling byte counts",
 	"Contains byte counts for the request handling.\n"
-	"ESI sub-request counts are also added to their parent request.\n"
-	"The body bytes count does not include transmission "
-	"(ie: chunked encoding) overhead.\n"
+	"The body bytes count includes transmission overhead"
+	" (ie: chunked encoding).\n"
+	"ESI sub-requests show the body bytes this ESI fragment including"
+	" any subfragments contributed to the top level request.\n"
 	"The format is::\n\n"
 	"\t%d %d %d %d %d %d\n"
 	"\t|  |  |  |  |  |\n"
@@ -533,5 +545,33 @@ SLTM(BackendStart, 0, "Backend request start",
 	"\n"
 )
 
+SLTM(H2RxHdr, SLT_F_BINARY, "Received HTTP2 frame header",
+	"Binary data"
+)
+
+SLTM(H2RxBody, SLT_F_BINARY, "Received HTTP2 frame body",
+	"Binary data"
+)
+
+SLTM(H2TxHdr, SLT_F_BINARY, "Transmitted HTTP2 frame header",
+	"Binary data"
+)
+
+SLTM(H2TxBody, SLT_F_BINARY, "Transmitted HTTP2 frame body",
+	"Binary data"
+)
+
+SLTM(HitMiss, 0, "Hit for miss object in cache.",
+	"Hit-for-miss object looked up in cache.\n\n"
+	"The format is::\n\n"
+	"\t%u %f\n"
+	"\t|  |\n"
+	"\t|  +- Remaining TTL\n"
+	"\t+---- VXID of the object\n"
+	"\n"
+)
+
 #undef NODEF_NOTICE
+#undef SLTM
+
 /*lint -restore */

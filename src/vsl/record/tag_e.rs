@@ -103,6 +103,11 @@ pub enum VSL_tag_e {
     SLT_VfpAcct = 84,
     SLT_Witness = 85,
     SLT_BackendStart = 86,
+    SLT_H2RxHdr = 87,
+    SLT_H2RxBody = 88,
+    SLT_H2TxHdr = 89,
+    SLT_H2TxBody = 90,
+    SLT_HitMiss = 91,
     SLT__Reserved = 254,
     SLT__Batch = 255,
 }

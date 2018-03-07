@@ -91,6 +91,7 @@ impl<'a> AsSer<'a> for Handling {
             Handling::Miss => "miss",
             Handling::Pass => "pass",
             Handling::HitPass(_) => "hit_for_pass",
+            Handling::HitMiss(_, _) => "hit_for_miss",
             Handling::Synth => "synth",
             Handling::Pipe => "pipe",
         }
