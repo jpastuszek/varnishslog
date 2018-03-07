@@ -818,7 +818,9 @@ impl RecordBuilder {
 
                 match method {
                     "RECV" => self.http_request.complete(),
-                    "MISS" => self.handling = Some(Handling::Miss),
+                    "MISS" => if self.handling.is_none() {
+                        self.handling = Some(Handling::Miss);
+                    },
                     "PASS" => if self.handling.is_none() {
                         self.handling = Some(Handling::Pass);
                     },
