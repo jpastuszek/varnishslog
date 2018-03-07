@@ -47,7 +47,7 @@ impl RecordState {
 
     pub fn with_config(store_config: &StoreConfig) -> RecordState {
         RecordState {
-            builders: VslStore::with_config("builders", Self::on_expire as fn(&str, Wrapping<u64>, Wrapping<u64>, u32, &Slot), None, store_config),
+            builders: VslStore::with_config("builders", Some(Self::on_expire), None, store_config),
         }
     }
 

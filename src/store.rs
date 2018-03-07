@@ -152,11 +152,11 @@ pub struct VslStore<T: Debug> {
 }
 
 impl<T: Debug> VslStore<T> {
-    pub fn new<OptCBE: Into<Option<Callback<T>>>, OptCBN: Into<Option<Callback<T>>>>(name: &'static str, on_expire: OptCBE, on_nuke: OptCBN) -> VslStore<T> {
+    pub fn new(name: &'static str, on_expire: Option<Callback<T>>, on_nuke: Option<Callback<T>>) -> VslStore<T> {
         VslStore::with_config(name, on_expire, on_nuke, &Default::default())
     }
 
-    pub fn with_config<OptCBE: Into<Option<Callback<T>>>, OptCBN: Into<Option<Callback<T>>>>(name: &'static str, on_expire: OptCBE, on_nuke: OptCBN, config: &Config) -> VslStore<T> {
+    pub fn with_config(name: &'static str, on_expire: Option<Callback<T>>, on_nuke: Option<Callback<T>>, config: &Config) -> VslStore<T> {
         VslStore {
             name: name,
             store: LinkedHashMap::default(),
@@ -169,8 +169,8 @@ impl<T: Debug> VslStore<T> {
             stat_epoch_interval: config.stat_epoch_interval,
             stats: Stats::new(config.max_slots),
             last_stats_epoch: Wrapping(0),
-            on_expire: DebugCallback(on_expire.into().unwrap_or(Self::log_expire)),
-            on_nuke: DebugCallback(on_nuke.into().unwrap_or(Self::log_nuke)),
+            on_expire: DebugCallback(on_expire.unwrap_or(Self::log_expire)),
+            on_nuke: DebugCallback(on_nuke.unwrap_or(Self::log_nuke)),
         }
     }
 
