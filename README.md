@@ -262,8 +262,8 @@ Compatibility
 ----
 
 `varnishlog` v0.4.x and earlier was tested with Varnish v4.1.3.
+`varnishlog` v0.5.x was tested with Varnish v5.2.1.
 `varnishlog` will NOT work with Varnish v3 as there are significant differences in the VSL comparing to v4. I have no plans to support v3 as it is now discontinued.
-It was not tested it with Varnish v5.
 
 Usage
 -----
