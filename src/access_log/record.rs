@@ -216,7 +216,7 @@ pub enum BackendAccessTransaction {
     Aborted {
         request: HttpRequest,
     },
-    /// Varnish got the backend response but it did not like it: abort or retry
+    /// Varnish got the backend response but it did not like it: abort, retry or fetch failure
     Abandoned {
         request: HttpRequest,
         response: HttpResponse,

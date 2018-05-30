@@ -647,6 +647,18 @@ impl RecordBuilder {
                 let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
                 self.log.push(LogEntry::FetchError(log_entry.to_lossy_string()));
+
+                // backend request will be abandoned by Varnish
+                if log_entry.as_bytes() == b"Could not get storage" {
+                    if let RecordType::BackendAccess {
+                        transaction: ref mut transaction @ BackendAccessTransactionType::Full,
+                        ..
+                    } = self.record_type {
+                        *transaction = BackendAccessTransactionType::Abandoned;
+                    } else {
+                        return Err(RecordBuilderError::UnexpectedTransition("SLT_FetchError Could not get storage"))
+                    }
+                };
             }
             SLT_BogoHeader => {
                 let log_entry = try!(vsl.parse_data(slt_vcl_log));
@@ -3002,5 +3014,82 @@ mod tests {
         assert_eq!(record.log, &[
             LogEntry::Error("G(un)zip error: -3 ((null))".to_string()),
         ]);
+    }
+
+    #[test]
+    fn apply_backend_access_record_nuke_limit() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   32769, SLT_Begin,            "bereq 8 retry";
+                   32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                   32769, SLT_BereqMethod,      "GET";
+                   32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                   32769, SLT_BereqProtocol,    "HTTP/1.1";
+                   32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                   32769, SLT_VCL_return,       "fetch";
+                   32769, SLT_BackendOpen,      "51 boot.origin 10.1.1.249 2081 10.1.1.222 41580";
+                   32769, SLT_BackendStart,     "10.1.1.249 2081";
+                   32769, SLT_Timestamp,        "Bereq: 1470403414.669471 12345.0 0.000096";
+                   32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.0 259200.0";
+                   32769, SLT_BerespProtocol,   "HTTP/1.1";
+                   32769, SLT_BerespStatus,     "200";
+                   32769, SLT_BerespReason,     "OK";
+                   32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32769, SLT_BerespHeader,     "Transfer-Encoding: chunked";
+                   32769, SLT_TTL,              "RFC 3644 10 0 1527691787 1527691787 1527691786 0 3644";
+                   32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   32769, SLT_TTL,              "VCL 3644 259200 0 1527691787";
+                   32769, SLT_VCL_return,       "deliver";
+                   32769, SLT_Storage,          "malloc s0";
+                   32769, SLT_ObjProtocol,      "HTTP/1.1";
+                   32769, SLT_ObjStatus,        "200";
+                   32769, SLT_ObjReason,        "OK";
+                   32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+                   32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+                   32769, SLT_Fetch_Body,       "2 chunked stream";
+                   32769, SLT_ExpKill,          "LRU_Cand p=0x7fd565c774c0 f=0x0 r=1";
+                   32769, SLT_ExpKill,          "LRU x=31426770";
+                   32769, SLT_ExpKill,          "LRU_Cand p=0x7fd58d0dd1a0 f=0x0 r=1";
+                   32769, SLT_ExpKill,          "LRU x=31492241";
+                   32769, SLT_ExpKill,          "LRU_Exhausted";
+                   32769, SLT_FetchError,       "Could not get storage";
+                   32769, SLT_Gzip,             "u F - 180224 473602 80 1362184 0";
+                   32769, SLT_BackendClose,     "51 boot.origin";
+                   32769, SLT_BereqAcct,        "1458 0 1458 627 180224 180851";
+                   );
+
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
+
+        assert_eq!(record.log, &[
+            LogEntry::FetchError("Could not get storage".to_string()),
+        ]);
+
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+                response: HttpResponse {
+                    ref protocol,
+                    status,
+                    ref reason,
+                    ref headers
+                },
+                send,
+                wait,
+                ttfb,
+                fetch: None,
+                ..
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 200);
+                assert_eq!(reason, "OK");
+                assert_eq!(headers, &[
+                    ("Content-Type".to_string(), "image/jpeg".to_string()),
+                    ("Transfer-Encoding".to_string(), "chunked".to_string())]);
+                assert_eq!(send, parse!("12345.0"));
+                assert_eq!(wait, parse!("259200.0"));
+                assert_eq!(ttfb, parse!("0.0"));
+            }
+        );
     }
 }
