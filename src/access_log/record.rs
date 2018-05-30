@@ -182,6 +182,8 @@ pub struct BackendAccessRecord {
     pub end: Option<TimeStamp>,
     pub compression: Option<Compression>,
     pub log: Vec<LogEntry>,
+    /// Number of LUR nuked objects during backend fetch
+    pub lru_nuked: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -410,6 +410,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
         retry: usize,
         backend_connection: Option<&'a BackendConnection>,
         cache_object: Option<&'a CacheObject>,
+        lru_nuked: u32,
     }
 
     enum FlatClientAccessRecord<'a> {
@@ -473,6 +474,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                         retry: retry,
                         backend_connection: Some(backend_connection),
                         cache_object: Some(cache_object),
+                        lru_nuked: record.lru_nuked,
                     })),
                     BackendAccessTransaction::Failed { retry_record: Some(ref record_link), .. } |
                     BackendAccessTransaction::Abandoned { retry_record: Some(ref record_link), .. } =>
@@ -495,6 +497,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                         retry: retry,
                         backend_connection: None,
                         cache_object: None,
+                        lru_nuked: record.lru_nuked,
                     })),
                     BackendAccessTransaction::Abandoned {
                         ref request,
@@ -519,6 +522,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                         retry: retry,
                         backend_connection: Some(backend_connection),
                         cache_object: None,
+                        lru_nuked: record.lru_nuked,
                     })),
                     BackendAccessTransaction::Aborted { .. } |
                     BackendAccessTransaction::Piped { .. } => return block(None),
@@ -766,6 +770,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                                     request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                     response_header_index: response_header_index.as_ref().and_then(|index| (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| index.as_ser())),
                                     cache_object_response_header_index: cache_object_response_header_index.as_ref().and_then(|index| (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| index.as_ser())),
+                                    lru_nuked: backend_log_record.lru_nuked,
                                 }
                             });
 

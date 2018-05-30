@@ -487,6 +487,7 @@ pub struct RecordBuilder {
     // ture when we are in client processing after bereq (dliver, synth)
     late: bool,
     log: Vec<LogEntry>,
+    lru_nuked: u32,
 }
 
 impl RecordBuilder {
@@ -523,6 +524,7 @@ impl RecordBuilder {
             handling: None,
             late: false,
             log: Vec::new(),
+            lru_nuked: 0,
         }
     }
 
@@ -659,6 +661,17 @@ impl RecordBuilder {
                         return Err(RecordBuilderError::UnexpectedTransition("SLT_FetchError Could not get storage"))
                     }
                 };
+            }
+            SLT_ExpKill => {
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+
+                if log_entry.as_bytes().starts_with(b"LRU x=") {
+                    self.lru_nuked += 1;
+                }
+
+                if log_entry.as_bytes() == b"LRU_Exhausted" {
+                    self.log.push(LogEntry::Error(log_entry.to_lossy_string()));
+                }
             }
             SLT_BogoHeader => {
                 let log_entry = try!(vsl.parse_data(slt_vcl_log));
@@ -1133,6 +1146,7 @@ impl RecordBuilder {
                             end: self.resp_end,
                             compression: self.compression,
                             log: self.log,
+                            lru_nuked: self.lru_nuked,
                         };
 
                         Ok(Record::BackendAccess(record))
@@ -3064,8 +3078,11 @@ mod tests {
             .unwrap_backend_access();
 
         assert_eq!(record.log, &[
+            LogEntry::Error("LRU_Exhausted".to_string()),
             LogEntry::FetchError("Could not get storage".to_string()),
         ]);
+
+        assert_eq!(record.lru_nuked, 2);
 
         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
                 response: HttpResponse {

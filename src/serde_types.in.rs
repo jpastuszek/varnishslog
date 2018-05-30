@@ -102,6 +102,7 @@ pub struct BackendAccess<'a: 'i, 'i> {
     pub response_header_index: Option<Index<'a, 'i>>,
     #[serde(skip_serializing_if="Option::is_none")]
     pub cache_object_response_header_index: Option<Index<'a, 'i>>,
+    pub lru_nuked: u32,
 }
 
 #[derive(Serialize, Debug)]
