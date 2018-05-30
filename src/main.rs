@@ -316,7 +316,6 @@ fn validate_stat_epoch_inverval(value: String) -> Result<(), String> {
     }
 }
 
-
 fn main() {
     let arguments = App::new("Varnish Structured Logger")
         .version(crate_version!())

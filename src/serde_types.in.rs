@@ -278,7 +278,7 @@ impl<'a: 'i, 'i> Serialize for LogVarsIndex<'a, 'i> {
     }
 }
 
-pub type LogMessages<'a: 'i, 'i> = &'i [&'a str];
+pub type LogMessages<'a, 'i> = &'i [&'a str];
 
 #[derive(Serialize, Debug)]
 pub struct CacheObject<'a: 'i, 'i> {
