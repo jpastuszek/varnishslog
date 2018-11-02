@@ -2,7 +2,7 @@
 authors = ["Jakub Pastuszek <jpastuszek@gmail.com>"]
 build = "build.rs"
 name = "varnishslog"
-version = "0.5.2-alpha.0"
+version = "0.6.0"
 
 description = "Reads Varnish Cache VSL (binary) log stream and produces structured log records in JSON format"
 
