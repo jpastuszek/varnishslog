@@ -261,9 +261,13 @@ It can also prepend it with NCSA like log line to make it more compatible with s
 Compatibility
 ----
 
-`varnishlog` v0.4.x and earlier was tested with Varnish v4.1.3.
-`varnishlog` v0.5.x was tested with Varnish v5.2.1.
-`varnishlog` will NOT work with Varnish v3 as there are significant differences in the VSL comparing to v4. I have no plans to support v3 as it is now discontinued.
+`varnishslog` v0.4.x and earlier was tested with Varnish v4.1.3.
+
+`varnishslog` v0.5.x was tested with Varnish v5.2.1.
+
+`varnishslog` v0.6.x was tested with Varnish v6.2.1. Note that Varnish v6.1.0 has a VSL compatibility bug and `varnishslog` will not work correctly with this particular version of Varnish. Also note that logging of cache object response is disabled by default in Varnish going forward. To bring back "cached_object"."response" data add `-p vsl_mask=+ObjProtocol,+ObjStatus,+ObjReason,+ObjHeader` to `varnishd` parameters.
+
+`varnishslog` will NOT work with Varnish v3 as there are significant differences in the VSL comparing to v4. I have no plans to support v3 as it is now discontinued.
 
 Usage
 -----
