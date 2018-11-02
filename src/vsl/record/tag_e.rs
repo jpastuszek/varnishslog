@@ -12,7 +12,8 @@ pub const SLT__MAX: u32 = 256;
 pub const NODEF_NOTICE: &'static [u8; 46usize] =
     b"NB: This log record is masked by default.\\n\\n\0";
 pub const SLT_F_UNUSED: u32 = 1;
-pub const SLT_F_BINARY: u32 = 2;
+pub const SLT_F_UNSAFE: u32 = 2;
+pub const SLT_F_BINARY: u32 = 4;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum VSL_tag_e {
@@ -108,6 +109,8 @@ pub enum VSL_tag_e {
     SLT_H2TxHdr = 89,
     SLT_H2TxBody = 90,
     SLT_HitMiss = 91,
+    SLT_Filters = 92,
+    SLT_SessError = 93,
     SLT__Reserved = 254,
     SLT__Batch = 255,
 }

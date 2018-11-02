@@ -70,7 +70,7 @@
 #define VSL_END(ptr, len)	((ptr) + 2 + VSL_WORDS(len))
 #define VSL_NEXT(ptr)		VSL_END(ptr, VSL_LEN(ptr))
 #define VSL_LEN(ptr)		((ptr)[0] & VSL_LENMASK)
-#define VSL_TAG(ptr)		((ptr)[0] >> 24)
+#define VSL_TAG(ptr)		((enum VSL_tag_e)((ptr)[0] >> 24))
 #define VSL_ID(ptr)		(((ptr)[1]) & VSL_IDENTMASK)
 #define VSL_CLIENT(ptr)		(((ptr)[1]) & VSL_CLIENTMARKER)
 #define VSL_BACKEND(ptr)	(((ptr)[1]) & VSL_BACKENDMARKER)
@@ -91,13 +91,13 @@ enum VSL_tag_e {
 	SLT__Bogus = 0,
 #define SLTM(foo,flags,sdesc,ldesc)	SLT_##foo,
 #include "tbl/vsl_tags.h"
-#undef SLTM
 	SLT__Reserved = 254,
 	SLT__Batch = 255
 };
 
 /* VSL tag flags */
 #define SLT_F_UNUSED		(1 << 0)
-#define SLT_F_BINARY		(1 << 1)
+#define SLT_F_UNSAFE		(1 << 1)
+#define SLT_F_BINARY		(1 << 2)
 
 #endif /* VAPI_VSL_INT_H_INCLUDED */
