@@ -292,7 +292,7 @@ pub struct CacheObject<'a: 'i, 'i> {
     pub origin_timestamp: f64,
     pub fetch_mode: Option<&'a str>,
     pub fetch_streamed: Option<bool>,
-    pub response: HttpResponse<'a, 'i>,
+    pub response: Option<HttpResponse<'a, 'i>>,
 }
 
 #[derive(Serialize, Debug)]

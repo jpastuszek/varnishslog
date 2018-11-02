@@ -222,7 +222,7 @@ impl<'a> AsSer<'a> for CacheObject {
             origin_timestamp: self.origin,
             fetch_mode: self.fetch_mode.as_ref().map(|f| f.as_str()),
             fetch_streamed: self.fetch_streamed,
-            response: self.response.as_ser(),
+            response: self.response.as_ref().map(|f| f.as_ser()),
         }
     }
 }
@@ -240,7 +240,7 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for CacheObject {
             origin_timestamp: self.origin,
             fetch_mode: self.fetch_mode.as_ref().map(|f| f.as_str()),
             fetch_streamed: self.fetch_streamed,
-            response: self.response.as_ser_indexed(index),
+            response: self.response.as_ref().map(|f| f.as_ser_indexed(index)),
         }
     }
 }
@@ -724,7 +724,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                                 if !config.no_header_indexing {
                                     request_header_index = Some(make_header_index(backend_log_record.request.headers.as_slice()));
                                     response_header_index = backend_log_record.response.as_ref().map(|response| make_header_index(response.headers.as_slice()));
-                                    cache_object_response_header_index = backend_log_record.cache_object.as_ref().map(|cache_object| make_header_index(cache_object.response.headers.as_slice()));
+                                    cache_object_response_header_index = backend_log_record.cache_object.as_ref().map(|cache_object| cache_object.response.as_ref().map(|response| make_header_index(response.headers.as_slice())));
                                 }
 
                                 if config.keep_raw_headers | config.no_header_indexing {
@@ -734,7 +734,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                                 } else {
                                     indexed_request = backend_log_record.request.as_ser_indexed(request_header_index.as_ref().unwrap());
                                     indexed_response = backend_log_record.response.map(|response| response.as_ser_indexed(response_header_index.as_ref().unwrap()));
-                                    indexed_cache_object = backend_log_record.cache_object.map(|cache_object| cache_object.as_ser_indexed(cache_object_response_header_index.as_ref().unwrap()));
+                                    indexed_cache_object = backend_log_record.cache_object.and_then(|cache_object| cache_object_response_header_index.as_ref().and_then(|cache_object_response_header_index| cache_object_response_header_index.as_ref().map(|cache_object_response_header_index| cache_object.as_ser_indexed(cache_object_response_header_index))));
                                 }
 
                                 let log = ser::Log {
@@ -769,7 +769,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                                     log: log,
                                     request_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| request_header_index.as_ref().unwrap().as_ser()),
                                     response_header_index: response_header_index.as_ref().and_then(|index| (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| index.as_ser())),
-                                    cache_object_response_header_index: cache_object_response_header_index.as_ref().and_then(|index| (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| index.as_ser())),
+                                    cache_object_response_header_index: cache_object_response_header_index.as_ref().and_then(|index| (config.keep_raw_headers & !config.no_header_indexing).and_option_from(|| index.as_ref().map(|i| i.as_ser()))),
                                     lru_nuked: backend_log_record.lru_nuked,
                                 }
                             });

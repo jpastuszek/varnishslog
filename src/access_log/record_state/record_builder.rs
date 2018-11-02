@@ -357,7 +357,7 @@ impl MutBuilder for HttpResponseBuilder {
         match vsl.tag {
             SLT_BerespProtocol | SLT_RespProtocol | SLT_ObjProtocol => {
                 let protocol = try!(vsl.parse_data(slt_protocol));
-                self.protocol= Some(protocol.to_lossy_string());
+                self.protocol = Some(protocol.to_lossy_string());
             }
             SLT_BerespStatus | SLT_RespStatus | SLT_ObjStatus => {
                 let status = try!(vsl.parse_data(slt_status));
@@ -461,7 +461,7 @@ pub struct RecordBuilder {
     pipe_start: Option<TimeStamp>,
     http_request: MutBuilderState<HttpRequestBuilder>,
     http_response: MutBuilderState<HttpResponseBuilder>,
-    cache_object: MutBuilderState<HttpResponseBuilder>,
+    cache_object: Option<MutBuilderState<HttpResponseBuilder>>,
     obj_storage: Option<ObjStorage>,
     obj_ttl: Option<ObjTtl>,
     backend_connection: Option<BackendConnection>,
@@ -499,7 +499,7 @@ impl RecordBuilder {
             pipe_start: None,
             http_request: MutBuilderState::new(HttpRequestBuilder::new()),
             http_response: MutBuilderState::new(HttpResponseBuilder::new()),
-            cache_object: MutBuilderState::new(HttpResponseBuilder::new()),
+            cache_object: None,
             obj_storage: None,
             obj_ttl: None,
             backend_connection: None,
@@ -800,7 +800,11 @@ impl RecordBuilder {
             SLT_ObjReason |
             SLT_ObjHeader |
             SLT_ObjUnset => {
-                try!(self.cache_object.apply(vsl));
+                if self.cache_object.is_none() {
+                    self.cache_object = Some(MutBuilderState::new(HttpResponseBuilder::new()))
+                }
+                let cache_object = self.cache_object.as_mut().expect("cache object response builder");
+                try!(cache_object.apply(vsl));
             }
 
             // Session
@@ -854,6 +858,7 @@ impl RecordBuilder {
                         self.late = true;
                     }
                     "BACKEND_RESPONSE" => {
+                        debug!("Completing http_request and http_response due to BACKEND_RESPONSE Call");
                         self.http_request.complete();
                         self.http_response.complete();
                     }
@@ -985,6 +990,7 @@ impl RecordBuilder {
                 Ok(Record::Session(record))
             },
             RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
+                debug!("Completing http_request on final build of ClienAccess OR BackendAccess record type");
                 let request = try!(self.http_request.build());
 
                 match self.record_type {
@@ -992,6 +998,7 @@ impl RecordBuilder {
                         let transaction = match transaction {
                             ClientAccessTransactionType::Full => {
                                 // SLT_End tag is completing the client response
+                                debug!("Completing http_response on final build of ClienAccess Full record type");
                                 self.http_response.complete();
 
                                 ClientAccessTransaction::Full {
@@ -1015,6 +1022,7 @@ impl RecordBuilder {
                             },
                             ClientAccessTransactionType::RestartedLate => {
                                 // SLT_End tag is completing the client response
+                                debug!("Completing http_response on final build of ClienAccess RestartedLate record type");
                                 self.http_response.complete();
 
                                 ClientAccessTransaction::RestartedLate {
@@ -1055,9 +1063,14 @@ impl RecordBuilder {
                     RecordType::BackendAccess { reason, parent, transaction } => {
                         let transaction = match transaction {
                             BackendAccessTransactionType::Full => {
-                                // safet to complete late
-                                self.cache_object.complete();
-                                let cache_object = try!(self.cache_object.build());
+                                let cache_object = if let Some(mut cache_object) = self.cache_object {
+                                    debug!("Completing cache_object on final build of BackendAccess Full record type: {:?}", cache_object);
+                                    // safet to complete late
+                                    cache_object.complete();
+                                    Some(try!(cache_object.build()))
+                                } else {
+                                    None
+                                };
 
                                 let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
                                 let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
@@ -1080,6 +1093,7 @@ impl RecordBuilder {
                                     response: cache_object,
                                 };
 
+                                debug!("Building http_response on final build of BackendAccess Full record type");
                                 BackendAccessTransaction::Full {
                                     request: request,
                                     response: try!(self.http_response.build()),
@@ -1095,6 +1109,7 @@ impl RecordBuilder {
                             BackendAccessTransactionType::Failed => {
                                 // We complete it here as it is syhth response - not a
                                 // backend response
+                                debug!("Completing http_response on final build of BackendAccess Failed (synth) record type");
                                 self.http_response.complete();
 
                                 BackendAccessTransaction::Failed {
@@ -2723,12 +2738,12 @@ mod tests {
                 cache_object: CacheObject {
                     ref fetch_mode,
                     fetch_streamed,
-                    response: HttpResponse {
+                    response: Some(HttpResponse {
                         ref protocol,
                         status,
                         ref reason,
                         ref headers
-                    },
+                    }),
                     ..
                 },
                 ..
@@ -2741,6 +2756,54 @@ mod tests {
                 assert_eq!(headers, &[
                     ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
                     ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]);
+            }
+        );
+   }
+
+    #[test]
+    fn apply_backend_access_record_cache_object_none() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   32769, SLT_Begin,            "bereq 8 retry";
+                   32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+                   32769, SLT_BereqMethod,      "GET";
+                   32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+                   32769, SLT_BereqProtocol,    "HTTP/1.1";
+                   32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                   32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+                   32769, SLT_VCL_return,       "fetch";
+                   32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
+                   32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+                   32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+                   32769, SLT_BerespProtocol,   "HTTP/1.1";
+                   32769, SLT_BerespStatus,     "200";
+                   32769, SLT_BerespReason,     "OK";
+                   32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+                   32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339883 1340020138 0 0";
+                   32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+                   32769, SLT_BackendReuse,     "19 boot.iss";
+                   32769, SLT_Storage,          "malloc s0";
+                   32769, SLT_Fetch_Body,       "3 length stream";
+                   32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+                   32769, SLT_Length,           "6962";
+                   32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+                   );
+
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
+
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ref fetch_mode,
+                    fetch_streamed,
+                    response: None,
+                    ..
+                },
+                ..
+            } => {
+                assert_eq!(*fetch_streamed.as_ref().unwrap(), true);
+                assert_eq!(fetch_mode.as_ref().unwrap(), "length");
             }
         );
    }

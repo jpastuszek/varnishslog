@@ -158,7 +158,7 @@ pub struct CacheObject {
     /// Text description of body fetch mode
     pub fetch_mode: Option<String>,
     pub fetch_streamed: Option<bool>,
-    pub response: HttpResponse
+    pub response: Option<HttpResponse>
 }
 
 #[derive(Debug, Clone, PartialEq)]
