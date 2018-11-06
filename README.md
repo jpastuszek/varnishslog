@@ -272,6 +272,13 @@ Compatibility
 Usage
 -----
 
+To install it you will need recent Rust compiler (tested on rustc 1.27.2):
+`cargo install varnishslog`
+
+To run build from source with:
+`cargo run --release`
+
+Running:
 `varnishlog -g raw -w /dev/stdout | varnishslog > access.log`
 
 There are few output options and control over indexing of headers and log messages:
