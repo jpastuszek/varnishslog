@@ -311,9 +311,15 @@ impl SessionState {
 
                 self.root.remove(&root_ident)
             }
-            Some(Record::Session(_session)) => {
-                // when session is closed records are already resolved or are still building so nothing
-                // useful can be done here
+            Some(Record::Session(session)) => {
+                debug!("Session done: {:#?}", session);
+                // Try to cleanup unstarted requests on SessClose since HTTP/2 will have lots of streams open and never used
+                for clent_record in session.client_records {
+                    if let Link::Unresolved(ident, _) = clent_record {
+                        self.record_state.cleanup(ident)
+                    }
+                }
+
                 None
             }
             None => None
@@ -330,6 +336,11 @@ impl SessionState {
 
     pub fn unresolved_backend_access_records(&self) -> Vec<&BackendAccessRecord> {
         self.backend.values().collect()
+    }
+
+    #[cfg(test)]
+    pub fn still_building(&self) -> usize {
+        self.record_state.building_count()
     }
 }
 
@@ -1052,5 +1063,46 @@ mod tests {
             } =>
             assert_matches!(backend_record.get_resolved().unwrap().transaction, BackendAccessTransaction::Piped { .. })
         );
+    }
+
+    #[test]
+    fn rx_junk_unexpected_eoi() {
+        log();
+        let mut state = SessionState::new();
+
+        apply_all!(state,
+                69, SLT_Begin,          "sess 0 PROXY";
+                69, SLT_SessOpen,       "127.0.0.1 32786 a1 127.0.0.1 2443 1542622357.198996 82";
+                69, SLT_Proxy,          "2 10.1.1.85 41504 10.1.1.70 443";
+                69, SLT_Link,           "req 70 rxreq";
+                70, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 71 rxreq";
+                71, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 72 rxreq";
+                72, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 73 rxreq";
+                73, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 74 rxreq";
+                74, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 75 rxreq";
+                75, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 76 rxreq";
+                76, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 77 rxreq";
+                77, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 78 rxreq";
+                78, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 79 rxreq";
+                79, SLT_Begin,          "req 69 rxreq";
+                69, SLT_Link,           "req 80 rxreq";
+                80, SLT_Begin,          "req 69 rxreq";
+                69, SLT_ReqAcct,        "126 22 148 351 6 357";
+                69, SLT_End,            "";
+                69, SLT_SessClose,      "RX_JUNK 2.059";
+                69, SLT_End,            "";
+            );
+
+        // Building records should be cleaned up on RX_JUNK SessionClose
+        assert_eq!(state.still_building(), 0);
     }
 }

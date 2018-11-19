@@ -112,6 +112,19 @@ impl RecordState {
         None
     }
 
+    pub fn cleanup(&mut self, ident: VslIdent) {
+        let cleanup = match self.builders.get(&ident) {
+            Some(Builder(builder)) => !builder.is_busy(),
+            None |
+            Some(Tombstone(_)) => false
+        };
+
+        if cleanup {
+            debug!("Cleaning up unused record with ident {}", ident);
+            self.builders.remove(&ident);
+        }
+    }
+
     pub fn building_count(&self) -> usize {
         self.builders.values().filter(|&v| if let Builder(_) = *v { true } else { false }).count()
     }

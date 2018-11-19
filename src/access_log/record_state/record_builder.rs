@@ -966,7 +966,16 @@ impl RecordBuilder {
                     streamed: streamed,
                 });
             }
-            SLT_End => return Ok(true),
+            SLT_End => {
+                return match self.record_type {
+                    RecordType::Session if self.sess_open.is_some() && self.sess_duration.is_none() => {
+                        // https://github.com/jpastuszek/varnishslog/issues/26
+                        debug!("Ignoring End before SessionClose");
+                        Ok(false)
+                    }
+                    _ => Ok(true)
+                };
+            },
             SLT__Bogus | SLT__Reserved | SLT__Batch => warn!("Ignoring bogus tag: {:?}", vsl.tag),
             _ => debug!("Ignoring unmatched VSL tag: {:?}", vsl.tag)
         };
@@ -1169,6 +1178,14 @@ impl RecordBuilder {
                     _ => unreachable!()
                 }
             }
+        }
+    }
+
+    pub fn is_busy(&self) -> bool {
+        match self.record_type {
+            RecordType::Undefined => false,
+            RecordType::ClientAccess { .. } => self.req_start.is_some(),
+            _ => true
         }
     }
 }
