@@ -847,10 +847,25 @@ impl RecordBuilder {
 
                 match method {
                     "RECV" => self.http_request.complete(),
-                    "MISS" => if self.handling.is_none() {
+                    "MISS" if self.handling.is_none() => {
                         self.handling = Some(Handling::Miss);
                     },
-                    "PASS" => if self.handling.is_none() {
+                    // Varnish may force PASS in pipe request if over HTTP/2
+                    // https://github.com/jpastuszek/varnishslog/issues/27
+                    "PASS" if self.handling == Some(Handling::Pipe) => {
+                        match self.record_type {
+                            RecordType::ClientAccess {
+                                transaction: ref mut transaction @ ClientAccessTransactionType::Piped,
+                                ..
+                            } => {
+                                debug!("Changing Piped transaction to Full with Pass handling due to Varnish forced PASS");
+                                *transaction = ClientAccessTransactionType::Full;
+                                self.handling = Some(Handling::Pass);
+                            },
+                            _ => ()
+                        }
+                    },
+                    "PASS" if self.handling.is_none() => {
                         self.handling = Some(Handling::Pass);
                     },
                     "SYNTH" => {
@@ -2565,6 +2580,66 @@ mod tests {
                     ("Host".to_string(), "staging.eod.example.net".to_string()),
                     ("Accept".to_string(), "text/event-stream".to_string()),
                     ("Connection".to_string(), "close".to_string())]);
+            }
+        );
+    }
+
+    #[test]
+    fn apply_backend_access_record_piped_to_pass() {
+        let mut builder = RecordBuilder::new(5);
+
+        apply_all!(builder,
+                    5, SLT_Begin,          "req 6 rxreq";
+                    5, SLT_Timestamp,      "Start: 1470403413.664824 0.000000 0.000000";
+                    5, SLT_Timestamp,      "Req: 1470403414.664824 1.000000 1.000000";
+                    5, SLT_ReqStart,       "127.0.0.1 39798";
+                    5, SLT_ReqMethod,      "GET";
+                    5, SLT_ReqURL,         "/retry";
+                    5, SLT_ReqProtocol,    "HTTP/1.1";
+                    5, SLT_ReqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+                    5, SLT_VCL_call,       "RECV";
+                    5, SLT_VCL_return,     "pipe";
+                    5, SLT_VCL_call,       "HASH";
+                    5, SLT_VCL_return,     "lookup";
+                    5, SLT_VCL_Error,      "vcl_recv{} returns pipe for HTTP/2 request.  Doing pass.";
+                    5, SLT_VCL_call,       "PASS";
+                    5, SLT_Link,           "bereq 8 fetch";
+                    5, SLT_Timestamp,      "Fetch: 1470403414.672315 1.007491 0.007491";
+                    5, SLT_RespProtocol,   "HTTP/1.1";
+                    5, SLT_RespStatus,     "200";
+                    5, SLT_RespReason,     "OK";
+                    5, SLT_RespHeader,     "Content-Type: image/jpeg";
+                    5, SLT_VCL_return,     "deliver";
+                    5, SLT_Timestamp,      "Process: 1470403414.672425 1.007601 0.000111";
+                    5, SLT_RespHeader,     "Accept-Ranges: bytes";
+                    5, SLT_Debug,          "RES_MODE 2";
+                    5, SLT_RespHeader,     "Connection: keep-alive";
+                    5, SLT_Timestamp,      "Resp: 1470403414.672458 1.007634 0.000032";
+                    5, SLT_ReqAcct,        "82 2 84 304 6962 7266";
+                );
+
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_client_access();
+
+        assert_eq!(record.handling, Handling::Pass);
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Full {
+                accounting: Accounting {
+                    recv_header,
+                    recv_body,
+                    recv_total,
+                    sent_header,
+                    sent_body,
+                    sent_total,
+                },
+                ..
+            } => {
+                assert_eq!(recv_header, 82);
+                assert_eq!(recv_body, 2);
+                assert_eq!(recv_total, 84);
+                assert_eq!(sent_header, 304);
+                assert_eq!(sent_body, 6962);
+                assert_eq!(sent_total, 7266);
             }
         );
     }
