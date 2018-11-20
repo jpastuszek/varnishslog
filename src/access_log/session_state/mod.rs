@@ -71,6 +71,8 @@
 //     6 SLT_SessClose      REM_CLOSE 0.008
 //     6 SLT_End
 
+mod session_store;
+
 use store::VslStore;
 use store::Config as StoreConfig;
 use access_log::record_state::RecordState;
@@ -83,13 +85,16 @@ use access_log::record::{
     Link,
 };
 use vsl::record::VslRecord;
+use self::session_store::SessionStore;
+use self::session_store::ApplyResult::*;
 
 #[derive(Debug)]
 pub struct SessionState {
     record_state: RecordState,
     root: VslStore<ClientAccessRecord>,
     client: VslStore<ClientAccessRecord>,
-    backend: VslStore<BackendAccessRecord>
+    backend: VslStore<BackendAccessRecord>,
+    session_store: SessionStore,
 }
 
 fn try_resolve_client_link(link: &mut Link<ClientAccessRecord>,
@@ -267,10 +272,16 @@ impl SessionState {
             root: VslStore::with_config("root", None, None, store_config),
             client: VslStore::with_config("client", None, None, store_config),
             backend: VslStore::with_config("backend", None, None, store_config),
+            session_store: SessionStore::with_config(store_config),
         }
     }
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<ClientAccessRecord> {
+        match self.session_store.apply(vsl) {
+            Updated => return None,
+            NotFound => (),
+        }
+
         match self.record_state.apply(vsl) {
             Some(Record::ClientAccess(mut record)) => {
                 if record.root {
