@@ -2,3 +2,4 @@ target
 .vimrc
 *.log
 logs-v5.2/fetch_error.raw
+.vscode/settings.json

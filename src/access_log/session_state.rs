@@ -311,15 +311,8 @@ impl SessionState {
 
                 self.root.remove(&root_ident)
             }
-            Some(Record::Session(session)) => {
-                debug!("Session done: {:#?}", session);
-                // Try to cleanup unstarted requests on SessClose since HTTP/2 will have lots of streams open and never used
-                for clent_record in session.client_records {
-                    if let Link::Unresolved(ident, _) = clent_record {
-                        self.record_state.cleanup(ident)
-                    }
-                }
-
+            Some(Record::Session(_session)) => {
+                // Not much use for session since we complete requests automatically before and also after (e.g. bgfetch) session is closed
                 None
             }
             None => None

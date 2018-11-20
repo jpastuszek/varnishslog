@@ -1195,14 +1195,6 @@ impl RecordBuilder {
             }
         }
     }
-
-    pub fn is_busy(&self) -> bool {
-        match self.record_type {
-            RecordType::Undefined => false,
-            RecordType::ClientAccess { .. } => self.req_start.is_some(),
-            _ => true
-        }
-    }
 }
 
 #[cfg(test)]
