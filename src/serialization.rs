@@ -1,5 +1,7 @@
 use std::io::Write;
 use std::io::Error as IoError;
+use std::fmt;
+use std::fmt::Display;
 
 pub use serde_json::error::Error as JsonError;
 use serde_json::ser::to_writer as write_json;
@@ -245,6 +247,37 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for CacheObject {
     }
 }
 
+struct NcsaEscaped<T: AsRef<str>>(T);
+
+impl<T: AsRef<str>> Display for NcsaEscaped<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut iter = self.0.as_ref().split('"').peekable();
+        loop {
+            match (iter.next(), iter.peek()) {
+                (Some(i), Some(_)) => try!(write!(f, "{}\\\"", i)),
+                (Some(i), None) => {
+                    try!(write!(f, "{}", i));
+                    break
+                }
+                _ => unreachable!()
+            }
+        }
+        Ok(())
+    }
+}
+
+struct NcsaOption<T: Display>(Option<T>);
+
+impl<T: Display> Display for NcsaOption<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(t) = self.0.as_ref() {
+            write!(f, "{}", t)
+        } else {
+            write!(f, "-")
+        }
+    }
+}
+
 pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format, out: &mut W, config: &Config)
     -> Result<(), OutputError> where W: Write {
     fn write<W, E>(format: &Format, out: &mut W, log_entry: &E) -> Result<(), OutputError> where W: Write, E: ser::EntryType {
@@ -264,41 +297,19 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                 // 192.168.1.115 - - [25/Aug/2016:11:56:55 +0000] "GET http://staging.eod.whatclinic.net/ HTTP/1.1" 503 1366
                 let date_time = NaiveDateTime::from_timestamp(log_entry.timestamp() as i64, 0);
 
-                //TODO: bench
-                /*
-                fn escape(s: &str) -> String {
-                    s.split('"').collect::<Vec<_>>().join("\\\"")
-                }
-                */
-                fn write_escaped<W>(out: &mut W, s: &str) -> Result<(), IoError> where W: Write {
-                    let mut iter = s.split('"').peekable();
-                    loop {
-                        match (iter.next(), iter.peek()) {
-                            (Some(i), Some(_)) => try!(write!(out, "{}\\\"", i)),
-                            (Some(i), None) => {
-                                try!(write!(out, "{}", i));
-                                break
-                            }
-                            _ => unreachable!()
-                        }
-                    }
-                    Ok(())
-                }
-
                 try!(write!(out, "{} {} - [{}] \"",
                             log_entry.remote_ip(),
                             log_entry.type_name(),
                             date_time.format("%d/%b/%Y:%H:%M:%S +0000")));
 
-                try!(write_escaped(out, log_entry.request_method()));
-                try!(write!(out, " "));
-                try!(write_escaped(out, log_entry.request_url()));
-                try!(write!(out, " "));
-                try!(write_escaped(out, log_entry.request_protocol()));
+                try!(write!(out, "{} {} {}", 
+                    NcsaOption(log_entry.request_method().map(NcsaEscaped)),
+                    NcsaOption(log_entry.request_url().map(NcsaEscaped)),
+                    NcsaOption(log_entry.request_protocol().map(NcsaEscaped))));
 
                 try!(write!(out, "\" {} {} ",
-                            log_entry.response_status().unwrap_or(0),
-                            log_entry.response_bytes().unwrap_or(0)));
+                            NcsaOption(log_entry.response_status()),
+                            NcsaOption(log_entry.response_bytes())));
 
                 try!(write_entry(out, &log_entry));
 
@@ -311,6 +322,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
     fn follow_restarts(record: &ClientAccessRecord, restart_count: usize) -> Option<(&ClientAccessRecord, usize)> {
         match record.transaction {
             ClientAccessTransaction::Full { .. } |
+            ClientAccessTransaction::Bad { .. } |
             ClientAccessTransaction::Piped { .. } => Some((record, restart_count)),
             ClientAccessTransaction::RestartedEarly { ref restart_record, .. } |
             ClientAccessTransaction::RestartedLate { ref restart_record, .. }  => {
@@ -417,7 +429,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
         ClientAccess {
             record: &'a ClientAccessRecord,
             final_record: &'a ClientAccessRecord,
-            request: &'a HttpRequest,
+            request: Option<&'a HttpRequest>,
             response: &'a HttpResponse,
             restarted_backend_record: Option<&'a Link<BackendAccessRecord>>,
             backend_record: Option<&'a Link<BackendAccessRecord>>,
@@ -426,7 +438,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
             ttfb_duration: Duration,
             serve_duration: Duration,
             accounting: &'a Accounting,
-            esi_records: &'a Vec<Link<ClientAccessRecord>>,
+            esi_records: Option<&'a Vec<Link<ClientAccessRecord>>>,
             restart_count: usize,
             restart_log: Option<&'a Vec<LogEntry>>,
         },
@@ -556,7 +568,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                 }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
                     record: record,
                     final_record: final_record,
-                    request: request,
+                    request: Some(request),
                     response: response,
                     restarted_backend_record: None,
                     backend_record: backend_record.as_ref(),
@@ -565,7 +577,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                     ttfb_duration: ttfb,
                     serve_duration: serve,
                     accounting: accounting,
-                    esi_records: esi_records,
+                    esi_records: Some(esi_records),
                     restart_count: restart_count,
                     restart_log: Some(&record.log),
                 })),
@@ -586,7 +598,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                 }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
                     record: record,
                     final_record: final_record,
-                    request: request,
+                    request: Some(request),
                     response: response,
                     restarted_backend_record: restarted_backend_record.as_ref(),
                     backend_record: backend_record.as_ref(),
@@ -595,7 +607,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                     ttfb_duration: ttfb,
                     serve_duration: serve,
                     accounting: accounting,
-                    esi_records: esi_records,
+                    esi_records: Some(esi_records),
                     restart_count: restart_count,
                     restart_log: Some(&record.log),
                 })),
@@ -613,7 +625,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                 }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
                     record: record,
                     final_record: final_record,
-                    request: request,
+                    request: Some(request),
                     response: response,
                     backend_record: backend_record.as_ref(),
                     restarted_backend_record: None,
@@ -622,7 +634,30 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                     ttfb_duration: ttfb,
                     serve_duration: serve,
                     accounting: accounting,
-                    esi_records: esi_records,
+                    esi_records: Some(esi_records),
+                    restart_count: restart_count,
+                    restart_log: None,
+                })),
+                (_, &ClientAccessTransaction::Bad {
+                    ref request,
+                    ref response,
+                    ttfb,
+                    serve,
+                    ref accounting,
+                    ..
+                }) => return block(Some(&FlatClientAccessRecord::ClientAccess {
+                    record: record,
+                    final_record: final_record,
+                    request: request.as_ref(),
+                    response: response,
+                    backend_record: None,
+                    restarted_backend_record: None,
+                    process_duration: None,
+                    fetch_duration: None,
+                    ttfb_duration: ttfb,
+                    serve_duration: serve,
+                    accounting: accounting,
+                    esi_records: None,
                     restart_count: restart_count,
                     restart_log: None,
                 })),
@@ -693,11 +728,13 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                         restart_count,
                         restart_log,
                     } => {
-                        for esi_record_link in esi_records {
-                            if let Some(esi_record) = esi_record_link.get_resolved() {
-                                try!(log_client_access_record(format, out, esi_record, "esi_subrequest", config));
-                            } else {
-                                warn!("Found unresolved ESI record link {:?} in:\n{:#?}", esi_record_link, record);
+                        if let Some(esi_records) = esi_records {
+                            for esi_record_link in esi_records {
+                                if let Some(esi_record) = esi_record_link.get_resolved() {
+                                    try!(log_client_access_record(format, out, esi_record, "esi_subrequest", config));
+                                } else {
+                                    warn!("Found unresolved ESI record link {:?} in:\n{:#?}", esi_record_link, record);
+                                }
                             }
                         }
 
@@ -792,15 +829,15 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                             }
 
                             if !config.no_header_indexing {
-                                request_header_index = Some(make_header_index(request.headers.as_slice()));
+                                request_header_index = request.map(|request| make_header_index(request.headers.as_slice()));
                                 response_header_index = Some(make_header_index(response.headers.as_slice()));
                             }
 
                             if config.keep_raw_headers | config.no_header_indexing {
-                                indexed_request = request.as_ser();
+                                indexed_request = request.map(|request| request.as_ser());
                                 indexed_response = response.as_ser();
                             } else {
-                                indexed_request = request.as_ser_indexed(request_header_index.as_ref().unwrap());
+                                indexed_request = request.map(|request| request.as_ser_indexed(request_header_index.as_ref().unwrap()));
                                 indexed_response = response.as_ser_indexed(response_header_index.as_ref().unwrap());
                             }
 
@@ -840,7 +877,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                                 sent_header_bytes: accounting.sent_header,
                                 sent_body_bytes: accounting.sent_body,
                                 sent_total_bytes: accounting.sent_total,
-                                esi_count: esi_records.len(),
+                                esi_count: esi_records.map(|esi_records| esi_records.len()).unwrap_or(0),
                                 compression: final_record.compression.as_ref().map(|c| c.as_ser()),
                                 restart_count: restart_count,
                                 restart_log: restart_log,

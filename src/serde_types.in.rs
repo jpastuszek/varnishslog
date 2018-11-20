@@ -6,9 +6,9 @@ pub trait EntryType: Serialize {
     fn type_name(&self) -> &str;
     fn remote_ip(&self) -> &str;
     fn timestamp(&self) -> f64;
-    fn request_method(&self) -> &str;
-    fn request_url(&self) -> &str;
-    fn request_protocol(&self) -> &str;
+    fn request_method(&self) -> Option<&str>;
+    fn request_url(&self) -> Option<&str>;
+    fn request_protocol(&self) -> Option<&str>;
     fn response_status(&self) -> Option<u32>;
     fn response_bytes(&self) -> Option<u64>;
 }
@@ -21,7 +21,7 @@ pub struct ClientAccess<'a: 'i, 'i> {
     pub start_timestamp: f64,
     pub end_timestamp: Option<f64>,
     pub handling: &'a str,
-    pub request: HttpRequest<'a, 'i>,
+    pub request: Option<HttpRequest<'a, 'i>>,
     pub response: HttpResponse<'a, 'i>,
     pub backend_access: Option<&'i BackendAccess<'a, 'i>>,
     pub process_duration: Option<f64>,
@@ -56,14 +56,14 @@ impl<'a: 'i, 'i> EntryType for ClientAccess<'a, 'i> {
     fn timestamp(&self) -> f64 {
         self.end_timestamp.unwrap_or(self.start_timestamp)
     }
-    fn request_method(&self) -> &str {
-        self.request.method
+    fn request_method(&self) -> Option<&str> {
+        self.request.as_ref().map(|request| request.method)
     }
-    fn request_url(&self) -> &str {
-        self.request.url
+    fn request_url(&self) -> Option<&str> {
+        self.request.as_ref().map(|request| request.url)
     }
-    fn request_protocol(&self) -> &str {
-        self.request.protocol
+    fn request_protocol(&self) -> Option<&str> {
+        self.request.as_ref().map(|request| request.protocol)
     }
     fn response_status(&self) -> Option<u32> {
         Some(self.response.status)
@@ -136,14 +136,14 @@ impl<'a: 'i, 'i> EntryType for PipeSession<'a, 'i> {
     fn timestamp(&self) -> f64 {
         self.end_timestamp.unwrap_or(self.start_timestamp)
     }
-    fn request_method(&self) -> &str {
-        self.request.method
+    fn request_method(&self) -> Option<&str> {
+        Some(self.request.method)
     }
-    fn request_url(&self) -> &str {
-        self.request.url
+    fn request_url(&self) -> Option<&str> {
+        Some(self.request.url)
     }
-    fn request_protocol(&self) -> &str {
-        self.request.protocol
+    fn request_protocol(&self) -> Option<&str> {
+        Some(self.request.protocol)
     }
     fn response_status(&self) -> Option<u32> {
         None

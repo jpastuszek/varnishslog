@@ -128,6 +128,15 @@ pub enum ClientAccessTransaction {
         process: Option<Duration>,
         restart_record: Link<ClientAccessRecord>,
     },
+    Bad {
+        request: Option<HttpRequest>,
+        response: HttpResponse,
+        /// Time it took to get first byte of response
+        ttfb: Duration,
+        /// Total duration it took to serve the whole response
+        serve: Duration,
+        accounting: Accounting,
+    },
     Piped {
         request: HttpRequest,
         backend_record: Link<BackendAccessRecord>,

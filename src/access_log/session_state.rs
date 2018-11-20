@@ -182,6 +182,7 @@ fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
         }
         ClientAccessTransaction::Full { backend_record: None, ..  } |
         ClientAccessTransaction::RestartedLate { backend_record: None, .. } |
+        ClientAccessTransaction::Bad { .. } |
         ClientAccessTransaction::RestartedEarly { .. } => true,
     };
 
@@ -196,6 +197,7 @@ fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
         }
         ClientAccessTransaction::RestartedEarly { .. } |
         ClientAccessTransaction::RestartedLate { .. } |
+        ClientAccessTransaction::Bad { .. } |
         ClientAccessTransaction::Piped { .. } => true,
     };
 
@@ -211,6 +213,7 @@ fn try_resolve_client_record(client_record: &mut ClientAccessRecord,
             try_resolve_client_link(link, client_records, backend_records)
         }
         ClientAccessTransaction::Full { .. } |
+        ClientAccessTransaction::Bad { .. } |
         ClientAccessTransaction::Piped { .. } => true,
     };
 
@@ -1056,23 +1059,5 @@ mod tests {
             } =>
             assert_matches!(backend_record.get_resolved().unwrap().transaction, BackendAccessTransaction::Piped { .. })
         );
-    }
-
-    #[test]
-    fn rx_junk_unexpected_eoi() {
-        log();
-        let mut state = SessionState::new();
-
-        apply_all!(state,
-                69, SLT_Begin,          "sess 0 PROXY";
-                69, SLT_SessOpen,       "127.0.0.1 32786 a1 127.0.0.1 2443 1542622357.198996 82";
-                69, SLT_ReqAcct,        "126 22 148 351 6 357";
-                69, SLT_End,            "";
-                69, SLT_SessClose,      "RX_JUNK 2.059";
-                69, SLT_End,            "";
-            );
-
-        // Session should be built
-        assert_eq!(state.still_building(), 0);
     }
 }

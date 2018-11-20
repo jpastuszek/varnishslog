@@ -405,6 +405,7 @@ enum ClientAccessTransactionType {
     Full,
     RestartedEarly,
     RestartedLate,
+    Bad,
     Piped,
 }
 
@@ -685,6 +686,24 @@ impl RecordBuilder {
 
                 self.log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", log_entry.to_lossy_string())));
             }
+            SLT_HttpGarbage => {
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+
+                self.log.push(LogEntry::Warning(format!("Garbage HTTP received: {}", log_entry.to_lossy_string())));
+
+                if let RecordType::ClientAccess { ref mut transaction, .. } = self.record_type {
+                    *transaction = ClientAccessTransactionType::Bad;
+                }
+            }
+            SLT_ProxyGarbage => {
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+
+                self.log.push(LogEntry::Warning(format!("Garbage PROXY received: {}", log_entry.to_lossy_string())));
+
+                if let RecordType::ClientAccess { ref mut transaction, .. } = self.record_type {
+                        *transaction = ClientAccessTransactionType::Bad;
+                }
+            }
             SLT_LostHeader => {
                 let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
@@ -754,6 +773,9 @@ impl RecordBuilder {
             SLT_Length => {
                 // Logs the size of a fetch object body.
                 // Looks the same as SLT_BereqAcct/recv_body
+            }
+            SLT_Filters => {
+                // TODO: Log filters applied?
             }
             SLT_PipeAcct => {
                 let (client_request_headers, _backend_request_headers,
@@ -1043,9 +1065,6 @@ impl RecordBuilder {
                 Ok(Record::Session(record))
             },
             RecordType::ClientAccess { .. } | RecordType::BackendAccess { .. } => {
-                debug!("Completing http_request on final build of ClienAccess OR BackendAccess record type");
-                let request = try!(self.http_request.build());
-
                 match self.record_type {
                     RecordType::ClientAccess { reason, parent, transaction } => {
                         let transaction = match transaction {
@@ -1055,7 +1074,7 @@ impl RecordBuilder {
                                 self.http_response.complete();
 
                                 ClientAccessTransaction::Full {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                     response: try!(self.http_response.build()),
                                     esi_records: self.client_records,
                                     backend_record: self.backend_record,
@@ -1068,7 +1087,7 @@ impl RecordBuilder {
                             },
                             ClientAccessTransactionType::RestartedEarly => {
                                 ClientAccessTransaction::RestartedEarly {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                     process: self.req_process,
                                     restart_record: try!(self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))),
                                 }
@@ -1079,16 +1098,30 @@ impl RecordBuilder {
                                 self.http_response.complete();
 
                                 ClientAccessTransaction::RestartedLate {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                     response: try!(self.http_response.build()),
                                     backend_record: self.backend_record,
                                     process: self.req_process,
                                     restart_record: try!(self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))),
                                 }
                             },
+                            ClientAccessTransactionType::Bad => {
+                                debug!("Completing http_response on final build of ClienAccess Bad record type");
+                                self.http_request.complete();
+                                self.http_response.complete();
+
+                                ClientAccessTransaction::Bad {
+                                    request: self.http_request.build().ok(), // we may not have workable request at
+                                    response: try!(self.http_response.build()),
+                                    // req_process is all I have
+                                    ttfb: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
+                                    serve: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
+                                    accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
+                                }
+                            },
                             ClientAccessTransactionType::Piped => {
                                 ClientAccessTransaction::Piped {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                     backend_record: try!(self.backend_record.ok_or(RecordBuilderError::RecordIncomplete("backend_record"))),
                                     process: self.req_process,
                                     ttfb: self.resp_ttfb,
@@ -1148,7 +1181,7 @@ impl RecordBuilder {
 
                                 debug!("Building http_response on final build of BackendAccess Full record type");
                                 BackendAccessTransaction::Full {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                     response: try!(self.http_response.build()),
                                     backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
                                     cache_object: cache_object,
@@ -1166,7 +1199,7 @@ impl RecordBuilder {
                                 self.http_response.complete();
 
                                 BackendAccessTransaction::Failed {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                     synth_response: try!(self.http_response.build()),
                                     retry_record: self.retry_record,
                                     synth: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
@@ -1175,12 +1208,12 @@ impl RecordBuilder {
                             }
                             BackendAccessTransactionType::Aborted => {
                                 BackendAccessTransaction::Aborted {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                 }
                             }
                             BackendAccessTransactionType::Abandoned => {
                                 BackendAccessTransaction::Abandoned {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                     response: try!(self.http_response.build()),
                                     backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
                                     retry_record: self.retry_record,
@@ -1192,7 +1225,7 @@ impl RecordBuilder {
                             }
                             BackendAccessTransactionType::Piped => {
                                 BackendAccessTransaction::Piped {
-                                    request: request,
+                                    request: try!(self.http_request.build()),
                                     backend_connection: self.backend_connection,
                                 }
                             }
@@ -2769,6 +2802,31 @@ mod tests {
     }
 
     #[test]
+    fn apply_client_access_bad_request_proxy() {
+        let mut builder = RecordBuilder::new(123);
+
+        apply_all!(builder,
+                   7, SLT_Begin,        "req 6 rxreq";
+                   7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+                   7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+                   7, SLT_BogoHeader,   "Illegal char 0x20 in header name";
+                   7, SLT_HttpGarbage,  "PROXY";
+                   7, SLT_RespProtocol, "HTTP/1.1";
+                   7, SLT_RespStatus,   "400";
+                   7, SLT_RespReason,   "Bad Request";
+                   7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
+                   );
+
+            let record = apply_last!(builder, 7, SLT_End, "")
+                .unwrap_client_access();
+
+            assert_eq!(record.log, &[
+                LogEntry::Warning("Bogus HTTP header received: Illegal char 0x20 in header name".to_string()),
+                LogEntry::Warning("Garbage HTTP received: PROXY".to_string()),
+            ]);
+    }
+
+    #[test]
     fn apply_backend_access_record_log() {
         let mut builder = RecordBuilder::new(123);
 
@@ -2809,6 +2867,7 @@ mod tests {
             LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
         ]);
     }
+
     #[test]
     fn apply_backend_access_record_cache_object() {
         let mut builder = RecordBuilder::new(123);
