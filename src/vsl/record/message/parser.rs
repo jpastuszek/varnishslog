@@ -147,6 +147,16 @@ named!(pub slt_sess_open<&[u8], ((&str, Port), &str, Option<(&str, Port)>, TimeS
         time_stamp,             // Time stamp (undocumented)
         file_descriptor));      // File descriptor number
 
+named!(pub slt_proxy<&[u8], (&str, (&str, Port), (&str, Port))>, tuple!(
+        symbol,                  // PROXY protocol version
+        // Client IPv4/6 address
+        // Client TCP port
+        tuple!(symbol, port),
+        // Server IPv4/6 address ('-' if !$log_local_addr)
+        // Server TCP port ('-' if !$log_local_addr)
+        tuple!(symbol, port)
+        ));
+
 named!(pub slt_link<&[u8], (&str, VslIdent, &str)>, tuple!(
         symbol,     // Child type ("req" or "bereq")
         vsl_ident,  // Child vxid

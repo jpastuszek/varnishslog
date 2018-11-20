@@ -242,6 +242,14 @@ pub enum BackendAccessTransaction {
     },
 }
 
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Proxy {
+    pub version: String,
+    pub client: Address,
+    pub server: Address,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionRecord {
     pub ident: VslIdent,
@@ -249,6 +257,7 @@ pub struct SessionRecord {
     pub duration: Duration,
     pub local: Option<Address>,
     pub remote: Address,
+    pub proxy: Option<Proxy>,
     pub client_records: Vec<Link<ClientAccessRecord>>,
 }
 

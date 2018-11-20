@@ -1066,36 +1066,13 @@ mod tests {
         apply_all!(state,
                 69, SLT_Begin,          "sess 0 PROXY";
                 69, SLT_SessOpen,       "127.0.0.1 32786 a1 127.0.0.1 2443 1542622357.198996 82";
-                69, SLT_Proxy,          "2 10.1.1.85 41504 10.1.1.70 443";
-                69, SLT_Link,           "req 70 rxreq";
-                70, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 71 rxreq";
-                71, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 72 rxreq";
-                72, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 73 rxreq";
-                73, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 74 rxreq";
-                74, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 75 rxreq";
-                75, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 76 rxreq";
-                76, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 77 rxreq";
-                77, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 78 rxreq";
-                78, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 79 rxreq";
-                79, SLT_Begin,          "req 69 rxreq";
-                69, SLT_Link,           "req 80 rxreq";
-                80, SLT_Begin,          "req 69 rxreq";
                 69, SLT_ReqAcct,        "126 22 148 351 6 357";
                 69, SLT_End,            "";
                 69, SLT_SessClose,      "RX_JUNK 2.059";
                 69, SLT_End,            "";
             );
 
-        // Building records should be cleaned up on RX_JUNK SessionClose
+        // Session should be built
         assert_eq!(state.still_building(), 0);
     }
 }

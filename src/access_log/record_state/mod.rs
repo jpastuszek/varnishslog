@@ -364,10 +364,11 @@ mod tests {
         let mut state = RecordState::new();
 
         apply_all!(state,
-               123, SLT_Begin, "sess 0 HTTP/1";
-               123, SLT_SessOpen, "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18";
-               123, SLT_Link, "req 32773 rxreq";
-               123, SLT_SessClose, "REM_CLOSE 0.001";
+                123, SLT_Begin,     "sess 0 HTTP/1";
+                123, SLT_SessOpen,  "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18";
+                123, SLT_Proxy,     "2 10.1.1.85 41504 10.1.1.70 443";
+                123, SLT_Link,      "req 32773 rxreq";
+                123, SLT_SessClose, "REM_CLOSE 0.001";
               );
 
         let record = apply_final!(state, 123, SLT_End, "");
@@ -383,7 +384,12 @@ mod tests {
                 duration,
                 local: Some(ref local),
                 ref remote,
-                ref client_records
+                ref client_records,
+                proxy: Some(Proxy {
+                    ref version,
+                    ref client,
+                    ref server,
+                }),
             } => {
                 assert_eq!(ident, 123);
                 assert_eq!(open, parse!("1469180762.484344"));
@@ -391,8 +397,30 @@ mod tests {
                 assert_eq!(local, &("127.0.0.1".to_string(), 1080));
                 assert_eq!(remote, &("192.168.1.10".to_string(), 40078));
                 assert_eq!(client_records, &[Link::Unresolved(32773, "rxreq".to_string())]);
+                assert_eq!(version, "2");
+                assert_eq!(client, &("10.1.1.85".to_string(), 41504));
+                assert_eq!(server, &("10.1.1.70".to_string(), 443));
             }
         );
+    }
+
+    #[test]
+    fn apply_record_state_session_rx_junk() {
+        log();
+        let mut state = RecordState::new();
+
+        apply_all!(state,
+                69, SLT_Begin,          "sess 0 PROXY";
+                69, SLT_SessOpen,       "127.0.0.1 32786 a1 127.0.0.1 2443 1542622357.198996 82";
+                69, SLT_ReqAcct,        "126 22 148 351 6 357";
+                69, SLT_End,            ""; // NOTE: spurious End
+                69, SLT_SessClose,      "RX_JUNK 2.059";
+            );
+
+        let record = apply_final!(state, 69, SLT_End, "");
+
+        // Session should be built
+        assert!(record.is_session());
     }
 
     #[test]

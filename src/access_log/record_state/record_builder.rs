@@ -138,6 +138,7 @@ use access_log::record::{
     BackendConnection,
     BackendAccessRecord,
     BackendAccessTransaction,
+    Proxy,
     SessionRecord,
     HttpRequest,
     HttpResponse,
@@ -479,6 +480,9 @@ pub struct RecordBuilder {
     sess_duration: Option<Duration>,
     sess_remote: Option<Address>,
     sess_local: Option<Address>,
+    sess_proxy_version: Option<String>,
+    sess_proxy_client: Option<Address>,
+    sess_proxy_server: Option<Address>,
     client_records: Vec<Link<ClientAccessRecord>>,
     backend_record: Option<Link<BackendAccessRecord>>,
     restart_record: Option<Link<ClientAccessRecord>>,
@@ -517,6 +521,9 @@ impl RecordBuilder {
             sess_duration: None,
             sess_remote: None,
             sess_local: None,
+            sess_proxy_version: None,
+            sess_proxy_client: None,
+            sess_proxy_server: None,
             client_records: Vec::new(),
             backend_record: None,
             restart_record: None,
@@ -819,6 +826,17 @@ impl RecordBuilder {
                 self.sess_remote = Some(remote_address);
                 self.sess_local = local_address;
             }
+            SLT_Proxy => {
+                let (version, client_address, server_address)
+                    = try!(vsl.parse_data(slt_proxy));
+
+                let client_address = (client_address.0.to_string(), client_address.1);
+                let server_address = (server_address.0.to_string(), server_address.1);
+
+                self.sess_proxy_version = Some(version.to_string());
+                self.sess_proxy_client = Some(client_address);
+                self.sess_proxy_server = Some(server_address);
+            }
             SLT_SessClose => {
                 let (_reason, duration) = try!(vsl.parse_data(slt_sess_close));
 
@@ -1002,12 +1020,23 @@ impl RecordBuilder {
         match self.record_type {
             RecordType::Undefined => Err(RecordBuilderError::RecordIncomplete("record type is not known - have we missed/lost SLT_Begin record?")),
             RecordType::Session => {
+                let proxy = if self.sess_proxy_version.is_some() {
+                    Some(Proxy {
+                        version: try!(self.sess_proxy_version.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_version"))),
+                        client: try!(self.sess_proxy_client.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_client"))),
+                        server: try!(self.sess_proxy_server.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_server"))),
+                    })
+                } else {
+                    None
+                };
+
                 let record = SessionRecord {
                     ident: self.ident,
                     open: try!(self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))),
                     duration: try!(self.sess_duration.ok_or(RecordBuilderError::RecordIncomplete("sess_duration"))),
                     local: self.sess_local,
                     remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
+                    proxy,
                     client_records: self.client_records,
                 };
 
