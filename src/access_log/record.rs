@@ -259,15 +259,16 @@ pub struct Proxy {
     pub server: Address,
 }
 
+/// Complete sessoin
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionRecord {
     pub ident: VslIdent,
     pub open: TimeStamp,
-    pub duration: Duration,
     pub local: Option<Address>,
     pub remote: Address,
     pub proxy: Option<Proxy>,
     pub client_records: Vec<Link<ClientAccessRecord>>,
+    pub duration: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -286,8 +287,9 @@ pub struct HttpResponse {
     pub headers: Vec<(String, String)>,
 }
 
+/// Access records to be fully connected and logged
 #[derive(Debug, Clone, PartialEq)]
-pub enum Record {
+pub enum AccessRecord {
     ClientAccess(ClientAccessRecord),
     BackendAccess(BackendAccessRecord),
     Session(SessionRecord),
@@ -333,43 +335,43 @@ impl<T> Link<T> {
     }
 }
 
-impl Record {
+impl AccessRecord {
     pub fn is_client_access(&self) -> bool {
         match *self {
-            Record::ClientAccess(_) => true,
+            AccessRecord::ClientAccess(_) => true,
             _ => false
         }
     }
     pub fn unwrap_client_access(self) -> ClientAccessRecord {
         match self {
-            Record::ClientAccess(access_record) => access_record,
+            AccessRecord::ClientAccess(access_record) => access_record,
             _ => panic!("unwrap_client_access called on Record that was not ClientAccess")
         }
     }
 
     pub fn is_backend_access(&self) -> bool {
         match *self {
-            Record::BackendAccess(_) => true,
+            AccessRecord::BackendAccess(_) => true,
             _ => false
         }
     }
     pub fn unwrap_backend_access(self) -> BackendAccessRecord {
         match self {
-            Record::BackendAccess(access_record) => access_record,
+            AccessRecord::BackendAccess(access_record) => access_record,
             _ => panic!("unwrap_backend_access called on Record that was not BackendAccess")
         }
     }
 
     pub fn is_session(&self) -> bool {
         match *self {
-            Record::Session(_) => true,
+            AccessRecord::Session(_) => true,
             _ => false,
         }
     }
     pub fn unwrap_session(self) -> SessionRecord {
         match self {
-            Record::Session(session_record) => session_record,
-            _ => panic!("unwrap_session called on Record that was not Session")
+            AccessRecord::Session(session_record) => session_record,
+            _ => panic!("unwrap_session called on AccessRecord that was not Session")
         }
     }
 }

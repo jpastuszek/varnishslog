@@ -75,7 +75,7 @@ use store::VslStore;
 use store::Config as StoreConfig;
 use access_log::record_state::RecordState;
 use access_log::record::{
-    Record,
+    AccessRecord,
     ClientAccessRecord,
     ClientAccessTransaction,
     BackendAccessRecord,
@@ -272,7 +272,7 @@ impl SessionState {
 
     pub fn apply(&mut self, vsl: &VslRecord) -> Option<ClientAccessRecord> {
         match self.record_state.apply(vsl) {
-            Some(Record::ClientAccess(mut record)) => {
+            Some(AccessRecord::ClientAccess(mut record)) => {
                 if record.root {
                     if try_resolve_client_record(&mut record, &mut self.client, &mut self.backend) {
                         return Some(record)
@@ -297,7 +297,7 @@ impl SessionState {
 
                 self.root.remove(&root_ident)
             }
-            Some(Record::BackendAccess(record)) => {
+            Some(AccessRecord::BackendAccess(record)) => {
                 let root_ident =
                     if let Some(ref mut root) = find_root_mut_from_backend_record(&record, &mut self.root, &self.client, &self.backend) {
                         self.backend.insert(record.ident, record);
@@ -314,8 +314,8 @@ impl SessionState {
 
                 self.root.remove(&root_ident)
             }
-            Some(Record::Session(_session)) => {
-                // Not much use for session since we complete requests automatically before and also after (e.g. bgfetch) session is closed
+            Some(AccessRecord::Session(_session)) => {
+                // Not much use for session record since we complete requests automatically before and also after (e.g. bgfetch) session is closed
                 None
             }
             None => None
