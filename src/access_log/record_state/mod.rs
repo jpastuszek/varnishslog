@@ -99,7 +99,7 @@ impl RecordState {
             New(mut builder) => {
                 // here is the only moment we can look up session in builders since the builder is not yet part of it
                 if let Some(session) = builder.session_ident().and_then(|ident| self.lookup_session(&ident)) {
-                    builder.pin_session(session.clone())
+                    builder.set_session(session.clone())
                 }
                 self.builders.insert(vsl.ident, Builder(builder));
                 None
@@ -207,38 +207,42 @@ mod tests {
 
         // logs-new/varnish20160816-4093-lmudum99608ad955ba43288.vsl
         apply_all!(state,
-                   4, SLT_Begin,          "req 3 rxreq";
-                   4, SLT_Timestamp,      "Start: 1471355385.239203 0.000000 0.000000";
-                   4, SLT_Timestamp,      "Req: 1471355385.239203 0.000000 0.000000";
-                   4, SLT_ReqStart,       "127.0.0.1 56842";
-                   4, SLT_ReqMethod,      "GET";
-                   4, SLT_ReqURL,         "/test_page/123.html";
-                   4, SLT_ReqProtocol,    "HTTP/1.1";
-                   4, SLT_ReqHeader,      "Date: Tue, 16 Aug 2016 13:49:45 GMT";
-                   4, SLT_ReqHeader,      "Host: 127.0.0.1:1236";
-                   4, SLT_VCL_call,       "RECV";
-                   4, SLT_VCL_acl,        "NO_MATCH trusted_networks";
-                   4, SLT_VCL_acl,        "NO_MATCH external_proxies";
-                   4, SLT_VCL_return,     "hash";
-                   4, SLT_VCL_call,       "HASH";
-                   4, SLT_VCL_return,     "lookup";
-                   4, SLT_VCL_call,       "MISS";
-                   4, SLT_VCL_return,     "fetch";
-                   4, SLT_Link,           "bereq 5 fetch";
-                   4, SLT_Timestamp,      "Fetch: 1471355385.239520 0.000317 0.000317";
-                   4, SLT_RespProtocol,   "HTTP/1.1";
-                   4, SLT_RespStatus,     "503";
-                   4, SLT_RespReason,     "Backend fetch failed";
-                   4, SLT_RespHeader,     "Date: Tue, 16 Aug 2016 13:49:45 GMT";
-                   4, SLT_RespHeader,     "Server: Varnish";
-                   4, SLT_VCL_call,       "DELIVER";
-                   4, SLT_VCL_return,     "deliver";
-                   4, SLT_Timestamp,      "Process: 1471355385.239622 0.000419 0.000103";
-                   4, SLT_RespHeader,     "Content-Length: 1366";
-                   4, SLT_Debug,          "RES_MODE 2";
-                   4, SLT_Timestamp,      "Resp: 1471355385.239652 0.000449 0.000029";
-                   4, SLT_ReqAcct,        "95 0 95 1050 1366 2416";
-               );
+            3, SLT_Begin,          "sess 0 HTTP/1";
+            3, SLT_SessOpen,       "192.168.1.10 40078 localhost:1080 127.0.0.1 1080 1469180762.484344 18";
+            3, SLT_Proxy,          "2 10.1.1.85 41504 10.1.1.70 443";
+            3, SLT_Link,           "req 4 rxreq";
+            4, SLT_Begin,          "req 3 rxreq";
+            4, SLT_Timestamp,      "Start: 1471355385.239203 0.000000 0.000000";
+            4, SLT_Timestamp,      "Req: 1471355385.239203 0.000000 0.000000";
+            4, SLT_ReqStart,       "127.0.0.1 56842";
+            4, SLT_ReqMethod,      "GET";
+            4, SLT_ReqURL,         "/test_page/123.html";
+            4, SLT_ReqProtocol,    "HTTP/1.1";
+            4, SLT_ReqHeader,      "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+            4, SLT_ReqHeader,      "Host: 127.0.0.1:1236";
+            4, SLT_VCL_call,       "RECV";
+            4, SLT_VCL_acl,        "NO_MATCH trusted_networks";
+            4, SLT_VCL_acl,        "NO_MATCH external_proxies";
+            4, SLT_VCL_return,     "hash";
+            4, SLT_VCL_call,       "HASH";
+            4, SLT_VCL_return,     "lookup";
+            4, SLT_VCL_call,       "MISS";
+            4, SLT_VCL_return,     "fetch";
+            4, SLT_Link,           "bereq 5 fetch";
+            4, SLT_Timestamp,      "Fetch: 1471355385.239520 0.000317 0.000317";
+            4, SLT_RespProtocol,   "HTTP/1.1";
+            4, SLT_RespStatus,     "503";
+            4, SLT_RespReason,     "Backend fetch failed";
+            4, SLT_RespHeader,     "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+            4, SLT_RespHeader,     "Server: Varnish";
+            4, SLT_VCL_call,       "DELIVER";
+            4, SLT_VCL_return,     "deliver";
+            4, SLT_Timestamp,      "Process: 1471355385.239622 0.000419 0.000103";
+            4, SLT_RespHeader,     "Content-Length: 1366";
+            4, SLT_Debug,          "RES_MODE 2";
+            4, SLT_Timestamp,      "Resp: 1471355385.239652 0.000449 0.000029";
+            4, SLT_ReqAcct,        "95 0 95 1050 1366 2416";
+        );
 
         let record = apply_final!(state, 4, SLT_End, "");
 

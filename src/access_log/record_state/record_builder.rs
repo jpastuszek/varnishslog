@@ -630,7 +630,7 @@ impl RecordBuilder {
         }
     }
 
-    pub fn pin_session(&mut self, session: Rc<RefCell<SessionHead>>) {
+    pub fn set_session(&mut self, session: Rc<RefCell<SessionHead>>) {
         self.session = Some(session);
     }
 
@@ -1188,11 +1188,21 @@ impl RecordBuilder {
                             },
                         };
 
-                        let session = self.session;
-                        println!("ses: {:#?}", session);
-                        let remote = self.client_addr.or_else(|| 
-                            session.map(|session| session.borrow().remote.clone()) // TODO: we should always have session?
-                        ).ok_or(RecordBuilderError::RecordIncomplete("client_addr"))?;
+                        let root = reason == "rxreq";
+
+                        // root requests should have session
+                        let remote = if root {
+                            //TODO: custom error type and handle gracefully later on
+                            let session = self.session.ok_or(RecordBuilderError::RecordIncomplete("session"))?;
+                            let session = session.borrow();
+                            debug!("session: {:#?}", session);
+
+                            session.proxy.as_ref().map(|proxy| proxy.client.clone())
+                                .or_else(|| Some(session.remote.clone()))
+                                .ok_or(RecordBuilderError::RecordIncomplete("session proxy or remote"))?
+                        } else {
+                            self.client_addr.ok_or(RecordBuilderError::RecordIncomplete("client_addr"))?
+                        };
 
                         let record = ClientAccessRecord {
                             root: reason == "rxreq",
@@ -1203,7 +1213,7 @@ impl RecordBuilder {
                             transaction: transaction,
                             start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
                             end: self.resp_end,
-                            handling: try!(self.handling.ok_or(RecordBuilderError::RecordIncomplete("handling"))),
+                            handling: self.handling.unwrap_or(Handling::Synth), // bad request won't have handling
                             compression: self.compression,
                             log: self.log,
                         };
@@ -1400,6 +1410,19 @@ mod tests {
             apply_all!(builder, $($t_ident, $t_tag, $t_message;)*);
             builder
         }};
+    }
+
+    fn set_stub_session(builder: &mut RecordBuilder) { 
+        let ident = builder.session_ident().expect("set_stub_session called on non-client access record");
+        builder.set_session(Rc::new(RefCell::new(SessionHead {
+            ident,
+            open: 0.0,
+            local: None,
+            remote: ("1.1.1.1".to_string(), 123),
+            proxy: None,
+            client_records: Vec::new(),
+            duration: None,
+        })))
     }
 
     #[test]
@@ -1773,6 +1796,8 @@ mod tests {
             7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
         );
 
+        set_stub_session(&mut builder);
+
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
 
@@ -1818,6 +1843,8 @@ mod tests {
             4, SLT_Timestamp,      "Restart: 1471355414.450428 0.000117 0.000117";
             4, SLT_Link,           "req 5 restart";
         );
+
+        set_stub_session(&mut builder);
 
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
@@ -1872,6 +1899,8 @@ mod tests {
             4, SLT_Link,           "req 5 restart";
         );
 
+        set_stub_session(&mut builder);
+
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
 
@@ -1924,6 +1953,8 @@ mod tests {
             4, SLT_PipeAcct,       "268 761 0 480";
         );
 
+        set_stub_session(&mut builder);
+
         let record = apply_last!(builder, 4, SLT_End, "")
             .unwrap_client_access();
 
@@ -1962,27 +1993,29 @@ mod tests {
     #[test]
     fn apply_client_access_piped_unavailable() {
         let mut builder = apply_new!(
-                   32785, SLT_Begin,          "req 32784 rxreq";
-                   32785, SLT_Timestamp,      "Start: 1475491757.258461 0.000000 0.000000";
-                   32785, SLT_Timestamp,      "Req: 1475491757.258461 0.000000 0.000000";
-                   32785, SLT_ReqStart,       "192.168.1.115 55276";
-                   32785, SLT_ReqMethod,      "GET";
-                   32785, SLT_ReqURL,         "/sse";
-                   32785, SLT_ReqProtocol,    "HTTP/1.1";
-                   32785, SLT_ReqHeader,      "Host: staging.eod.example.net";
-                   32785, SLT_ReqHeader,      "Accept: text/event-stream";
-                   32785, SLT_VCL_call,       "RECV";
-                   32785, SLT_VCL_Log,        "server_name: v4.dev.varnish";
-                   32785, SLT_VCL_Log,        "data_source: WCC";
-                   32785, SLT_VCL_Log,        "Server-Sent-Events connection request from: 192.168.1.115";
-                   32785, SLT_VCL_Log,        "decision: Pipe-ServerSentEvents";
-                   32785, SLT_VCL_Log,        "data_source: WCC";
-                   32785, SLT_VCL_return,     "pipe";
-                   32785, SLT_VCL_call,       "HASH";
-                   32785, SLT_VCL_return,     "lookup";
-                   32785, SLT_Link,           "bereq 32786 pipe";
-                   32785, SLT_PipeAcct,       "350 0 0 0";
-               );
+            32785, SLT_Begin,          "req 32784 rxreq";
+            32785, SLT_Timestamp,      "Start: 1475491757.258461 0.000000 0.000000";
+            32785, SLT_Timestamp,      "Req: 1475491757.258461 0.000000 0.000000";
+            32785, SLT_ReqStart,       "192.168.1.115 55276";
+            32785, SLT_ReqMethod,      "GET";
+            32785, SLT_ReqURL,         "/sse";
+            32785, SLT_ReqProtocol,    "HTTP/1.1";
+            32785, SLT_ReqHeader,      "Host: staging.eod.example.net";
+            32785, SLT_ReqHeader,      "Accept: text/event-stream";
+            32785, SLT_VCL_call,       "RECV";
+            32785, SLT_VCL_Log,        "server_name: v4.dev.varnish";
+            32785, SLT_VCL_Log,        "data_source: WCC";
+            32785, SLT_VCL_Log,        "Server-Sent-Events connection request from: 192.168.1.115";
+            32785, SLT_VCL_Log,        "decision: Pipe-ServerSentEvents";
+            32785, SLT_VCL_Log,        "data_source: WCC";
+            32785, SLT_VCL_return,     "pipe";
+            32785, SLT_VCL_call,       "HASH";
+            32785, SLT_VCL_return,     "lookup";
+            32785, SLT_Link,           "bereq 32786 pipe";
+            32785, SLT_PipeAcct,       "350 0 0 0";
+        );
+
+        set_stub_session(&mut builder);
 
         let record = apply_last!(builder, 32785, SLT_End, "")
             .unwrap_client_access();
@@ -2049,6 +2082,8 @@ mod tests {
             7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
         );
 
+        set_stub_session(&mut builder);
+
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
 
@@ -2106,6 +2141,8 @@ mod tests {
             7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
             7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
         );
+
+        set_stub_session(&mut builder);
 
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
@@ -2882,8 +2919,47 @@ mod tests {
             7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
         );
 
+        set_stub_session(&mut builder);
+
         let record = apply_last!(builder, 7, SLT_End, "")
             .unwrap_client_access();
+
+        assert_eq!(record.handling, Handling::Synth);
+        assert_eq!(record.remote, ("1.1.1.1".to_string(), 123)); // stub session
+
+        assert_matches!(record.transaction, ClientAccessTransaction::Bad {
+                request: None,
+                response: HttpResponse {
+                    protocol,
+                    status,
+                    reason,
+                    ..
+                },
+                accounting: Accounting {
+                    recv_header,
+                    recv_body,
+                    recv_total,
+                    sent_header,
+                    sent_body,
+                    sent_total,
+                },
+                ttfb,
+                serve,
+                ..
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 400);
+                assert_eq!(reason, "Bad Request");
+                assert_eq!(recv_header, 82);
+                assert_eq!(recv_body, 0);
+                assert_eq!(recv_total, 82);
+                assert_eq!(sent_header, 304);
+                assert_eq!(sent_body, 6962);
+                assert_eq!(sent_total, 7266);
+                assert_eq!(ttfb, 1.0);
+                assert_eq!(serve, 1.0);
+            }
+        );
 
         assert_eq!(record.log, &[
             LogEntry::Warning("Bogus HTTP header received: Illegal char 0x20 in header name".to_string()),
