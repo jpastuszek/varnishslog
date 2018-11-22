@@ -23,6 +23,8 @@ use access_log::record::{
     ClientAccessTransaction,
     BackendAccessRecord,
     BackendAccessTransaction,
+    Proxy,
+    SessionInfo,
     AclResult,
     Duration,
     Link,
@@ -104,6 +106,30 @@ impl<'a> AsSer<'a> for Vec<(String, String)> {
     type Out = &'a [(String, String)];
     fn as_ser(&'a self) -> Self::Out {
         self.as_slice()
+    }
+}
+
+impl<'a> AsSer<'a> for Proxy {
+    type Out = ser::Proxy<'a>;
+    fn as_ser(&'a self) -> Self::Out {
+        ser::Proxy {
+            version: self.version.as_str(),
+            client_address: self.client.as_ser(),
+            server_address: self.server.as_ser(),
+        }
+    }
+}
+
+impl<'a> AsSer<'a> for SessionInfo {
+    type Out = ser::SessionInfo<'a>;
+    fn as_ser(&'a self) -> Self::Out {
+        ser::SessionInfo {
+            vxid: self.ident,
+            open_timestamp: self.open,
+            local_address: self.local.as_ref().map(AsSer::as_ser),
+            remote_address: self.remote.as_ser(),
+            proxy: self.proxy.as_ref().map(AsSer::as_ser),
+        }
     }
 }
 
@@ -865,6 +891,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                             let client_access = ser::ClientAccess {
                                 record_type: record_type,
                                 vxid: record.ident,
+                                session: record.session.as_ref().map(AsSer::as_ser),
                                 remote_address: record.remote.as_ser(),
                                 start_timestamp: final_record.start,
                                 end_timestamp: final_record.end,

@@ -17,6 +17,7 @@ pub trait EntryType: Serialize {
 pub struct ClientAccess<'a: 'i, 'i> {
     pub record_type: &'a str,
     pub vxid: u32,
+    pub session: Option<SessionInfo<'a>>,
     pub remote_address: Address<'a>,
     pub start_timestamp: f64,
     pub end_timestamp: Option<f64>,
@@ -172,6 +173,22 @@ impl<'a: 'i, 'i> Serialize for Headers<'a, 'i> {
             &Headers::Indexed(ref index) => index.serialize(serializer),
         }
     }
+}
+
+#[derive(Serialize, Debug)]
+pub struct Proxy<'a> {
+    pub version: &'a str,
+    pub client_address: Address<'a>,
+    pub server_address: Address<'a>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct SessionInfo<'a> {
+    pub vxid: u32,
+    pub open_timestamp: f64,
+    pub local_address: Option<Address<'a>>,
+    pub remote_address: Address<'a>,
+    pub proxy: Option<Proxy<'a>>,
 }
 
 #[derive(Serialize, Debug)]

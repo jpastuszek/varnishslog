@@ -141,6 +141,7 @@ use access_log::record::{
     BackendAccessRecord,
     BackendAccessTransaction,
     SessionRecord,
+    SessionInfo,
     Proxy,
     HttpRequest,
     HttpResponse,
@@ -225,6 +226,16 @@ impl SessionHead {
             client_records: self.client_records,
             duration: try!(self.duration.ok_or(RecordBuilderError::RecordIncomplete("duration"))),
         })
+    }
+
+    pub fn session_info(&self) -> SessionInfo {
+        SessionInfo {
+            ident: self.ident,
+            open: self.open,
+            local: self.local.clone(),
+            remote: self.remote.clone(),
+            proxy: self.proxy.clone(),
+        }
     }
 }
 
@@ -1209,6 +1220,7 @@ impl RecordBuilder {
 
                         let record = ClientAccessRecord {
                             root: reason == "rxreq",
+                            session: session.map(|session| session.session_info()),
                             ident: self.ident,
                             parent,
                             reason,

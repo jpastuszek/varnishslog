@@ -81,10 +81,27 @@ pub enum Link<T> {
     Resolved(Box<T>),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Proxy {
+    pub version: String,
+    pub client: Address,
+    pub server: Address,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionInfo {
+    pub ident: VslIdent,
+    pub open: TimeStamp,
+    pub local: Option<Address>,
+    pub remote: Address,
+    pub proxy: Option<Proxy>,
+}
+
 /// All Duration fields are in seconds (floating point values rounded to micro second precision)
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAccessRecord {
     pub root: bool,
+    pub session: Option<SessionInfo>,
     pub ident: VslIdent,
     pub parent: VslIdent,
     pub reason: String,
@@ -251,14 +268,6 @@ pub enum BackendAccessTransaction {
         /// Backend connection used/created
         backend_connection: Option<BackendConnection>,
     },
-}
-
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Proxy {
-    pub version: String,
-    pub client: Address,
-    pub server: Address,
 }
 
 /// Complete sessoin
