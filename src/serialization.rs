@@ -396,6 +396,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                 }
                 LogEntry::Debug(ref message) |
                 LogEntry::Error(ref message) |
+                LogEntry::VclError(ref message) |
                 LogEntry::FetchError(ref message) |
                 LogEntry::Warning(ref message) => messages.push(message.as_str()),
             }

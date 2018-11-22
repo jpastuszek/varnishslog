@@ -20,6 +20,8 @@ pub type Address = (String, Port);
 pub enum LogEntry {
     /// VCL std.log logged messages
     Vcl(String),
+    /// Bad VCL usage messages
+    VclError(String),
     /// Debug messages that may be logged by Varnish or it's modules
     Debug(String),
     /// Varnish logged errors

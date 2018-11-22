@@ -716,6 +716,11 @@ impl RecordBuilder {
 
                 self.log.push(LogEntry::Vcl(log_entry.to_lossy_string()));
             }
+            SLT_VCL_Error => {
+                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+
+                self.log.push(LogEntry::VclError(log_entry.to_lossy_string()));
+            }
             SLT_Debug => {
                 let log_entry = try!(vsl.parse_data(slt_vcl_log));
 
@@ -1195,7 +1200,6 @@ impl RecordBuilder {
                             //TODO: custom error type and handle gracefully later on
                             let session = self.session.ok_or(RecordBuilderError::RecordIncomplete("session"))?;
                             let session = session.borrow();
-                            debug!("session: {:#?}", session);
 
                             session.proxy.as_ref().map(|proxy| proxy.client.clone())
                                 .or_else(|| Some(session.remote.clone()))
@@ -2782,6 +2786,11 @@ mod tests {
                 assert_eq!(sent_total, 7266);
             }
         );
+
+        assert_eq!(record.log, &[
+            LogEntry::VclError("vcl_recv{} returns pipe for HTTP/2 request.  Doing pass.".to_string()),
+            LogEntry::Debug("RES_MODE 2".to_string())
+        ]);
     }
 
     #[test]

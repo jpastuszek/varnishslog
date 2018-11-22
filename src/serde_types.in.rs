@@ -228,6 +228,7 @@ impl<'a> Serialize for RawLog<'a> {
         for log_entry in self.0 {
             let (entry_type, message, detail) = match log_entry {
                 &VslLogEntry::Vcl(ref msg) => ("VCL", msg.as_str(), None),
+                &VslLogEntry::VclError(ref msg) => ("VCL Error", msg.as_str(), None),
                 &VslLogEntry::Debug(ref msg) => ("Debug", msg.as_str(), None),
                 &VslLogEntry::Error(ref msg) => ("Error", msg.as_str(), None),
                 &VslLogEntry::FetchError(ref msg) => ("Fetch Error", msg.as_str(), None),
