@@ -2158,752 +2158,732 @@ mod tests {
         );
     }
 
-//     #[test]
-//     fn apply_client_access_record_hit_for_pass() {
-//         let mut builder = RecordBuilder::new(123);
+    #[test]
+    fn apply_client_access_record_hit_for_pass() {
+        let mut builder = apply_new!(
+            7, SLT_Begin,        "req 6 rxreq";
+            7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+            7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+            7, SLT_ReqStart,     "127.0.0.1 39798";
+            7, SLT_ReqMethod,    "GET";
+            7, SLT_ReqURL,       "/retry";
+            7, SLT_ReqProtocol,  "HTTP/1.1";
+            7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            7, SLT_VCL_call,     "RECV";
+            7, SLT_VCL_return,   "hash";
+            7, SLT_VCL_call,     "HASH";
+            7, SLT_VCL_return,   "lookup";
+            7, SLT_Debug,        "XXXX HIT-FOR-PASS";
+            7, SLT_HitPass,      "5";
+            7, SLT_VCL_call,     "PASS";
+            7, SLT_Link,         "bereq 8 fetch";
+            7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+            7, SLT_RespProtocol, "HTTP/1.1";
+            7, SLT_RespStatus,   "200";
+            7, SLT_RespReason,   "OK";
+            7, SLT_RespHeader,   "Content-Type: image/jpeg";
+            7, SLT_VCL_return,   "deliver";
+            7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+            7, SLT_RespHeader,   "Accept-Ranges: bytes";
+            7, SLT_Debug,        "RES_MODE 2";
+            7, SLT_RespHeader,   "Connection: keep-alive";
+            7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+            7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
+        );
 
-//         let mut builder = apply_new!(
-//                    7, SLT_Begin,        "req 6 rxreq";
-//                    7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
-//                    7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
-//                    7, SLT_ReqStart,     "127.0.0.1 39798";
-//                    7, SLT_ReqMethod,    "GET";
-//                    7, SLT_ReqURL,       "/retry";
-//                    7, SLT_ReqProtocol,  "HTTP/1.1";
-//                    7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    7, SLT_VCL_call,     "RECV";
-//                    7, SLT_VCL_return,   "hash";
-//                    7, SLT_VCL_call,     "HASH";
-//                    7, SLT_VCL_return,   "lookup";
-//                    7, SLT_Debug,        "XXXX HIT-FOR-PASS";
-//                    7, SLT_HitPass,      "5";
-//                    7, SLT_VCL_call,     "PASS";
-//                    7, SLT_Link,         "bereq 8 fetch";
-//                    7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
-//                    7, SLT_RespProtocol, "HTTP/1.1";
-//                    7, SLT_RespStatus,   "200";
-//                    7, SLT_RespReason,   "OK";
-//                    7, SLT_RespHeader,   "Content-Type: image/jpeg";
-//                    7, SLT_VCL_return,   "deliver";
-//                    7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
-//                    7, SLT_RespHeader,   "Accept-Ranges: bytes";
-//                    7, SLT_Debug,        "RES_MODE 2";
-//                    7, SLT_RespHeader,   "Connection: keep-alive";
-//                    7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
-//                    7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
-//                 );
+        set_stub_session(&mut builder);
 
-//         let record = apply_last!(builder, 7, SLT_End, "")
-//             .unwrap_client_access();
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
 
-//         assert_eq!(record.handling, Handling::HitPass(5));
+        assert_eq!(record.handling, Handling::HitPass(5));
 
-//         assert_matches!(record.transaction, ClientAccessTransaction::Full {
-//                 accounting: Accounting {
-//                     recv_header,
-//                     recv_body,
-//                     recv_total,
-//                     sent_header,
-//                     sent_body,
-//                     sent_total,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(recv_header, 82);
-//                 assert_eq!(recv_body, 2);
-//                 assert_eq!(recv_total, 84);
-//                 assert_eq!(sent_header, 304);
-//                 assert_eq!(sent_body, 6962);
-//                 assert_eq!(sent_total, 7266);
-//             }
-//         );
-//     }
+        assert_matches!(record.transaction, ClientAccessTransaction::Full {
+                accounting: Accounting {
+                    recv_header,
+                    recv_body,
+                    recv_total,
+                    sent_header,
+                    sent_body,
+                    sent_total,
+                },
+                ..
+            } => {
+                assert_eq!(recv_header, 82);
+                assert_eq!(recv_body, 2);
+                assert_eq!(recv_total, 84);
+                assert_eq!(sent_header, 304);
+                assert_eq!(sent_body, 6962);
+                assert_eq!(sent_total, 7266);
+            }
+        );
+    }
 
 //     //TODO: test backend access record: Full, Failed, Aborted, Abandoned, Piped
 
-//     #[test]
-//     fn apply_backend_access_record_abandoned() {
-//         let mut builder = RecordBuilder::new(123);
+    #[test]
+    fn apply_backend_access_record_abandoned() {
+        // logs/raw.vsl
+        let mut builder = apply_new!(
+            5, SLT_Begin,          "bereq 4 fetch";
+            5, SLT_Timestamp,      "Start: 1471354579.281173 0.000000 0.000000";
+            5, SLT_BereqMethod,    "GET";
+            5, SLT_BereqURL,       "/test_page/123.html";
+            5, SLT_BereqProtocol,  "HTTP/1.1";
+            5, SLT_BereqHeader,    "Date: Tue, 16 Aug 2016 13:36:19 GMT";
+            5, SLT_BereqHeader,    "Host: 127.0.0.1:1202";
+            5, SLT_VCL_call,       "BACKEND_FETCH";
+            5, SLT_BereqUnset,     "Accept-Encoding: gzip";
+            5, SLT_BereqHeader,    "Accept-Encoding: gzip";
+            5, SLT_VCL_return,     "fetch";
+            5, SLT_BackendOpen,    "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
+            5, SLT_BackendStart,   "127.0.0.1 42000";
+            5, SLT_Timestamp,      "Bereq: 1471354579.281302 0.000128 0.000128";
+            5, SLT_Timestamp,      "Beresp: 1471354579.288697 0.007524 0.007396";
+            5, SLT_BerespProtocol, "HTTP/1.1";
+            5, SLT_BerespStatus,   "500";
+            5, SLT_BerespReason,   "Internal Server Error";
+            5, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
+            5, SLT_TTL,            "RFC -1 10 -1 1471354579 1471354579 1340020138 0 0";
+            5, SLT_VCL_call,       "BACKEND_RESPONSE";
+            5, SLT_BerespHeader,   "X-Varnish-Decision: Cacheable";
+            5, SLT_BerespHeader,   "x-url: /test_page/123.html";
+            5, SLT_BerespHeader,   "X-Varnish-Content-Length: 9";
+            5, SLT_BerespHeader,   "X-Varnish-ESI-Parsed: false";
+            5, SLT_BerespHeader,   "X-Varnish-Compressable: false";
+            5, SLT_VCL_Log,        "Backend Response Code: 500";
+            5, SLT_VCL_return,     "abandon";
+            5, SLT_BackendClose,   "19 boot.default";
+            5, SLT_BereqAcct,      "541 0 541 375 0 375";
+        );
 
-//         // logs/raw.vsl
-//         let mut builder = apply_new!(
-//                    5, SLT_Begin,          "bereq 4 fetch";
-//                    5, SLT_Timestamp,      "Start: 1471354579.281173 0.000000 0.000000";
-//                    5, SLT_BereqMethod,    "GET";
-//                    5, SLT_BereqURL,       "/test_page/123.html";
-//                    5, SLT_BereqProtocol,  "HTTP/1.1";
-//                    5, SLT_BereqHeader,    "Date: Tue, 16 Aug 2016 13:36:19 GMT";
-//                    5, SLT_BereqHeader,    "Host: 127.0.0.1:1202";
-//                    5, SLT_VCL_call,       "BACKEND_FETCH";
-//                    5, SLT_BereqUnset,     "Accept-Encoding: gzip";
-//                    5, SLT_BereqHeader,    "Accept-Encoding: gzip";
-//                    5, SLT_VCL_return,     "fetch";
-//                    5, SLT_BackendOpen,    "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
-//                    5, SLT_BackendStart,   "127.0.0.1 42000";
-//                    5, SLT_Timestamp,      "Bereq: 1471354579.281302 0.000128 0.000128";
-//                    5, SLT_Timestamp,      "Beresp: 1471354579.288697 0.007524 0.007396";
-//                    5, SLT_BerespProtocol, "HTTP/1.1";
-//                    5, SLT_BerespStatus,   "500";
-//                    5, SLT_BerespReason,   "Internal Server Error";
-//                    5, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
-//                    5, SLT_TTL,            "RFC -1 10 -1 1471354579 1471354579 1340020138 0 0";
-//                    5, SLT_VCL_call,       "BACKEND_RESPONSE";
-//                    5, SLT_BerespHeader,   "X-Varnish-Decision: Cacheable";
-//                    5, SLT_BerespHeader,   "x-url: /test_page/123.html";
-//                    5, SLT_BerespHeader,   "X-Varnish-Content-Length: 9";
-//                    5, SLT_BerespHeader,   "X-Varnish-ESI-Parsed: false";
-//                    5, SLT_BerespHeader,   "X-Varnish-Compressable: false";
-//                    5, SLT_VCL_Log,        "Backend Response Code: 500";
-//                    5, SLT_VCL_return,     "abandon";
-//                    5, SLT_BackendClose,   "19 boot.default";
-//                    5, SLT_BereqAcct,      "541 0 541 375 0 375";
-//                    );
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_backend_access();
 
-//         let record = apply_last!(builder, 5, SLT_End, "")
-//             .unwrap_backend_access();
+        assert_eq!(record.start, Some(parse!("1471354579.281173")));
+        assert_eq!(record.end, None);
 
-//         assert_eq!(record.start, Some(parse!("1471354579.281173")));
-//         assert_eq!(record.end, None);
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+                send,
+                ttfb,
+                wait,
+                fetch: None,
+                ..
+            } => {
+                assert_eq!(send, parse!("0.000128"));
+                assert_eq!(ttfb, parse!("0.007524"));
+                assert_eq!(wait, parse!("0.007396"));
+            }
+        );
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-//                 send,
-//                 ttfb,
-//                 wait,
-//                 fetch: None,
-//                 ..
-//             } => {
-//                 assert_eq!(send, parse!("0.000128"));
-//                 assert_eq!(ttfb, parse!("0.007524"));
-//                 assert_eq!(wait, parse!("0.007396"));
-//             }
-//         );
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/test_page/123.html");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Tue, 16 Aug 2016 13:36:19 GMT".to_string()),
+                    ("Host".to_string(), "127.0.0.1:1202".to_string()),
+                    ("Accept-Encoding".to_string(), "gzip".to_string())]);
+            }
+        );
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-//                 request: HttpRequest {
-//                     ref method,
-//                     ref url,
-//                     ref protocol,
-//                     ref headers,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(method, "GET");
-//                 assert_eq!(url, "/test_page/123.html");
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(headers, &[
-//                     ("Date".to_string(), "Tue, 16 Aug 2016 13:36:19 GMT".to_string()),
-//                     ("Host".to_string(), "127.0.0.1:1202".to_string()),
-//                     ("Accept-Encoding".to_string(), "gzip".to_string())]);
-//             }
-//         );
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+                response: HttpResponse {
+                    ref protocol,
+                    status,
+                    ref reason,
+                    ref headers,
+                },
+                ..
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 500);
+                assert_eq!(reason, "Internal Server Error");
+                assert_eq!(headers, &[
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]);
+            }
+        );
+    }
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-//                 response: HttpResponse {
-//                     ref protocol,
-//                     status,
-//                     ref reason,
-//                     ref headers,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(status, 500);
-//                 assert_eq!(reason, "Internal Server Error");
-//                 assert_eq!(headers, &[
-//                     ("Content-Type".to_string(), "text/html; charset=utf-8".to_string())]);
-//             }
-//         );
-//     }
+    #[test]
+    fn apply_backend_access_disconnected_socket() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            // VTCP_hisname returns <none> <none> if backend socket is not connected
+            32769, SLT_BackendOpen,      "19 boot.default <none> <none> 10.0.0.1 51058";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_ObjProtocol,      "HTTP/1.1";
+            32769, SLT_ObjStatus,        "200";
+            32769, SLT_ObjReason,        "OK";
+            32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+            32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+            32769, SLT_Fetch_Body,       "3 length stream";
+            32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+    );
 
-//     #[test]
-//     fn apply_backend_access_disconnected_socket() {
-//         let mut builder = RecordBuilder::new(123);
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    // VTCP_hisname returns <none> <none> if backend socket is not connected
-//                    32769, SLT_BackendOpen,      "19 boot.default <none> <none> 10.0.0.1 51058";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_ObjProtocol,      "HTTP/1.1";
-//                    32769, SLT_ObjStatus,        "200";
-//                    32769, SLT_ObjReason,        "OK";
-//                    32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
-//                    32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
-//                    32769, SLT_Fetch_Body,       "3 length stream";
-//                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                 );
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                backend_connection,
+                ..
+            } => assert!(backend_connection.remote.is_none())
+        );
+    }
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+    #[test]
+    fn apply_backend_access_record_full_timing() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_ObjProtocol,      "HTTP/1.1";
+            32769, SLT_ObjStatus,        "200";
+            32769, SLT_ObjReason,        "OK";
+            32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+            32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+            32769, SLT_Fetch_Body,       "3 length stream";
+            32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+        );
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Full {
-//                 backend_connection,
-//                 ..
-//             } => assert!(backend_connection.remote.is_none())
-//         );
-//     }
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//     #[test]
-//     fn apply_backend_access_record_full_timing() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_eq!(record.start, Some(parse!("1470403414.669375")));
+        assert_eq!(record.end, Some(parse!("1470403414.672290")));
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_ObjProtocol,      "HTTP/1.1";
-//                    32769, SLT_ObjStatus,        "200";
-//                    32769, SLT_ObjReason,        "OK";
-//                    32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
-//                    32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
-//                    32769, SLT_Fetch_Body,       "3 length stream";
-//                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                 );
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                send,
+                ttfb,
+                wait,
+                fetch,
+                ..
+            } => {
+                assert_eq!(send, parse!("0.004549"));
+                assert_eq!(ttfb, parse!("0.007262"));
+                assert_eq!(wait, parse!("0.002713"));
+                assert_eq!(fetch, parse!("0.007367"));
+            }
+        );
+    }
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+    #[test]
+    fn apply_backend_access_record_full_timing_retry() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_VCL_return,       "retry";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Link,             "bereq 32769 retry";
+            32769, SLT_BereqAcct,        "0 0 0 0 0 0";
+        );
 
-//         assert_eq!(record.start, Some(parse!("1470403414.669375")));
-//         assert_eq!(record.end, Some(parse!("1470403414.672290")));
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Full {
-//                 send,
-//                 ttfb,
-//                 wait,
-//                 fetch,
-//                 ..
-//             } => {
-//                 assert_eq!(send, parse!("0.004549"));
-//                 assert_eq!(ttfb, parse!("0.007262"));
-//                 assert_eq!(wait, parse!("0.002713"));
-//                 assert_eq!(fetch, parse!("0.007367"));
-//             }
-//         );
-//     }
+        assert_eq!(record.start, Some(parse!("1470403414.669375")));
+        assert_eq!(record.end, Some(parse!("1470403414.672290")));
 
-//     #[test]
-//     fn apply_backend_access_record_full_timing_retry() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+                send,
+                ttfb,
+                wait,
+                fetch: Some(fetch),
+                ..
+            } => {
+                assert_eq!(send, parse!("0.004549"));
+                assert_eq!(ttfb, parse!("0.007262"));
+                assert_eq!(wait, parse!("0.002713"));
+                assert_eq!(fetch, parse!("0.007367"));
+            }
+        );
+    }
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_VCL_return,       "retry";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Timestamp,        "Retry: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Link,             "bereq 32769 retry";
-//                    32769, SLT_BereqAcct,        "0 0 0 0 0 0";
-//                 );
+    #[test]
+    fn apply_backend_access_record_gzip() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_ObjProtocol,      "HTTP/1.1";
+            32769, SLT_ObjStatus,        "200";
+            32769, SLT_ObjReason,        "OK";
+            32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+            32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+            32769, SLT_Fetch_Body,       "3 length stream";
+            32769, SLT_Gzip,             "G F - 861 41 80 80 260";
+            32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+        );
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         assert_eq!(record.start, Some(parse!("1470403414.669375")));
-//         assert_eq!(record.end, Some(parse!("1470403414.672290")));
+        assert_matches!(record.compression, Some(Compression {
+                operation: CompressionOperation::Gzip,
+                bytes_in,
+                bytes_out,
+            }) => {
+                assert_eq!(bytes_in, 861);
+                assert_eq!(bytes_out, 41);
+            }
+        );
+    }
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-//                 send,
-//                 ttfb,
-//                 wait,
-//                 fetch: Some(fetch),
-//                 ..
-//             } => {
-//                 assert_eq!(send, parse!("0.004549"));
-//                 assert_eq!(ttfb, parse!("0.007262"));
-//                 assert_eq!(wait, parse!("0.002713"));
-//                 assert_eq!(fetch, parse!("0.007367"));
-//             }
-//         );
-//     }
+    #[test]
+    fn apply_backend_access_record_failed() {
+        // logs-new/varnish20160816-4093-lmudum99608ad955ba43288.vsl
+        let mut builder = apply_new!(
+            5, SLT_Begin,          "bereq 4 fetch";
+            5, SLT_Timestamp,      "Start: 1471355385.239334 0.000000 0.000000";
+            5, SLT_BereqMethod,    "GET";
+            5, SLT_BereqURL,       "/test_page/123.html";
+            5, SLT_BereqProtocol,  "HTTP/1.1";
+            5, SLT_BereqHeader,    "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+            5, SLT_BereqHeader,    "Host: 127.0.0.1:1236";
+            5, SLT_VCL_call,       "BACKEND_FETCH";
+            5, SLT_VCL_return,     "fetch";
+            5, SLT_FetchError,     "no backend connection";
+            5, SLT_Timestamp,      "Beresp: 1471355385.239422 0.000087 0.000087";
+            5, SLT_Timestamp,      "Error: 1471355385.239427 0.000093 0.000005";
+            5, SLT_BerespProtocol, "HTTP/1.1";
+            5, SLT_BerespStatus,   "503";
+            5, SLT_BerespReason,   "Service Unavailable";
+            5, SLT_BerespReason,   "Backend fetch failed";
+            5, SLT_BerespHeader,   "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+            5, SLT_BerespHeader,   "Server: Varnish";
+            5, SLT_VCL_call,       "BACKEND_ERROR";
+            5, SLT_VCL_Log,        "Backend Error Code: 503";
+            5, SLT_BerespHeader,   "Retry-After: 20";
+            5, SLT_VCL_return,     "deliver";
+            5, SLT_Storage,        "malloc Transient";
+            5, SLT_ObjProtocol,    "HTTP/1.1";
+            5, SLT_ObjStatus,      "503";
+            5, SLT_ObjReason,      "Backend fetch failed";
+            5, SLT_ObjHeader,      "Date: Tue, 16 Aug 2016 13:49:45 GMT";
+            5, SLT_ObjHeader,      "Server: Varnish";
+            5, SLT_ObjHeader,      "X-Varnish-Decision: Internal-UnavaliableError";
+            5, SLT_ObjHeader,      "Content-Type: text/html; charset=utf-8";
+            5, SLT_ObjHeader,      "Cache-Control: no-store";
+            5, SLT_ObjHeader,      "Retry-After: 20";
+            5, SLT_Length,         "1366";
+            5, SLT_BereqAcct,      "0 0 0 0 0 0";
+        );
 
-//     #[test]
-//     fn apply_backend_access_record_gzip() {
-//         let mut builder = RecordBuilder::new(123);
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_backend_access();
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_BackendOpen,      "19 boot.default 127.0.0.1 42000 127.0.0.1 51058";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_ObjProtocol,      "HTTP/1.1";
-//                    32769, SLT_ObjStatus,        "200";
-//                    32769, SLT_ObjReason,        "OK";
-//                    32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
-//                    32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
-//                    32769, SLT_Fetch_Body,       "3 length stream";
-//                    32769, SLT_Gzip,             "G F - 861 41 80 80 260";
-//                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                 );
+        assert_eq!(record.start, Some(parse!("1471355385.239334")));
+        assert_eq!(record.end, Some(parse!("1471355385.239427")));
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+                synth,
+                ..
+            } =>
+            assert_eq!(synth, parse!("0.000093"))
+        );
 
-//         assert_matches!(record.compression, Some(Compression {
-//                 operation: CompressionOperation::Gzip,
-//                 bytes_in,
-//                 bytes_out,
-//             }) => {
-//                 assert_eq!(bytes_in, 861);
-//                 assert_eq!(bytes_out, 41);
-//             }
-//         );
-//     }
+        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/test_page/123.html");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                    ("Host".to_string(), "127.0.0.1:1236".to_string())]);
+            }
+        );
 
-//     #[test]
-//     fn apply_backend_access_record_failed() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+                synth_response: HttpResponse {
+                    ref protocol,
+                    status,
+                    ref reason,
+                    ref headers,
+                },
+                ..
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 503);
+                assert_eq!(reason, "Backend fetch failed");
+                assert_eq!(headers, &[
+                    ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
+                    ("Server".to_string(), "Varnish".to_string()),
+                    ("Retry-After".to_string(), "20".to_string())]);
+            }
+        );
+    }
 
-//         // logs-new/varnish20160816-4093-lmudum99608ad955ba43288.vsl
-//         let mut builder = apply_new!(
-//                    5, SLT_Begin,          "bereq 4 fetch";
-//                    5, SLT_Timestamp,      "Start: 1471355385.239334 0.000000 0.000000";
-//                    5, SLT_BereqMethod,    "GET";
-//                    5, SLT_BereqURL,       "/test_page/123.html";
-//                    5, SLT_BereqProtocol,  "HTTP/1.1";
-//                    5, SLT_BereqHeader,    "Date: Tue, 16 Aug 2016 13:49:45 GMT";
-//                    5, SLT_BereqHeader,    "Host: 127.0.0.1:1236";
-//                    5, SLT_VCL_call,       "BACKEND_FETCH";
-//                    5, SLT_VCL_return,     "fetch";
-//                    5, SLT_FetchError,     "no backend connection";
-//                    5, SLT_Timestamp,      "Beresp: 1471355385.239422 0.000087 0.000087";
-//                    5, SLT_Timestamp,      "Error: 1471355385.239427 0.000093 0.000005";
-//                    5, SLT_BerespProtocol, "HTTP/1.1";
-//                    5, SLT_BerespStatus,   "503";
-//                    5, SLT_BerespReason,   "Service Unavailable";
-//                    5, SLT_BerespReason,   "Backend fetch failed";
-//                    5, SLT_BerespHeader,   "Date: Tue, 16 Aug 2016 13:49:45 GMT";
-//                    5, SLT_BerespHeader,   "Server: Varnish";
-//                    5, SLT_VCL_call,       "BACKEND_ERROR";
-//                    5, SLT_VCL_Log,        "Backend Error Code: 503";
-//                    5, SLT_BerespHeader,   "Retry-After: 20";
-//                    5, SLT_VCL_return,     "deliver";
-//                    5, SLT_Storage,        "malloc Transient";
-//                    5, SLT_ObjProtocol,    "HTTP/1.1";
-//                    5, SLT_ObjStatus,      "503";
-//                    5, SLT_ObjReason,      "Backend fetch failed";
-//                    5, SLT_ObjHeader,      "Date: Tue, 16 Aug 2016 13:49:45 GMT";
-//                    5, SLT_ObjHeader,      "Server: Varnish";
-//                    5, SLT_ObjHeader,      "X-Varnish-Decision: Internal-UnavaliableError";
-//                    5, SLT_ObjHeader,      "Content-Type: text/html; charset=utf-8";
-//                    5, SLT_ObjHeader,      "Cache-Control: no-store";
-//                    5, SLT_ObjHeader,      "Retry-After: 20";
-//                    5, SLT_Length,         "1366";
-//                    5, SLT_BereqAcct,      "0 0 0 0 0 0";
-//                 );
+    #[test]
+    fn apply_backend_access_record_failed_timing() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470304835.059425 0.000000 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_Timestamp,        "Beresp: 1470304835.059475 0.000050 0.000050";
+            32769, SLT_Timestamp,        "Error: 1470304835.059479 0.000054 0.000004";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "503";
+            32769, SLT_BerespReason,     "Service Unavailable";
+            32769, SLT_BerespReason,     "Backend fetch failed";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_VCL_call,         "BACKEND_ERROR";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "0 0 0 0 0 0";
+        );
 
-//         let record = apply_last!(builder, 5, SLT_End, "")
-//             .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         assert_eq!(record.start, Some(parse!("1471355385.239334")));
-//         assert_eq!(record.end, Some(parse!("1471355385.239427")));
+        assert_eq!(record.start, Some(parse!("1470304835.059425")));
+        assert_eq!(record.end, Some(parse!("1470304835.059479")));
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Failed {
-//                 synth,
-//                 ..
-//             } =>
-//             assert_eq!(synth, parse!("0.000093"))
-//         );
+        assert_matches!(record.transaction, BackendAccessTransaction::Failed {
+                synth,
+                ..
+            } =>
+            assert_eq!(synth, parse!("0.000054"))
+        );
+    }
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Failed {
-//                 request: HttpRequest {
-//                     ref method,
-//                     ref url,
-//                     ref protocol,
-//                     ref headers,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(method, "GET");
-//                 assert_eq!(url, "/test_page/123.html");
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(headers, &[
-//                     ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-//                     ("Host".to_string(), "127.0.0.1:1236".to_string())]);
-//             }
-//         );
+    #[test]
+    fn apply_backend_access_record_piped() {
+        // logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl
+        let mut builder = apply_new!(
+            5, SLT_Begin,          "bereq 4 pipe";
+            5, SLT_BereqMethod,    "GET";
+            5, SLT_BereqURL,       "/websocket";
+            5, SLT_BereqProtocol,  "HTTP/1.1";
+            5, SLT_BereqHeader,    "Connection: Upgrade";
+            5, SLT_VCL_call,       "PIPE";
+            5, SLT_BereqHeader,    "Upgrade: websocket";
+            5, SLT_VCL_return,     "pipe";
+            5, SLT_BackendOpen,    "20 boot.default 127.0.0.1 42000 127.0.0.1 54038";
+            5, SLT_BackendStart,   "127.0.0.1 42000";
+            5, SLT_Timestamp,      "Bereq: 1471355444.744344 0.000000 0.000000";
+            5, SLT_BackendClose,   "20 boot.default";
+            5, SLT_BereqAcct,      "0 0 0 0 0 0";
+        );
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Failed {
-//                 synth_response: HttpResponse {
-//                     ref protocol,
-//                     status,
-//                     ref reason,
-//                     ref headers,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(status, 503);
-//                 assert_eq!(reason, "Backend fetch failed");
-//                 assert_eq!(headers, &[
-//                     ("Date".to_string(), "Tue, 16 Aug 2016 13:49:45 GMT".to_string()),
-//                     ("Server".to_string(), "Varnish".to_string()),
-//                     ("Retry-After".to_string(), "20".to_string())]);
-//             }
-//         );
-//     }
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_backend_access();
 
-//     #[test]
-//     fn apply_backend_access_record_failed_timing() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_eq!(record.start, Some(parse!("1471355444.744344")));
+        assert_eq!(record.end, None);
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470304835.059425 0.000000 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_Timestamp,        "Beresp: 1470304835.059475 0.000050 0.000050";
-//                    32769, SLT_Timestamp,        "Error: 1470304835.059479 0.000054 0.000004";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "503";
-//                    32769, SLT_BerespReason,     "Service Unavailable";
-//                    32769, SLT_BerespReason,     "Backend fetch failed";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_VCL_call,         "BACKEND_ERROR";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "0 0 0 0 0 0";
-//                 );
+        assert_matches!(record.transaction, BackendAccessTransaction::Piped {
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/websocket");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Connection".to_string(), "Upgrade".to_string()),
+                    ("Upgrade".to_string(), "websocket".to_string())]);
+            }
+       );
+    }
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+    #[test]
+    fn apply_backend_access_record_piped_unavailable() {
+        let mut builder = apply_new!(
+            32786, SLT_Begin,          "bereq 32785 pipe";
+            32786, SLT_BereqMethod,    "GET";
+            32786, SLT_BereqURL,       "/sse";
+            32786, SLT_BereqProtocol,  "HTTP/1.1";
+            32786, SLT_BereqHeader,    "Host: staging.eod.example.net";
+            32786, SLT_BereqHeader,    "Accept: text/event-stream";
+            32786, SLT_BereqHeader,    "Connection: close";
+            32786, SLT_VCL_call,       "PIPE";
+            32786, SLT_VCL_Log,        "proxy_host:";
+            32786, SLT_BereqUnset,     "Connection: close";
+            32786, SLT_BereqHeader,    "Connection: close";
+            32786, SLT_VCL_return,     "pipe";
+            32786, SLT_FetchError,     "no backend connection";
+            32786, SLT_BereqAcct,      "0 0 0 0 0 0";
+        );
 
-//         assert_eq!(record.start, Some(parse!("1470304835.059425")));
-//         assert_eq!(record.end, Some(parse!("1470304835.059479")));
+        let record = apply_last!(builder, 32786, SLT_End, "")
+            .unwrap_backend_access();
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Failed {
-//                 synth,
-//                 ..
-//             } =>
-//             assert_eq!(synth, parse!("0.000054"))
-//         );
-//     }
+        assert_eq!(record.start, None);
+        assert_eq!(record.end, None);
 
-//     #[test]
-//     fn apply_backend_access_record_piped() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_matches!(record.transaction, BackendAccessTransaction::Piped {
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/sse");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("Host".to_string(), "staging.eod.example.net".to_string()),
+                    ("Accept".to_string(), "text/event-stream".to_string()),
+                    ("Connection".to_string(), "close".to_string())]);
+            }
+        );
+    }
 
-//         // logs-new/varnish20160816-4093-s54h6nb4b44b69f1b2c7ca2.vsl
-//         let mut builder = apply_new!(
-//                    5, SLT_Begin,          "bereq 4 pipe";
-//                    5, SLT_BereqMethod,    "GET";
-//                    5, SLT_BereqURL,       "/websocket";
-//                    5, SLT_BereqProtocol,  "HTTP/1.1";
-//                    5, SLT_BereqHeader,    "Connection: Upgrade";
-//                    5, SLT_VCL_call,       "PIPE";
-//                    5, SLT_BereqHeader,    "Upgrade: websocket";
-//                    5, SLT_VCL_return,     "pipe";
-//                    5, SLT_BackendOpen,    "20 boot.default 127.0.0.1 42000 127.0.0.1 54038";
-//                    5, SLT_BackendStart,   "127.0.0.1 42000";
-//                    5, SLT_Timestamp,      "Bereq: 1471355444.744344 0.000000 0.000000";
-//                    5, SLT_BackendClose,   "20 boot.default";
-//                    5, SLT_BereqAcct,      "0 0 0 0 0 0";
-//                 );
+    #[test]
+    fn apply_backend_access_record_piped_to_pass() {
+        let mut builder = apply_new!(
+            5, SLT_Begin,          "req 6 rxreq";
+            5, SLT_Timestamp,      "Start: 1470403413.664824 0.000000 0.000000";
+            5, SLT_Timestamp,      "Req: 1470403414.664824 1.000000 1.000000";
+            5, SLT_ReqStart,       "127.0.0.1 39798";
+            5, SLT_ReqMethod,      "GET";
+            5, SLT_ReqURL,         "/retry";
+            5, SLT_ReqProtocol,    "HTTP/1.1";
+            5, SLT_ReqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            5, SLT_VCL_call,       "RECV";
+            5, SLT_VCL_return,     "pipe";
+            5, SLT_VCL_call,       "HASH";
+            5, SLT_VCL_return,     "lookup";
+            5, SLT_VCL_Error,      "vcl_recv{} returns pipe for HTTP/2 request.  Doing pass.";
+            5, SLT_VCL_call,       "PASS";
+            5, SLT_Link,           "bereq 8 fetch";
+            5, SLT_Timestamp,      "Fetch: 1470403414.672315 1.007491 0.007491";
+            5, SLT_RespProtocol,   "HTTP/1.1";
+            5, SLT_RespStatus,     "200";
+            5, SLT_RespReason,     "OK";
+            5, SLT_RespHeader,     "Content-Type: image/jpeg";
+            5, SLT_VCL_return,     "deliver";
+            5, SLT_Timestamp,      "Process: 1470403414.672425 1.007601 0.000111";
+            5, SLT_RespHeader,     "Accept-Ranges: bytes";
+            5, SLT_Debug,          "RES_MODE 2";
+            5, SLT_RespHeader,     "Connection: keep-alive";
+            5, SLT_Timestamp,      "Resp: 1470403414.672458 1.007634 0.000032";
+            5, SLT_ReqAcct,        "82 2 84 304 6962 7266";
+        );
 
-//         let record = apply_last!(builder, 5, SLT_End, "")
-//             .unwrap_backend_access();
+        set_stub_session(&mut builder);
 
-//         assert_eq!(record.start, Some(parse!("1471355444.744344")));
-//         assert_eq!(record.end, None);
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_client_access();
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Piped {
-//                 request: HttpRequest {
-//                     ref method,
-//                     ref url,
-//                     ref protocol,
-//                     ref headers,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(method, "GET");
-//                 assert_eq!(url, "/websocket");
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(headers, &[
-//                     ("Connection".to_string(), "Upgrade".to_string()),
-//                     ("Upgrade".to_string(), "websocket".to_string())]);
-//             }
-//        );
-//     }
+        assert_eq!(record.handling, Handling::Pass);
 
-//     #[test]
-//     fn apply_backend_access_record_piped_unavailable() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_matches!(record.transaction, ClientAccessTransaction::Full {
+                accounting: Accounting {
+                    recv_header,
+                    recv_body,
+                    recv_total,
+                    sent_header,
+                    sent_body,
+                    sent_total,
+                },
+                ..
+            } => {
+                assert_eq!(recv_header, 82);
+                assert_eq!(recv_body, 2);
+                assert_eq!(recv_total, 84);
+                assert_eq!(sent_header, 304);
+                assert_eq!(sent_body, 6962);
+                assert_eq!(sent_total, 7266);
+            }
+        );
+    }
 
-//         let mut builder = apply_new!(
-//                    32786, SLT_Begin,          "bereq 32785 pipe";
-//                    32786, SLT_BereqMethod,    "GET";
-//                    32786, SLT_BereqURL,       "/sse";
-//                    32786, SLT_BereqProtocol,  "HTTP/1.1";
-//                    32786, SLT_BereqHeader,    "Host: staging.eod.example.net";
-//                    32786, SLT_BereqHeader,    "Accept: text/event-stream";
-//                    32786, SLT_BereqHeader,    "Connection: close";
-//                    32786, SLT_VCL_call,       "PIPE";
-//                    32786, SLT_VCL_Log,        "proxy_host:";
-//                    32786, SLT_BereqUnset,     "Connection: close";
-//                    32786, SLT_BereqHeader,    "Connection: close";
-//                    32786, SLT_VCL_return,     "pipe";
-//                    32786, SLT_FetchError,     "no backend connection";
-//                    32786, SLT_BereqAcct,      "0 0 0 0 0 0";
-//                   );
+    #[test]
+    fn apply_backend_access_record_aborted() {
+        let mut builder = apply_new!(
+            5, SLT_Begin,          "bereq 2 fetch";
+            5, SLT_Timestamp,      "Start: 1471449766.106695 0.000000 0.000000";
+            5, SLT_BereqMethod,    "GET";
+            5, SLT_BereqURL,       "/";
+            5, SLT_BereqProtocol,  "HTTP/1.1";
+            5, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
+            5, SLT_BereqHeader,    "Host: localhost:1080";
+            5, SLT_VCL_call,       "BACKEND_FETCH";
+            5, SLT_BereqUnset,     "Accept-Encoding: gzip";
+            5, SLT_VCL_return,     "abandon";
+            5, SLT_BereqAcct,      "0 0 0 0 0 0";
+        );
 
-//         let record = apply_last!(builder, 32786, SLT_End, "")
-//             .unwrap_backend_access();
+        let record = apply_last!(builder, 5, SLT_End, "")
+            .unwrap_backend_access();
 
-//         assert_eq!(record.start, None);
-//         assert_eq!(record.end, None);
+        assert_eq!(record.start, Some(parse!("1471449766.106695")));
+        assert_eq!(record.end, None);
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Piped {
-//                 request: HttpRequest {
-//                     ref method,
-//                     ref url,
-//                     ref protocol,
-//                     ref headers,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(method, "GET");
-//                 assert_eq!(url, "/sse");
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(headers, &[
-//                     ("Host".to_string(), "staging.eod.example.net".to_string()),
-//                     ("Accept".to_string(), "text/event-stream".to_string()),
-//                     ("Connection".to_string(), "close".to_string())]);
-//             }
-//         );
-//     }
+        assert_matches!(record.transaction, BackendAccessTransaction::Aborted {
+                request: HttpRequest {
+                    ref method,
+                    ref url,
+                    ref protocol,
+                    ref headers,
+                },
+                ..
+            } => {
+                assert_eq!(method, "GET");
+                assert_eq!(url, "/");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(headers, &[
+                    ("User-Agent".to_string(), "curl/7.40.0".to_string()),
+                    ("Host".to_string(), "localhost:1080".to_string())]);
+            }
+        );
+    }
 
-//     #[test]
-//     fn apply_backend_access_record_piped_to_pass() {
-//         let mut builder = RecordBuilder::new(5);
+    #[test]
+    fn apply_client_access_record_log() {
+        let mut builder = apply_new!(
+            7, SLT_Begin,        "req 6 rxreq";
+            7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+            7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+            7, SLT_ReqStart,     "127.0.0.1 39798";
+            7, SLT_ReqMethod,    "GET";
+            7, SLT_ReqURL,       "/retry";
+            7, SLT_ReqProtocol,  "HTTP/1.1";
+            7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            7, SLT_VCL_call,     "RECV";
+            7, SLT_Debug,        "geoip2.lookup: No entry for this IP address (127.0.0.1)";
+            7, SLT_VCL_Log,      "X-Varnish-Privileged-Client: false";
+            7, SLT_VCL_acl,      "NO_MATCH trusted_networks";
+            7, SLT_VCL_acl,      "MATCH external_proxies \"127.0.0.1\"";
+            7, SLT_VCL_return,   "hash";
+            7, SLT_VCL_call,     "HASH";
+            7, SLT_VCL_return,   "lookup";
+            7, SLT_Debug,        "XXXX HIT-FOR-PASS";
+            7, SLT_HitPass,      "5";
+            7, SLT_VCL_call,     "PASS";
+            7, SLT_Link,         "bereq 8 fetch";
+            7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+            7, SLT_RespProtocol, "HTTP/1.1";
+            7, SLT_RespStatus,   "200";
+            7, SLT_RespReason,   "OK";
+            7, SLT_RespHeader,   "Content-Type: image/jpeg";
+            7, SLT_VCL_return,   "deliver";
+            7, SLT_VCL_Log,      "X-Varnish-User-Agent-Class: Unknown-Bot";
+            7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+            7, SLT_RespHeader,   "Accept-Ranges: bytes";
+            7, SLT_RespHeader,   "Connection: keep-alive";
+            7, SLT_VCL_Log,      "X-Varnish-Force-Failure: false";
+            7, SLT_Debug,        "RES_MODE 2";
+            7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+            7, SLT_Error,        "oh no!";
+            7, SLT_LostHeader,   "SetCookie: foo=bar";
+            7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
+        );
 
-//         let mut builder = apply_new!(
-//                     5, SLT_Begin,          "req 6 rxreq";
-//                     5, SLT_Timestamp,      "Start: 1470403413.664824 0.000000 0.000000";
-//                     5, SLT_Timestamp,      "Req: 1470403414.664824 1.000000 1.000000";
-//                     5, SLT_ReqStart,       "127.0.0.1 39798";
-//                     5, SLT_ReqMethod,      "GET";
-//                     5, SLT_ReqURL,         "/retry";
-//                     5, SLT_ReqProtocol,    "HTTP/1.1";
-//                     5, SLT_ReqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                     5, SLT_VCL_call,       "RECV";
-//                     5, SLT_VCL_return,     "pipe";
-//                     5, SLT_VCL_call,       "HASH";
-//                     5, SLT_VCL_return,     "lookup";
-//                     5, SLT_VCL_Error,      "vcl_recv{} returns pipe for HTTP/2 request.  Doing pass.";
-//                     5, SLT_VCL_call,       "PASS";
-//                     5, SLT_Link,           "bereq 8 fetch";
-//                     5, SLT_Timestamp,      "Fetch: 1470403414.672315 1.007491 0.007491";
-//                     5, SLT_RespProtocol,   "HTTP/1.1";
-//                     5, SLT_RespStatus,     "200";
-//                     5, SLT_RespReason,     "OK";
-//                     5, SLT_RespHeader,     "Content-Type: image/jpeg";
-//                     5, SLT_VCL_return,     "deliver";
-//                     5, SLT_Timestamp,      "Process: 1470403414.672425 1.007601 0.000111";
-//                     5, SLT_RespHeader,     "Accept-Ranges: bytes";
-//                     5, SLT_Debug,          "RES_MODE 2";
-//                     5, SLT_RespHeader,     "Connection: keep-alive";
-//                     5, SLT_Timestamp,      "Resp: 1470403414.672458 1.007634 0.000032";
-//                     5, SLT_ReqAcct,        "82 2 84 304 6962 7266";
-//                 );
+        set_stub_session(&mut builder);
 
-//         let record = apply_last!(builder, 5, SLT_End, "")
-//             .unwrap_client_access();
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
 
-//         assert_eq!(record.handling, Handling::Pass);
-
-//         assert_matches!(record.transaction, ClientAccessTransaction::Full {
-//                 accounting: Accounting {
-//                     recv_header,
-//                     recv_body,
-//                     recv_total,
-//                     sent_header,
-//                     sent_body,
-//                     sent_total,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(recv_header, 82);
-//                 assert_eq!(recv_body, 2);
-//                 assert_eq!(recv_total, 84);
-//                 assert_eq!(sent_header, 304);
-//                 assert_eq!(sent_body, 6962);
-//                 assert_eq!(sent_total, 7266);
-//             }
-//         );
-//     }
-
-//     #[test]
-//     fn apply_backend_access_record_aborted() {
-//         let mut builder = RecordBuilder::new(123);
-
-//         let mut builder = apply_new!(
-//                    5, SLT_Begin,          "bereq 2 fetch";
-//                    5, SLT_Timestamp,      "Start: 1471449766.106695 0.000000 0.000000";
-//                    5, SLT_BereqMethod,    "GET";
-//                    5, SLT_BereqURL,       "/";
-//                    5, SLT_BereqProtocol,  "HTTP/1.1";
-//                    5, SLT_BereqHeader,    "User-Agent: curl/7.40.0";
-//                    5, SLT_BereqHeader,    "Host: localhost:1080";
-//                    5, SLT_VCL_call,       "BACKEND_FETCH";
-//                    5, SLT_BereqUnset,     "Accept-Encoding: gzip";
-//                    5, SLT_VCL_return,     "abandon";
-//                    5, SLT_BereqAcct,      "0 0 0 0 0 0";
-//                 );
-
-//         let record = apply_last!(builder, 5, SLT_End, "")
-//             .unwrap_backend_access();
-
-//         assert_eq!(record.start, Some(parse!("1471449766.106695")));
-//         assert_eq!(record.end, None);
-
-//         assert_matches!(record.transaction, BackendAccessTransaction::Aborted {
-//                 request: HttpRequest {
-//                     ref method,
-//                     ref url,
-//                     ref protocol,
-//                     ref headers,
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(method, "GET");
-//                 assert_eq!(url, "/");
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(headers, &[
-//                     ("User-Agent".to_string(), "curl/7.40.0".to_string()),
-//                     ("Host".to_string(), "localhost:1080".to_string())]);
-//             }
-//         );
-//     }
-
-//     #[test]
-//     fn apply_client_access_record_log() {
-//         let mut builder = RecordBuilder::new(123);
-
-//         let mut builder = apply_new!(
-//                    7, SLT_Begin,        "req 6 rxreq";
-//                    7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
-//                    7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
-//                    7, SLT_ReqStart,     "127.0.0.1 39798";
-//                    7, SLT_ReqMethod,    "GET";
-//                    7, SLT_ReqURL,       "/retry";
-//                    7, SLT_ReqProtocol,  "HTTP/1.1";
-//                    7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    7, SLT_VCL_call,     "RECV";
-//                    7, SLT_Debug,        "geoip2.lookup: No entry for this IP address (127.0.0.1)";
-//                    7, SLT_VCL_Log,      "X-Varnish-Privileged-Client: false";
-//                    7, SLT_VCL_acl,      "NO_MATCH trusted_networks";
-//                    7, SLT_VCL_acl,      "MATCH external_proxies \"127.0.0.1\"";
-//                    7, SLT_VCL_return,   "hash";
-//                    7, SLT_VCL_call,     "HASH";
-//                    7, SLT_VCL_return,   "lookup";
-//                    7, SLT_Debug,        "XXXX HIT-FOR-PASS";
-//                    7, SLT_HitPass,      "5";
-//                    7, SLT_VCL_call,     "PASS";
-//                    7, SLT_Link,         "bereq 8 fetch";
-//                    7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
-//                    7, SLT_RespProtocol, "HTTP/1.1";
-//                    7, SLT_RespStatus,   "200";
-//                    7, SLT_RespReason,   "OK";
-//                    7, SLT_RespHeader,   "Content-Type: image/jpeg";
-//                    7, SLT_VCL_return,   "deliver";
-//                    7, SLT_VCL_Log,      "X-Varnish-User-Agent-Class: Unknown-Bot";
-//                    7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
-//                    7, SLT_RespHeader,   "Accept-Ranges: bytes";
-//                    7, SLT_RespHeader,   "Connection: keep-alive";
-//                    7, SLT_VCL_Log,      "X-Varnish-Force-Failure: false";
-//                    7, SLT_Debug,        "RES_MODE 2";
-//                    7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
-//                    7, SLT_Error,        "oh no!";
-//                    7, SLT_LostHeader,   "SetCookie: foo=bar";
-//                    7, SLT_ReqAcct,      "82 0 82 304 6962 7266";
-//                    );
-
-//             let record = apply_last!(builder, 7, SLT_End, "")
-//                 .unwrap_client_access();
-
-//             assert_eq!(record.log, &[
-//                 LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
-//                 LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
-//                 LogEntry::Acl(AclResult::NoMatch, "trusted_networks".to_string(), None),
-//                 LogEntry::Acl(AclResult::Match, "external_proxies".to_string(), Some("\"127.0.0.1\"".to_string())),
-//                 LogEntry::Debug("XXXX HIT-FOR-PASS".to_string()),
-//                 LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-//                 LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),
-//                 LogEntry::Debug("RES_MODE 2".to_string()),
-//                 LogEntry::Error("oh no!".to_string()),
-//                 LogEntry::Warning("Failed HTTP header operation due to resource exhaustion or configured limits; header was: SetCookie: foo=bar".to_string()),
-//             ]);
-//     }
+        assert_eq!(record.log, &[
+            LogEntry::Debug("geoip2.lookup: No entry for this IP address (127.0.0.1)".to_string()),
+            LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
+            LogEntry::Acl(AclResult::NoMatch, "trusted_networks".to_string(), None),
+            LogEntry::Acl(AclResult::Match, "external_proxies".to_string(), Some("\"127.0.0.1\"".to_string())),
+            LogEntry::Debug("XXXX HIT-FOR-PASS".to_string()),
+            LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+            LogEntry::Vcl("X-Varnish-Force-Failure: false".to_string()),
+            LogEntry::Debug("RES_MODE 2".to_string()),
+            LogEntry::Error("oh no!".to_string()),
+            LogEntry::Warning("Failed HTTP header operation due to resource exhaustion or configured limits; header was: SetCookie: foo=bar".to_string()),
+        ]);
+    }
 
     #[test]
     fn apply_client_access_bad_request_proxy() {
@@ -2967,522 +2947,502 @@ mod tests {
         ]);
     }
 
-//     #[test]
-//     fn apply_backend_access_record_log() {
-//         let mut builder = RecordBuilder::new(123);
+    #[test]
+    fn apply_backend_access_record_log() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_VCL_Log,          "X-Varnish-Privileged-Client: false";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_Debug,            "RES_MODE 2";
+            32769, SLT_VCL_Log,          "X-Varnish-User-Agent-Class: Unknown-Bot";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_FetchError,       "no backend connection";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Error: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "503";
+            32769, SLT_BerespReason,     "Service Unavailable";
+            32769, SLT_BerespReason,     "Backend fetch failed";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_BogoHeader,       "foobar!";
+            32769, SLT_VCL_call,         "BACKEND_ERROR";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+        );
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_VCL_Log,          "X-Varnish-Privileged-Client: false";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_Debug,            "RES_MODE 2";
-//                    32769, SLT_VCL_Log,          "X-Varnish-User-Agent-Class: Unknown-Bot";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_FetchError,       "no backend connection";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Error: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "503";
-//                    32769, SLT_BerespReason,     "Service Unavailable";
-//                    32769, SLT_BerespReason,     "Backend fetch failed";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_BogoHeader,       "foobar!";
-//                    32769, SLT_VCL_call,         "BACKEND_ERROR";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                    );
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+        assert_eq!(record.log, &[
+            LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
+            LogEntry::Debug("RES_MODE 2".to_string()),
+            LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
+            LogEntry::FetchError("no backend connection".to_string()),
+            LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
+        ]);
+    }
 
-//         assert_eq!(record.log, &[
-//             LogEntry::Vcl("X-Varnish-Privileged-Client: false".to_string()),
-//             LogEntry::Debug("RES_MODE 2".to_string()),
-//             LogEntry::Vcl("X-Varnish-User-Agent-Class: Unknown-Bot".to_string()),
-//             LogEntry::FetchError("no backend connection".to_string()),
-//             LogEntry::Warning("Bogus HTTP header received: foobar!".to_string()),
-//         ]);
-//     }
+    #[test]
+    fn apply_backend_access_record_cache_object() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339883 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_ObjProtocol,      "HTTP/1.1";
+            32769, SLT_ObjStatus,        "200";
+            32769, SLT_ObjReason,        "OK";
+            32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+            32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+            32769, SLT_Fetch_Body,       "3 length stream";
+            32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+        );
 
-//     #[test]
-//     fn apply_backend_access_record_cache_object() {
-//         let mut builder = RecordBuilder::new(123);
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339883 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_ObjProtocol,      "HTTP/1.1";
-//                    32769, SLT_ObjStatus,        "200";
-//                    32769, SLT_ObjReason,        "OK";
-//                    32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
-//                    32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
-//                    32769, SLT_Fetch_Body,       "3 length stream";
-//                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                    );
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ref fetch_mode,
+                    fetch_streamed,
+                    response: Some(HttpResponse {
+                        ref protocol,
+                        status,
+                        ref reason,
+                        ref headers
+                    }),
+                    ..
+                },
+                ..
+            } => {
+                assert_eq!(*fetch_streamed.as_ref().unwrap(), true);
+                assert_eq!(fetch_mode.as_ref().unwrap(), "length");
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 200);
+                assert_eq!(reason, "OK");
+                assert_eq!(headers, &[
+                    ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
+                    ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]);
+            }
+        );
+   }
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+    #[test]
+    fn apply_backend_access_record_cache_object_none() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339883 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_Fetch_Body,       "3 length stream";
+            32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+        );
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Full {
-//                 cache_object: CacheObject {
-//                     ref fetch_mode,
-//                     fetch_streamed,
-//                     response: Some(HttpResponse {
-//                         ref protocol,
-//                         status,
-//                         ref reason,
-//                         ref headers
-//                     }),
-//                     ..
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(*fetch_streamed.as_ref().unwrap(), true);
-//                 assert_eq!(fetch_mode.as_ref().unwrap(), "length");
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(status, 200);
-//                 assert_eq!(reason, "OK");
-//                 assert_eq!(headers, &[
-//                     ("Content-Type".to_string(), "text/html; charset=utf-8".to_string()),
-//                     ("X-Aspnet-Version".to_string(), "4.0.30319".to_string())]);
-//             }
-//         );
-//    }
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//     #[test]
-//     fn apply_backend_access_record_cache_object_none() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ref fetch_mode,
+                    fetch_streamed,
+                    response: None,
+                    ..
+                },
+                ..
+            } => {
+                assert_eq!(*fetch_streamed.as_ref().unwrap(), true);
+                assert_eq!(fetch_mode.as_ref().unwrap(), "length");
+            }
+        );
+   }
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339883 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_Fetch_Body,       "3 length stream";
-//                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                    );
+    #[test]
+    fn apply_backend_access_record_cache_object_ttl() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_ObjProtocol,      "HTTP/1.1";
+            32769, SLT_ObjStatus,        "200";
+            32769, SLT_ObjReason,        "OK";
+            32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+            32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+            32769, SLT_Fetch_Body,       "3 length stream";
+            32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+        );
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Full {
-//                 cache_object: CacheObject {
-//                     ref fetch_mode,
-//                     fetch_streamed,
-//                     response: None,
-//                     ..
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(*fetch_streamed.as_ref().unwrap(), true);
-//                 assert_eq!(fetch_mode.as_ref().unwrap(), "length");
-//             }
-//         );
-//    }
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ttl: Some(ttl),
+                    grace: Some(grace),
+                    keep: None,
+                    since,
+                    origin,
+                    ..
+                },
+                ..
+            } => {
+                assert_eq!(ttl, parse!("120.0"));
+                assert_eq!(grace, parse!("10.0"));
+                assert_eq!(since, parse!("1471339883.0"));
+                assert_eq!(origin, parse!("1471339880.0"));
+            }
+        );
+   }
 
-//     #[test]
-//     fn apply_backend_access_record_cache_object_ttl() {
-//         let mut builder = RecordBuilder::new(123);
+    #[test]
+    fn apply_backend_access_record_cache_object_ttl_vcl() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_TTL,              "VCL 12345 259200 0 1470304807";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_ObjProtocol,      "HTTP/1.1";
+            32769, SLT_ObjStatus,        "200";
+            32769, SLT_ObjReason,        "OK";
+            32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+            32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+            32769, SLT_Fetch_Body,       "3 length stream";
+            32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+        );
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_ObjProtocol,      "HTTP/1.1";
-//                    32769, SLT_ObjStatus,        "200";
-//                    32769, SLT_ObjReason,        "OK";
-//                    32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
-//                    32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
-//                    32769, SLT_Fetch_Body,       "3 length stream";
-//                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                    );
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ttl: Some(ttl),
+                    grace: Some(grace),
+                    keep: Some(keep),
+                    since,
+                    origin,
+                    ..
+                },
+                ..
+            } => {
+                assert_eq!(ttl, parse!("12345.0"));
+                assert_eq!(grace, parse!("259200.0"));
+                assert_eq!(keep, parse!("0.0"));
+                assert_eq!(since, parse!("1470304807.0"));
+                // Keep time from RFC so we can calculate origin TTL etc
+                assert_eq!(origin, parse!("1471339880.0"));
+            }
+        );
+    }
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Full {
-//                 cache_object: CacheObject {
-//                     ttl: Some(ttl),
-//                     grace: Some(grace),
-//                     keep: None,
-//                     since,
-//                     origin,
-//                     ..
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(ttl, parse!("120.0"));
-//                 assert_eq!(grace, parse!("10.0"));
-//                 assert_eq!(since, parse!("1471339883.0"));
-//                 assert_eq!(origin, parse!("1471339880.0"));
-//             }
-//         );
-//    }
+    #[test]
+    fn apply_backend_access_record_cache_object_storage() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_TTL,              "VCL 12345 259200 0 1470304807";
+            32769, SLT_BackendReuse,     "19 boot.iss";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_ObjProtocol,      "HTTP/1.1";
+            32769, SLT_ObjStatus,        "200";
+            32769, SLT_ObjReason,        "OK";
+            32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+            32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+            32769, SLT_Fetch_Body,       "3 length stream";
+            32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
+            32769, SLT_Length,           "6962";
+            32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
+        );
 
-//     #[test]
-//     fn apply_backend_access_record_cache_object_ttl_vcl() {
-//         let mut builder = RecordBuilder::new(123);
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_TTL,              "VCL 12345 259200 0 1470304807";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_ObjProtocol,      "HTTP/1.1";
-//                    32769, SLT_ObjStatus,        "200";
-//                    32769, SLT_ObjReason,        "OK";
-//                    32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
-//                    32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
-//                    32769, SLT_Fetch_Body,       "3 length stream";
-//                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                    );
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ref storage_type,
+                    ref storage_name,
+                    ..
+                },
+                ..
+            } => {
+                assert_eq!(storage_type, "malloc");
+                assert_eq!(storage_name, "s0");
+            }
+        );
+    }
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+    #[test]
+    fn apply_backend_access_record_bgfetch() {
+        let mut builder = apply_new!(
+            120386761, SLT_Begin,          "bereq 120386760 bgfetch";
+            120386761, SLT_Timestamp,      "Start: 1478876416.764800 0.000000 0.000000";
+            120386761, SLT_BereqMethod,    "GET";
+            120386761, SLT_BereqURL,       "/";
+            120386761, SLT_BereqProtocol,  "HTTP/1.1";
+            120386761, SLT_BereqHeader,    "Host: www.example.com";
+            120386761, SLT_BereqHeader,    "Accept: */*";
+            120386761, SLT_BereqHeader,    "User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1";
+            120386761, SLT_BereqHeader,    "Accept-Encoding: gzip";
+            120386761, SLT_BereqHeader,    "If-None-Match: W/\"371132087\"";
+            120386761, SLT_BereqHeader,    "X-Varnish: 120386761";
+            120386761, SLT_VCL_call,       "BACKEND_FETCH";
+            120386761, SLT_BereqUnset,     "Accept-Encoding: gzip";
+            120386761, SLT_BereqHeader,    "Accept-Encoding: gzip";
+            120386761, SLT_VCL_return,     "fetch";
+            120386761, SLT_BackendOpen,    "51 reload_2016-11-11T09:47:37.origin 10.1.1.22 2081 10.3.1.217 33152";
+            120386761, SLT_BackendStart,   "10.1.1.22 2081";
+            120386760, SLT_Link,           "bereq 120386761 bgfetch";
+            120386761, SLT_Timestamp,      "Bereq: 1478876416.764860 0.000060 0.000060";
+            120386761, SLT_Timestamp,      "Beresp: 1478876417.148921 0.384121 0.384061";
+            120386761, SLT_BerespProtocol, "HTTP/1.1";
+            120386761, SLT_BerespStatus,   "304";
+            120386761, SLT_BerespReason,   "Not Modified";
+            120386761, SLT_BerespHeader,   "Cache-Control: private, must-revalidate, s-maxage=3644";
+            120386761, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
+            120386761, SLT_TTL,            "RFC 3644 10 -1 1478876417 1478872579 1478872569 0 3644";
+            120386761, SLT_BerespProtocol, "HTTP/1.1";
+            120386761, SLT_BerespStatus,   "200";
+            120386761, SLT_BerespReason,   "OK";
+            120386761, SLT_BerespHeader,   "x-url: /";
+            120386761, SLT_VCL_call,       "BACKEND_RESPONSE";
+            120386761, SLT_TTL,            "VCL 3644 259200 0 1478872579";
+            120386761, SLT_VCL_return,     "deliver";
+            120386761, SLT_Storage,        "malloc s0";
+            120386761, SLT_ObjProtocol,    "HTTP/1.1";
+            120386761, SLT_ObjStatus,      "200";
+            120386761, SLT_ObjReason,      "OK";
+            120386761, SLT_ObjHeader,      "Cache-Control: private, must-revalidate, s-maxage=3644";
+            120386761, SLT_ObjHeader,      "Content-Type: text/html; charset=utf-8";
+            120386761, SLT_ObjHeader,      "Server: Microsoft-IIS/7.5";
+            120386761, SLT_BackendReuse,   "51 reload_2016-11-11T09:47:37.origin";
+            120386761, SLT_Timestamp,      "BerespBody: 1478876417.149090 0.384290 0.000168";
+            120386761, SLT_Length,         "182259";
+            120386761, SLT_BereqAcct,      "1041 0 1041 562 0 562";
+        );
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Full {
-//                 cache_object: CacheObject {
-//                     ttl: Some(ttl),
-//                     grace: Some(grace),
-//                     keep: Some(keep),
-//                     since,
-//                     origin,
-//                     ..
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(ttl, parse!("12345.0"));
-//                 assert_eq!(grace, parse!("259200.0"));
-//                 assert_eq!(keep, parse!("0.0"));
-//                 assert_eq!(since, parse!("1470304807.0"));
-//                 // Keep time from RFC so we can calculate origin TTL etc
-//                 assert_eq!(origin, parse!("1471339880.0"));
-//             }
-//         );
-//     }
+        let record = apply_last!(builder, 120386761, SLT_End, "")
+            .unwrap_backend_access();
 
-//     #[test]
-//     fn apply_backend_access_record_cache_object_storage() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_matches!(record.transaction, BackendAccessTransaction::Full {
+                cache_object: CacheObject {
+                    ref storage_type,
+                    ref storage_name,
+                    ..
+                },
+                ..
+            } => {
+                assert_eq!(storage_type, "malloc");
+                assert_eq!(storage_name, "s0");
+            }
+        );
+    }
 
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_BackendOpen,      "19 boot.crm_v2 127.0.0.1 42005 127.0.0.1 53054";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 0.004549 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.007262 0.002713";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_TTL,              "RFC 120 10 -1 1471339883 1471339880 1340020138 0 0";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_TTL,              "VCL 12345 259200 0 1470304807";
-//                    32769, SLT_BackendReuse,     "19 boot.iss";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_ObjProtocol,      "HTTP/1.1";
-//                    32769, SLT_ObjStatus,        "200";
-//                    32769, SLT_ObjReason,        "OK";
-//                    32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
-//                    32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
-//                    32769, SLT_Fetch_Body,       "3 length stream";
-//                    32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
-//                    32769, SLT_Length,           "6962";
-//                    32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-//                    );
+    #[test]
+    fn apply_client_access_record_gzip_error() {
+        let mut builder = apply_new!(
+            7, SLT_Begin,        "req 6 rxreq";
+            7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
+            7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
+            7, SLT_ReqStart,     "127.0.0.1 39798";
+            7, SLT_ReqMethod,    "GET";
+            7, SLT_ReqURL,       "/retry";
+            7, SLT_ReqProtocol,  "HTTP/1.1";
+            7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            7, SLT_VCL_call,     "RECV";
+            7, SLT_VCL_return,   "pass";
+            7, SLT_VCL_call,     "HASH";
+            7, SLT_VCL_return,   "lookup";
+            7, SLT_VCL_call,     "PASS";
+            7, SLT_Link,         "bereq 8 fetch";
+            7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
+            7, SLT_RespProtocol, "HTTP/1.1";
+            7, SLT_RespStatus,   "200";
+            7, SLT_RespReason,   "OK";
+            7, SLT_RespHeader,   "Content-Type: image/jpeg";
+            7, SLT_VCL_return,   "deliver";
+            7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
+            7, SLT_RespHeader,   "Accept-Ranges: bytes";
+            7, SLT_RespHeader,   "Connection: keep-alive";
+            7, SLT_Gzip,         "G(un)zip error: -3 ((null))";
+            7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
+            7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
+        );
 
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
+        set_stub_session(&mut builder);
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Full {
-//                 cache_object: CacheObject {
-//                     ref storage_type,
-//                     ref storage_name,
-//                     ..
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(storage_type, "malloc");
-//                 assert_eq!(storage_name, "s0");
-//             }
-//         );
-//     }
+        let record = apply_last!(builder, 7, SLT_End, "")
+            .unwrap_client_access();
 
-//     #[test]
-//     fn apply_backend_access_record_bgfetch() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_matches!(record.compression, None);
 
-//         let mut builder = apply_new!(
-//                    120386761, SLT_Begin,          "bereq 120386760 bgfetch";
-//                    120386761, SLT_Timestamp,      "Start: 1478876416.764800 0.000000 0.000000";
-//                    120386761, SLT_BereqMethod,    "GET";
-//                    120386761, SLT_BereqURL,       "/";
-//                    120386761, SLT_BereqProtocol,  "HTTP/1.1";
-//                    120386761, SLT_BereqHeader,    "Host: www.example.com";
-//                    120386761, SLT_BereqHeader,    "Accept: */*";
-//                    120386761, SLT_BereqHeader,    "User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1";
-//                    120386761, SLT_BereqHeader,    "Accept-Encoding: gzip";
-//                    120386761, SLT_BereqHeader,    "If-None-Match: W/\"371132087\"";
-//                    120386761, SLT_BereqHeader,    "X-Varnish: 120386761";
-//                    );
-//                    apply_all!(builder,
-//                    120386761, SLT_VCL_call,       "BACKEND_FETCH";
-//                    120386761, SLT_BereqUnset,     "Accept-Encoding: gzip";
-//                    120386761, SLT_BereqHeader,    "Accept-Encoding: gzip";
-//                    120386761, SLT_VCL_return,     "fetch";
-//                    120386761, SLT_BackendOpen,    "51 reload_2016-11-11T09:47:37.origin 10.1.1.22 2081 10.3.1.217 33152";
-//                    120386761, SLT_BackendStart,   "10.1.1.22 2081";
-//                    120386760, SLT_Link,           "bereq 120386761 bgfetch";
-//                    120386761, SLT_Timestamp,      "Bereq: 1478876416.764860 0.000060 0.000060";
-//                    120386761, SLT_Timestamp,      "Beresp: 1478876417.148921 0.384121 0.384061";
-//                    120386761, SLT_BerespProtocol, "HTTP/1.1";
-//                    120386761, SLT_BerespStatus,   "304";
-//                    120386761, SLT_BerespReason,   "Not Modified";
-//                    120386761, SLT_BerespHeader,   "Cache-Control: private, must-revalidate, s-maxage=3644";
-//                    120386761, SLT_BerespHeader,   "Content-Type: text/html; charset=utf-8";
-//                    120386761, SLT_TTL,            "RFC 3644 10 -1 1478876417 1478872579 1478872569 0 3644";
-//                    120386761, SLT_BerespProtocol, "HTTP/1.1";
-//                    120386761, SLT_BerespStatus,   "200";
-//                    120386761, SLT_BerespReason,   "OK";
-//                    120386761, SLT_BerespHeader,   "x-url: /";
-//                    120386761, SLT_VCL_call,       "BACKEND_RESPONSE";
-//                    120386761, SLT_TTL,            "VCL 3644 259200 0 1478872579";
-//                    120386761, SLT_VCL_return,     "deliver";
-//                    );
-//                    apply_all!(builder,
-//                    120386761, SLT_Storage,        "malloc s0";
-//                    120386761, SLT_ObjProtocol,    "HTTP/1.1";
-//                    120386761, SLT_ObjStatus,      "200";
-//                    120386761, SLT_ObjReason,      "OK";
-//                    120386761, SLT_ObjHeader,      "Cache-Control: private, must-revalidate, s-maxage=3644";
-//                    120386761, SLT_ObjHeader,      "Content-Type: text/html; charset=utf-8";
-//                    120386761, SLT_ObjHeader,      "Server: Microsoft-IIS/7.5";
-//                    120386761, SLT_BackendReuse,   "51 reload_2016-11-11T09:47:37.origin";
-//                    120386761, SLT_Timestamp,      "BerespBody: 1478876417.149090 0.384290 0.000168";
-//                    120386761, SLT_Length,         "182259";
-//                    120386761, SLT_BereqAcct,      "1041 0 1041 562 0 562";
-//                    );
+        assert_eq!(record.log, &[
+            LogEntry::Error("G(un)zip error: -3 ((null))".to_string()),
+        ]);
+    }
 
-//         let record = apply_last!(builder, 120386761, SLT_End, "")
-//             .unwrap_backend_access();
+    #[test]
+    fn apply_backend_access_record_nuke_limit() {
+        let mut builder = apply_new!(
+            32769, SLT_Begin,            "bereq 8 retry";
+            32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
+            32769, SLT_BereqMethod,      "GET";
+            32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
+            32769, SLT_BereqProtocol,    "HTTP/1.1";
+            32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
+            32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
+            32769, SLT_VCL_return,       "fetch";
+            32769, SLT_BackendOpen,      "51 boot.origin 10.1.1.249 2081 10.1.1.222 41580";
+            32769, SLT_BackendStart,     "10.1.1.249 2081";
+            32769, SLT_Timestamp,        "Bereq: 1470403414.669471 12345.0 0.000096";
+            32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.0 259200.0";
+            32769, SLT_BerespProtocol,   "HTTP/1.1";
+            32769, SLT_BerespStatus,     "200";
+            32769, SLT_BerespReason,     "OK";
+            32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
+            32769, SLT_BerespHeader,     "Transfer-Encoding: chunked";
+            32769, SLT_TTL,              "RFC 3644 10 0 1527691787 1527691787 1527691786 0 3644";
+            32769, SLT_VCL_call,         "BACKEND_RESPONSE";
+            32769, SLT_TTL,              "VCL 3644 259200 0 1527691787";
+            32769, SLT_VCL_return,       "deliver";
+            32769, SLT_Storage,          "malloc s0";
+            32769, SLT_ObjProtocol,      "HTTP/1.1";
+            32769, SLT_ObjStatus,        "200";
+            32769, SLT_ObjReason,        "OK";
+            32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
+            32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
+            32769, SLT_Fetch_Body,       "2 chunked stream";
+            32769, SLT_ExpKill,          "LRU_Cand p=0x7fd565c774c0 f=0x0 r=1";
+            32769, SLT_ExpKill,          "LRU x=31426770";
+            32769, SLT_ExpKill,          "LRU_Cand p=0x7fd58d0dd1a0 f=0x0 r=1";
+            32769, SLT_ExpKill,          "LRU x=31492241";
+            32769, SLT_ExpKill,          "LRU_Exhausted";
+            32769, SLT_FetchError,       "Could not get storage";
+            32769, SLT_Gzip,             "u F - 180224 473602 80 1362184 0";
+            32769, SLT_BackendClose,     "51 boot.origin";
+            32769, SLT_BereqAcct,        "1458 0 1458 627 180224 180851";
+        );
 
-//         assert_matches!(record.transaction, BackendAccessTransaction::Full {
-//                 cache_object: CacheObject {
-//                     ref storage_type,
-//                     ref storage_name,
-//                     ..
-//                 },
-//                 ..
-//             } => {
-//                 assert_eq!(storage_type, "malloc");
-//                 assert_eq!(storage_name, "s0");
-//             }
-//         );
-//     }
+        let record = apply_last!(builder, 32769, SLT_End, "")
+            .unwrap_backend_access();
 
-//     #[test]
-//     fn apply_client_access_record_gzip_error() {
-//         let mut builder = RecordBuilder::new(123);
+        assert_eq!(record.log, &[
+            LogEntry::Error("LRU_Exhausted".to_string()),
+            LogEntry::FetchError("Could not get storage".to_string()),
+        ]);
 
-//         let mut builder = apply_new!(
-//                    7, SLT_Begin,        "req 6 rxreq";
-//                    7, SLT_Timestamp,    "Start: 1470403413.664824 0.000000 0.000000";
-//                    7, SLT_Timestamp,    "Req: 1470403414.664824 1.000000 1.000000";
-//                    7, SLT_ReqStart,     "127.0.0.1 39798";
-//                    7, SLT_ReqMethod,    "GET";
-//                    7, SLT_ReqURL,       "/retry";
-//                    7, SLT_ReqProtocol,  "HTTP/1.1";
-//                    7, SLT_ReqHeader,    "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    7, SLT_VCL_call,     "RECV";
-//                    7, SLT_VCL_return,   "pass";
-//                    7, SLT_VCL_call,     "HASH";
-//                    7, SLT_VCL_return,   "lookup";
-//                    7, SLT_VCL_call,     "PASS";
-//                    7, SLT_Link,         "bereq 8 fetch";
-//                    7, SLT_Timestamp,    "Fetch: 1470403414.672315 1.007491 0.007491";
-//                    7, SLT_RespProtocol, "HTTP/1.1";
-//                    7, SLT_RespStatus,   "200";
-//                    7, SLT_RespReason,   "OK";
-//                    7, SLT_RespHeader,   "Content-Type: image/jpeg";
-//                    7, SLT_VCL_return,   "deliver";
-//                    7, SLT_Timestamp,    "Process: 1470403414.672425 1.007601 0.000111";
-//                    7, SLT_RespHeader,   "Accept-Ranges: bytes";
-//                    7, SLT_RespHeader,   "Connection: keep-alive";
-//                    7, SLT_Gzip,         "G(un)zip error: -3 ((null))";
-//                    7, SLT_Timestamp,    "Resp: 1470403414.672458 1.007634 0.000032";
-//                    7, SLT_ReqAcct,      "82 2 84 304 6962 7266";
-//                    );
+        assert_eq!(record.lru_nuked, 2);
 
-//         let record = apply_last!(builder, 7, SLT_End, "")
-//             .unwrap_client_access();
-
-//         assert_matches!(record.compression, None);
-
-//         assert_eq!(record.log, &[
-//             LogEntry::Error("G(un)zip error: -3 ((null))".to_string()),
-//         ]);
-//     }
-
-//     #[test]
-//     fn apply_backend_access_record_nuke_limit() {
-//         let mut builder = RecordBuilder::new(123);
-
-//         let mut builder = apply_new!(
-//                    32769, SLT_Begin,            "bereq 8 retry";
-//                    32769, SLT_Timestamp,        "Start: 1470403414.669375 0.004452 0.000000";
-//                    32769, SLT_BereqMethod,      "GET";
-//                    32769, SLT_BereqURL,         "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg";
-//                    32769, SLT_BereqProtocol,    "HTTP/1.1";
-//                    32769, SLT_BereqHeader,      "Date: Fri, 05 Aug 2016 13:23:34 GMT";
-//                    32769, SLT_BereqHeader,      "Host: 127.0.0.1:1200";
-//                    32769, SLT_VCL_return,       "fetch";
-//                    32769, SLT_BackendOpen,      "51 boot.origin 10.1.1.249 2081 10.1.1.222 41580";
-//                    32769, SLT_BackendStart,     "10.1.1.249 2081";
-//                    32769, SLT_Timestamp,        "Bereq: 1470403414.669471 12345.0 0.000096";
-//                    32769, SLT_Timestamp,        "Beresp: 1470403414.672184 0.0 259200.0";
-//                    32769, SLT_BerespProtocol,   "HTTP/1.1";
-//                    32769, SLT_BerespStatus,     "200";
-//                    32769, SLT_BerespReason,     "OK";
-//                    32769, SLT_BerespHeader,     "Content-Type: image/jpeg";
-//                    32769, SLT_BerespHeader,     "Transfer-Encoding: chunked";
-//                    32769, SLT_TTL,              "RFC 3644 10 0 1527691787 1527691787 1527691786 0 3644";
-//                    32769, SLT_VCL_call,         "BACKEND_RESPONSE";
-//                    32769, SLT_TTL,              "VCL 3644 259200 0 1527691787";
-//                    32769, SLT_VCL_return,       "deliver";
-//                    32769, SLT_Storage,          "malloc s0";
-//                    32769, SLT_ObjProtocol,      "HTTP/1.1";
-//                    32769, SLT_ObjStatus,        "200";
-//                    32769, SLT_ObjReason,        "OK";
-//                    32769, SLT_ObjHeader,        "Content-Type: text/html; charset=utf-8";
-//                    32769, SLT_ObjHeader,        "X-Aspnet-Version: 4.0.30319";
-//                    32769, SLT_Fetch_Body,       "2 chunked stream";
-//                    32769, SLT_ExpKill,          "LRU_Cand p=0x7fd565c774c0 f=0x0 r=1";
-//                    32769, SLT_ExpKill,          "LRU x=31426770";
-//                    32769, SLT_ExpKill,          "LRU_Cand p=0x7fd58d0dd1a0 f=0x0 r=1";
-//                    32769, SLT_ExpKill,          "LRU x=31492241";
-//                    32769, SLT_ExpKill,          "LRU_Exhausted";
-//                    32769, SLT_FetchError,       "Could not get storage";
-//                    32769, SLT_Gzip,             "u F - 180224 473602 80 1362184 0";
-//                    32769, SLT_BackendClose,     "51 boot.origin";
-//                    32769, SLT_BereqAcct,        "1458 0 1458 627 180224 180851";
-//                    );
-
-//         let record = apply_last!(builder, 32769, SLT_End, "")
-//             .unwrap_backend_access();
-
-//         assert_eq!(record.log, &[
-//             LogEntry::Error("LRU_Exhausted".to_string()),
-//             LogEntry::FetchError("Could not get storage".to_string()),
-//         ]);
-
-//         assert_eq!(record.lru_nuked, 2);
-
-//         assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
-//                 response: HttpResponse {
-//                     ref protocol,
-//                     status,
-//                     ref reason,
-//                     ref headers
-//                 },
-//                 send,
-//                 wait,
-//                 ttfb,
-//                 fetch: None,
-//                 ..
-//             } => {
-//                 assert_eq!(protocol, "HTTP/1.1");
-//                 assert_eq!(status, 200);
-//                 assert_eq!(reason, "OK");
-//                 assert_eq!(headers, &[
-//                     ("Content-Type".to_string(), "image/jpeg".to_string()),
-//                     ("Transfer-Encoding".to_string(), "chunked".to_string())]);
-//                 assert_eq!(send, parse!("12345.0"));
-//                 assert_eq!(wait, parse!("259200.0"));
-//                 assert_eq!(ttfb, parse!("0.0"));
-//             }
-//         );
-//     }
+        assert_matches!(record.transaction, BackendAccessTransaction::Abandoned {
+                response: HttpResponse {
+                    ref protocol,
+                    status,
+                    ref reason,
+                    ref headers
+                },
+                send,
+                wait,
+                ttfb,
+                fetch: None,
+                ..
+            } => {
+                assert_eq!(protocol, "HTTP/1.1");
+                assert_eq!(status, 200);
+                assert_eq!(reason, "OK");
+                assert_eq!(headers, &[
+                    ("Content-Type".to_string(), "image/jpeg".to_string()),
+                    ("Transfer-Encoding".to_string(), "chunked".to_string())]);
+                assert_eq!(send, parse!("12345.0"));
+                assert_eq!(wait, parse!("259200.0"));
+                assert_eq!(ttfb, parse!("0.0"));
+            }
+        );
+    }
 }
