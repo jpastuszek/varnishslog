@@ -297,17 +297,21 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                 // 192.168.1.115 - - [25/Aug/2016:11:56:55 +0000] "GET http://staging.eod.whatclinic.net/ HTTP/1.1" 503 1366
                 let date_time = NaiveDateTime::from_timestamp(log_entry.timestamp() as i64, 0);
 
-                try!(write!(out, "{} {} - [{}] \"",
+                try!(write!(out, "{} {} - [{}]",
                             log_entry.remote_ip(),
                             log_entry.type_name(),
                             date_time.format("%d/%b/%Y:%H:%M:%S +0000")));
 
-                try!(write!(out, "{} {} {}", 
-                    NcsaOption(log_entry.request_method().map(NcsaEscaped)),
-                    NcsaOption(log_entry.request_url().map(NcsaEscaped)),
-                    NcsaOption(log_entry.request_protocol().map(NcsaEscaped))));
+                if let (Some(method), Some(url), Some(protocol)) = (log_entry.request_method(), log_entry.request_url(), log_entry.request_protocol()) {
+                    try!(write!(out, " \"{} {} {}\"", 
+                        NcsaEscaped(method),
+                        NcsaEscaped(url),
+                        NcsaEscaped(protocol)));
+                } else {
+                    try!(write!(out, " -"));
+                }
 
-                try!(write!(out, "\" {} {} ",
+                try!(write!(out, " {} {} ",
                             NcsaOption(log_entry.response_status()),
                             NcsaOption(log_entry.response_bytes())));
 
