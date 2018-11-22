@@ -1195,18 +1195,17 @@ impl RecordBuilder {
 
                         let root = reason == "rxreq";
 
-                        // root requests should have session
-                        let remote = if root {
-                            //TODO: custom error type and handle gracefully later on
-                            let session = self.session.ok_or(RecordBuilderError::RecordIncomplete("session"))?;
-                            let session = session.borrow();
+                        let session = self.session.as_ref().map(|session| session.borrow());
+                        let client_addr = self.client_addr;
 
-                            session.proxy.as_ref().map(|proxy| proxy.client.clone())
-                                .or_else(|| Some(session.remote.clone()))
-                                .ok_or(RecordBuilderError::RecordIncomplete("session proxy or remote"))?
-                        } else {
-                            self.client_addr.ok_or(RecordBuilderError::RecordIncomplete("client_addr"))?
-                        };
+                        if root && session.is_none() {
+                            warn!("Root client request {} without session", self.ident);
+                        }
+                        
+                        let remote = session.as_ref().and_then(|session| session.proxy.as_ref().map(|proxy| proxy.client.clone()))
+                                .or_else(|| session.as_ref().map(|session| session.remote.clone()))
+                                .or_else(|| client_addr)
+                                .ok_or(RecordBuilderError::RecordIncomplete("session or client_addr"))?;
 
                         let record = ClientAccessRecord {
                             root: reason == "rxreq",
@@ -2349,7 +2348,7 @@ mod tests {
             32769, SLT_Timestamp,        "BerespBody: 1470403414.672290 0.007367 0.000105";
             32769, SLT_Length,           "6962";
             32769, SLT_BereqAcct,        "1021 0 1021 608 6962 7570";
-    );
+        );
 
         let record = apply_last!(builder, 32769, SLT_End, "")
             .unwrap_backend_access();
