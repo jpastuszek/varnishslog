@@ -280,6 +280,7 @@ pub struct SessionRecord {
     pub proxy: Option<Proxy>,
     pub client_records: Vec<Link<ClientAccessRecord>>,
     pub duration: Duration,
+    pub close_reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

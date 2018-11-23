@@ -446,6 +446,7 @@ mod tests {
                         ref server,
                     }),
                     duration: None,
+                    close_reason: None,
                 } => {
                     assert_eq!(ident, 123);
                     assert_eq!(open, parse!("1469180762.484344"));
@@ -484,6 +485,7 @@ mod tests {
                     ref server,
                 }),
                 duration,
+                ref close_reason,
             } => {
                 assert_eq!(ident, 123);
                 assert_eq!(open, parse!("1469180762.484344"));
@@ -496,6 +498,7 @@ mod tests {
                 assert_eq!(client, &("10.1.1.85".to_string(), 41504));
                 assert_eq!(server, &("10.1.1.70".to_string(), 443));
                 assert_eq!(duration, parse!("0.001"));
+                assert_eq!(close_reason, "REM_CLOSE");
             }
         );
     }

@@ -182,6 +182,7 @@ pub struct SessionHead {
     pub proxy: Option<Proxy>,
     pub client_records: Vec<Link<ClientAccessRecord>>,
     pub duration: Option<Duration>,
+    pub close_reason: Option<String>,
 }
 
 impl SessionHead {
@@ -199,9 +200,10 @@ impl SessionHead {
             }
 
             SLT_SessClose => {
-                let (_reason, duration) = try!(vsl.parse_data(slt_sess_close));
+                let (reason, duration) = try!(vsl.parse_data(slt_sess_close));
 
                 self.duration = Some(duration);
+                self.close_reason = Some(reason.to_owned());
             }
             SLT_End => {
                 if self.duration.is_none() {
@@ -225,6 +227,7 @@ impl SessionHead {
             proxy: self.proxy,
             client_records: self.client_records,
             duration: try!(self.duration.ok_or(RecordBuilderError::RecordIncomplete("duration"))),
+            close_reason: try!(self.close_reason.ok_or(RecordBuilderError::RecordIncomplete("close_reason"))),
         })
     }
 
@@ -1134,6 +1137,7 @@ impl RecordBuilder {
                     proxy,
                     client_records: self.client_records,
                     duration: None,
+                    close_reason: None,
                 };
 
                 Ok(Record::Session(record))
@@ -1437,6 +1441,7 @@ mod tests {
             proxy: None,
             client_records: Vec::new(),
             duration: None,
+            close_reason: None,
         })))
     }
 
