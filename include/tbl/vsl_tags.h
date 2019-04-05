@@ -160,6 +160,10 @@ SLTM(Backend, 0, "Backend selected",
 	"\t|  |  +- Backend display name\n"
 	"\t|  +---- VCL name\n"
 	"\t+------- Connection file descriptor\n"
+	"\t\n"
+	"\tNOTE: This tag is currently not in use in the Varnish log.\n"
+	"\tIt is mentioned here to document legacy versions of the log,\n"
+	"\tand reserved for possible use in future versions.\n"
 	"\n"
 )
 
@@ -413,17 +417,18 @@ SLTM(Hash, SLT_F_UNSAFE, "Value added to hash",
 SLTM(Backend_health, 0, "Backend health check",
 	"The result of a backend health probe.\n\n"
 	"The format is::\n\n"
-	"\t%s %s %s %u %u %u %f %f %s\n"
-	"\t|  |  |  |  |  |  |  |  |\n"
-	"\t|  |  |  |  |  |  |  |  +- Probe HTTP response / error information\n"
-	"\t|  |  |  |  |  |  |  +---- Average response time\n"
-	"\t|  |  |  |  |  |  +------- Response time\n"
-	"\t|  |  |  |  |  +---------- Probe window size\n"
-	"\t|  |  |  |  +------------- Probe threshold level\n"
-	"\t|  |  |  +---------------- Number of good probes in window\n"
-	"\t|  |  +------------------- Probe window bits\n"
-	"\t|  +---------------------- Status message\n"
-	"\t+------------------------- Backend name\n"
+	"\t%s %s %s %s %u %u %u %f %f %s\n"
+	"\t|  |  |  |  |  |  |  |  |  |\n"
+	"\t|  |  |  |  |  |  |  |  |  +- Probe HTTP response / error information\n"
+	"\t|  |  |  |  |  |  |  |  +---- Average response time\n"
+	"\t|  |  |  |  |  |  |  +------- Response time\n"
+	"\t|  |  |  |  |  |  +---------- Probe window size\n"
+	"\t|  |  |  |  |  +------------- Probe threshold level\n"
+	"\t|  |  |  |  +---------------- Number of good probes in window\n"
+	"\t|  |  |  +------------------- Probe window bits\n"
+	"\t|  |  +---------------------- \"healthy\" or \"sick\"\n"
+	"\t|  +------------------------- \"Back\", \"Still\" or \"Went\"\n"
+	"\t+---------------------------- Backend name\n"
 	"\n"
 
 	"Probe window bits are::\n\n"
@@ -639,6 +644,17 @@ SLTM(SessError, 0, "Client connection accept failed",
 	"\t|  |  +---------- Local TCP port / 0 for UDS\n"
 	"\t|  +------------- Local IPv4/6 address / 0.0.0.0 for UDS\n"
 	"\t+---------------- Socket name (from -a argument)\n"
+	"\n"
+)
+
+SLTM(VCL_use, 0, "VCL in use",
+	"Records the name of the VCL being used.\n\n"
+	"The format is::\n\n"
+	"\t%s [ %s %s ]\n"
+	"\t|    |  |\n"
+	"\t|    |  +- Name of label used to find it\n"
+	"\t|    +---- \"via\"\n"
+	"\t+--------- Name of VCL put in use\n"
 	"\n"
 )
 

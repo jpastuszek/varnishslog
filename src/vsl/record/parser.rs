@@ -57,7 +57,7 @@ fn to_vsl_record_tag(num: u8) -> VslRecordTag {
 
     // Warning: we need to make sure that num is an existing VslRecordTag variant or program will crash!
     // TODO: there needs to be a better way than this!
-    if num > VslRecordTag::SLT_SessError as u32 && num < VslRecordTag::SLT__Reserved as u32 {
+    if num > VslRecordTag::SLT_VCL_use as u32 && num < VslRecordTag::SLT__Reserved as u32 {
         return VslRecordTag::SLT__Bogus
     }
 
