@@ -1,0 +1,4 @@
+wget https://raw.githubusercontent.com/varnishcache/varnish-cache/master/include/tbl/vsl_tags.h -O include/tbl/vsl_tags.h
+wget https://raw.githubusercontent.com/varnishcache/varnish-cache/master/include/tbl/vsl_tags_http.h -O include/tbl/vsl_tags_http.h
+wget https://raw.githubusercontent.com/varnishcache/varnish-cache/master/include/vapi/vsl_int.h -O include/vapi/vsl_int.h
+wget https://raw.githubusercontent.com/varnishcache/varnish-cache/master/include/vapi/vsl.h -O include/vapi/vsl.h

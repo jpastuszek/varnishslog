@@ -269,7 +269,9 @@ Compatibility
 
 `varnishslog` v0.6.x was tested with Varnish v6.1.1. Note that Varnish v6.1.0 has a VSL compatibility bug and `varnishslog` will not work correctly with this particular version of Varnish. Also note that logging of cache object response is disabled by default in Varnish going forward. To bring back "cached_object"."response" data add `-p vsl_mask=+ObjProtocol,+ObjStatus,+ObjReason,+ObjHeader` to `varnishd` parameters.
 
-`varnishslog` v0.7.x was tested with Varnish v6.1.1 with HTTP/2 and PROXY v2 (hitch) protocol.
+`varnishslog` v0.7.0 was tested with Varnish v6.1.1 with HTTP/2 and PROXY v2 (hitch) protocol.
+
+`varnishslog` v0.7.1 was tested with Varnish v6.2.0.
 
 Usage
 -----
