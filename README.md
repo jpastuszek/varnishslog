@@ -1,4 +1,6 @@
-# Varnishslog &emsp; [![Latest Version](https://img.shields.io/crates/v/varnishslog.svg)](https://crates.io/crates/varnishslog)
+[![Latest Version]][crates.io] [![Documentation]][docs.rs] ![License]
+
+# Varnishslog
 
 **`varnishslog` reads Varnish Cache VSL (binary) log stream and produces structured log records in JSON format.**
 
@@ -340,3 +342,9 @@ test default_buffer_from_file     ... bench:     323,345 ns/iter (+/- 366,780)
 * 10.9 K/s JSON records (raw) or 1668 K/s VSL records processed into serialized output
 * 17.8 K/s session records (correlated access records) or 2789 K/s VSL records processed (without serialization)
 * 41.6 M/s VSL records extracted from binary stream (message not parsed)
+
+[crates.io]: https://crates.io/crates/varnishslog
+[Latest Version]: https://img.shields.io/crates/v/varnishslog.svg
+[Documentation]: https://docs.rs/varnishslog/badge.svg
+[docs.rs]: https://docs.rs/varnishslog
+[License]: https://img.shields.io/crates/l/varnishslog.svg
