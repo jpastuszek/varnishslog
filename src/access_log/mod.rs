@@ -2,16 +2,16 @@
 #[macro_use]
 mod test_helpers {
     //TODO move to lib.rs?
-    use vsl::record::{VslRecord, VslRecordTag, VslIdent};
-    use std::sync::{Once, ONCE_INIT};
+    use crate::vsl::record::{VslRecord, VslRecordTag, VslIdent};
+    use std::sync::{Once};
 
-    pub use vsl::record::VslRecordTag::*;
+    pub use crate::vsl::record::VslRecordTag::*;
 
     pub fn vsl(tag: VslRecordTag, ident: VslIdent, message: &str) -> VslRecord {
         VslRecord::from_str(tag, ident, message)
     }
 
-    use vsl::record::VSL_CLIENTMARKER;
+    use crate::vsl::record::VSL_CLIENTMARKER;
     impl<'s> VslRecord<'s> {
         pub fn from_str(tag: VslRecordTag, ident: VslIdent, message: &str) -> VslRecord {
             VslRecord {

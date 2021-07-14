@@ -1,11 +1,11 @@
 mod record_builder;
 use self::record_builder::{RecordBuilder, RecordBuilderError, SessionHead, Record};
-use store::VslStore;
-use store::Config as StoreConfig;
-use vsl::record::VslRecord;
-use access_log::record::AccessRecord;
+use crate::store::VslStore;
+use crate::store::Config as StoreConfig;
+use crate::vsl::record::VslRecord;
+use crate::access_log::record::AccessRecord;
 use std::num::Wrapping;
-use vsl::record::VslIdent;
+use crate::vsl::record::VslIdent;
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -177,8 +177,8 @@ impl RecordState {
 mod tests {
     pub use super::*;
     pub use super::super::test_helpers::*;
-    pub use access_log::record::*;
-    pub use vsl::record::*;
+    pub use crate::access_log::record::*;
+    pub use crate::vsl::record::*;
 
     use super::record_builder::RecordBuilder;
     use super::Slot;

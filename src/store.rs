@@ -20,7 +20,7 @@ use std::fmt::{self, Debug, Display};
 use fnv::FnvHasher;
 use std::hash::BuildHasherDefault;
 
-use vsl::record::VslIdent;
+use crate::vsl::record::VslIdent;
 
 // How many VslIdent recorts to keep in the store
 const MAX_SLOTS: usize = 4000;
@@ -275,7 +275,7 @@ impl<'a, T> Iterator for Values<'a, T> {
 mod tests {
     pub use super::*;
 
-    use vsl::record::VslIdent;
+    use crate::vsl::record::VslIdent;
     impl<T: Debug> VslStore<T> {
         pub fn oldest(&self) -> Option<(&VslIdent, &T)> {
             self.store.front().map(|(i, v)| (i, &v.1))

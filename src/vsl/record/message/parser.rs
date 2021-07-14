@@ -16,8 +16,8 @@
 use std::str::{FromStr, from_utf8};
 use nom::{non_empty, space, eof};
 
-use vsl::record::VslIdent;
-use maybe_string::MaybeStr;
+use crate::vsl::record::VslIdent;
+use crate::maybe_string::MaybeStr;
 
 use super::{
     TimeStamp,

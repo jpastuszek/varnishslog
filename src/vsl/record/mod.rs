@@ -10,7 +10,7 @@ use std::fmt::{self, Debug, Display};
 use quick_error::ResultExt;
 use nom;
 
-use maybe_string::MaybeStr;
+use crate::maybe_string::MaybeStr;
 pub use self::tag_e::VSL_tag_e as VslRecordTag;
 
 bitflags! {

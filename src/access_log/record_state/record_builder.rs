@@ -113,17 +113,17 @@
 
 use std::rc::Rc;
 use std::cell::RefCell;
-use maybe_string::{MaybeStr, MaybeString};
-use vsl::record::{
+use crate::maybe_string::{MaybeStr, MaybeString};
+use crate::vsl::record::{
     VslRecordTag,
     VslIdent,
     VslRecord,
     VslRecordParseError,
 };
-use vsl::record::VslRecordTag::*;
-use vsl::record::message::parser::*;
+use crate::vsl::record::VslRecordTag::*;
+use crate::vsl::record::message::parser::*;
 
-use access_log::record::{
+use crate::access_log::record::{
     TimeStamp,
     Duration,
     Status,
@@ -189,7 +189,7 @@ impl SessionHead {
     pub fn update(&mut self, vsl: &VslRecord) -> Result<bool, RecordBuilderError> {
         match vsl.tag {
             SLT_Link => {
-                let (reason, child_ident, child_type) = try!(vsl.parse_data(slt_link));
+                let (reason, child_ident, child_type) = vsl.parse_data(slt_link)?;
 
                 match (reason, child_type) {
                     ("req", "rxreq") => {
@@ -200,7 +200,7 @@ impl SessionHead {
             }
 
             SLT_SessClose => {
-                let (reason, duration) = try!(vsl.parse_data(slt_sess_close));
+                let (reason, duration) = vsl.parse_data(slt_sess_close)?;
 
                 self.duration = Some(duration);
                 self.close_reason = Some(reason.to_owned());
@@ -226,8 +226,8 @@ impl SessionHead {
             remote: self.remote,
             proxy: self.proxy,
             client_records: self.client_records,
-            duration: try!(self.duration.ok_or(RecordBuilderError::RecordIncomplete("duration"))),
-            close_reason: try!(self.close_reason.ok_or(RecordBuilderError::RecordIncomplete("close_reason"))),
+            duration: self.duration.ok_or(RecordBuilderError::RecordIncomplete("duration"))?,
+            close_reason: self.close_reason.ok_or(RecordBuilderError::RecordIncomplete("close_reason"))?,
         })
     }
 
@@ -277,7 +277,7 @@ impl<B, C, E> MutBuilderState<B> where B: MutBuilder<C=C, E=E>  {
 
     fn apply<'r>(&mut self, val: &VslRecord<'r>) -> Result<bool, E> {
         if !self.complete {
-            self.complete = try!(self.inner.apply(val));
+            self.complete = self.inner.apply(val)?;
         }
         Ok(self.complete)
     }
@@ -366,23 +366,23 @@ impl MutBuilder for HttpRequestBuilder {
     fn apply<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
         match vsl.tag {
             SLT_BereqProtocol | SLT_ReqProtocol => {
-                let protocol = try!(vsl.parse_data(slt_protocol));
+                let protocol = vsl.parse_data(slt_protocol)?;
                 self.protocol = Some(protocol.to_lossy_string());
             }
             SLT_BereqMethod | SLT_ReqMethod => {
-                let method = try!(vsl.parse_data(slt_method));
+                let method = vsl.parse_data(slt_method)?;
                 self.method = Some(method.to_lossy_string());
             }
             SLT_BereqURL | SLT_ReqURL => {
-                let url = try!(vsl.parse_data(slt_url));
+                let url = vsl.parse_data(slt_url)?;
                 self.url = Some(url.to_lossy_string());
             }
-            SLT_BereqHeader | SLT_ReqHeader => if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
+            SLT_BereqHeader | SLT_ReqHeader => if let (name, Some(value)) = vsl.parse_data(slt_header)? {
                 self.headers.set(name.to_maybe_string(), value.to_maybe_string());
             } else {
                 debug!("Not setting empty request header: {:?}", vsl);
             },
-            SLT_BereqUnset | SLT_ReqUnset => if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
+            SLT_BereqUnset | SLT_ReqUnset => if let (name, Some(value)) = vsl.parse_data(slt_header)? {
                 self.headers.unset(name, value);
             } else {
                 debug!("Not unsetting empty request header: {:?}", vsl);
@@ -395,9 +395,9 @@ impl MutBuilder for HttpRequestBuilder {
 
     fn build(self) -> Result<HttpRequest, RecordBuilderError> {
         Ok(HttpRequest {
-            protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Request.protocol"))),
-            method: try!(self.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))),
-            url: try!(self.url.ok_or(RecordBuilderError::RecordIncomplete("Request.url"))),
+            protocol: self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Request.protocol"))?,
+            method: self.method.ok_or(RecordBuilderError::RecordIncomplete("Request.method"))?,
+            url: self.url.ok_or(RecordBuilderError::RecordIncomplete("Request.url"))?,
             headers: self.headers.build().into_iter()
                 .map(|(name, value)| (name.to_lossy_string(), value.to_lossy_string()))
                 .collect(),
@@ -437,26 +437,26 @@ impl MutBuilder for HttpResponseBuilder {
     fn apply<'r>(&mut self, vsl: &VslRecord<'r>) -> Result<bool, RecordBuilderError> {
         match vsl.tag {
             SLT_BerespProtocol | SLT_RespProtocol | SLT_ObjProtocol => {
-                let protocol = try!(vsl.parse_data(slt_protocol));
+                let protocol = vsl.parse_data(slt_protocol)?;
                 self.protocol = Some(protocol.to_lossy_string());
             }
             SLT_BerespStatus | SLT_RespStatus | SLT_ObjStatus => {
-                let status = try!(vsl.parse_data(slt_status));
+                let status = vsl.parse_data(slt_status)?;
                 self.status = Some(status);
             }
             SLT_BerespReason | SLT_RespReason | SLT_ObjReason => {
-                let reason = try!(vsl.parse_data(slt_reason));
+                let reason = vsl.parse_data(slt_reason)?;
                 self.reason = Some(reason.to_lossy_string());
             }
             SLT_BerespHeader | SLT_RespHeader | SLT_ObjHeader => {
-                if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
+                if let (name, Some(value)) = vsl.parse_data(slt_header)? {
                     self.headers.set(name.to_maybe_string(), value.to_maybe_string());
                 } else {
                     debug!("Not setting empty response header: {:?}", vsl);
                 }
             }
             SLT_BerespUnset | SLT_RespUnset | SLT_ObjUnset => {
-                if let (name, Some(value)) = try!(vsl.parse_data(slt_header)) {
+                if let (name, Some(value)) = vsl.parse_data(slt_header)? {
                     self.headers.unset(name, value);
                 } else {
                     debug!("Not unsetting empty response header: {:?}", vsl);
@@ -470,9 +470,9 @@ impl MutBuilder for HttpResponseBuilder {
 
     fn build(self) -> Result<HttpResponse, RecordBuilderError> {
         Ok(HttpResponse {
-            protocol: try!(self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Response.protocol"))),
-            status: try!(self.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))),
-            reason: try!(self.reason.ok_or(RecordBuilderError::RecordIncomplete("Response.reason"))),
+            protocol: self.protocol.ok_or(RecordBuilderError::RecordIncomplete("Response.protocol"))?,
+            status: self.status.ok_or(RecordBuilderError::RecordIncomplete("Response.status"))?,
+            reason: self.reason.ok_or(RecordBuilderError::RecordIncomplete("Response.reason"))?,
             headers: self.headers.build().into_iter()
                 .map(|(name, value)| (name.to_lossy_string(), value.to_lossy_string()))
                 .collect(),
@@ -578,7 +578,7 @@ impl RecordBuilder {
     pub fn new(vsl: &VslRecord) -> Result<RecordBuilder, RecordBuilderError> {
         let record_type = match vsl.tag {
             SLT_Begin => {
-                let (record_type, parent_ident, reason) = try!(vsl.parse_data(slt_begin));
+                let (record_type, parent_ident, reason) = vsl.parse_data(slt_begin)?;
                 match record_type {
                     "bereq" => RecordType::BackendAccess {
                         reason: reason.to_owned(),
@@ -655,7 +655,7 @@ impl RecordBuilder {
         match vsl.tag {
             SLT_Begin => return Err(RecordBuilderError::SpuriousBegin(vsl.tag)),
             SLT_ReqStart => {
-                let (client_ip, client_port) = try!(vsl.parse_data(slt_req_start));
+                let (client_ip, client_port) = vsl.parse_data(slt_req_start)?;
                 self.client_addr = Some((client_ip.to_string(), client_port));
 
                 // Reset http_request on ReqStar
@@ -663,7 +663,7 @@ impl RecordBuilder {
             }
             SLT_Timestamp => {
                 let (label, timestamp, since_work_start, since_last_timestamp) =
-                    try!(vsl.parse_data(slt_timestamp));
+                    vsl.parse_data(slt_timestamp)?;
 
                 match label {
                     "Start" => self.req_start = Some(timestamp),
@@ -695,7 +695,7 @@ impl RecordBuilder {
                 };
             }
             SLT_Link => {
-                let (reason, child_ident, child_type) = try!(vsl.parse_data(slt_link));
+                let (reason, child_ident, child_type) = vsl.parse_data(slt_link)?;
 
                 match (reason, child_type) {
                     ("req", "restart") => {
@@ -729,27 +729,27 @@ impl RecordBuilder {
                 };
             }
             SLT_VCL_Log => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::Vcl(log_entry.to_lossy_string()));
             }
             SLT_VCL_Error => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::VclError(log_entry.to_lossy_string()));
             }
             SLT_Debug => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::Debug(log_entry.to_lossy_string()));
             }
             SLT_Error => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::Error(log_entry.to_lossy_string()));
             }
             SLT_FetchError => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::FetchError(log_entry.to_lossy_string()));
 
@@ -766,7 +766,7 @@ impl RecordBuilder {
                 };
             }
             SLT_ExpKill => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 if log_entry.as_bytes().starts_with(b"LRU x=") {
                     self.lru_nuked += 1;
@@ -777,12 +777,12 @@ impl RecordBuilder {
                 }
             }
             SLT_BogoHeader => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::Warning(format!("Bogus HTTP header received: {}", log_entry.to_lossy_string())));
             }
             SLT_HttpGarbage => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::Warning(format!("Garbage HTTP received: {}", log_entry.to_lossy_string())));
 
@@ -791,7 +791,7 @@ impl RecordBuilder {
                 }
             }
             SLT_ProxyGarbage => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::Warning(format!("Garbage PROXY received: {}", log_entry.to_lossy_string())));
 
@@ -800,13 +800,13 @@ impl RecordBuilder {
                 }
             }
             SLT_LostHeader => {
-                let log_entry = try!(vsl.parse_data(slt_vcl_log));
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
 
                 self.log.push(LogEntry::Warning(format!("Failed HTTP header operation due to resource exhaustion or configured limits; header was: {}", log_entry.to_lossy_string())));
             }
 
             SLT_Storage => {
-                let (storage_type, storage_name) = try!(vsl.parse_data(slt_storage));
+                let (storage_type, storage_name) = vsl.parse_data(slt_storage)?;
 
                 self.obj_storage = Some(ObjStorage {
                     stype: storage_type.to_string(),
@@ -814,12 +814,12 @@ impl RecordBuilder {
                 });
             }
             SLT_VCL_acl => {
-                let (result, name, addr) = try!(vsl.parse_data(slt_vcl_acl));
+                let (result, name, addr) = vsl.parse_data(slt_vcl_acl)?;
 
                 self.log.push(LogEntry::Acl(result, name.to_string(), addr.map(|addr| addr.to_lossy_string())));
             }
             SLT_TTL => {
-                let (_soruce, ttl, grace, keep, since, rfc) = try!(vsl.parse_data(slt_ttl));
+                let (_soruce, ttl, grace, keep, since, rfc) = vsl.parse_data(slt_ttl)?;
 
                 let origin = match (rfc, &self.obj_ttl) {
                     (Some((origin, _date, _expires, _max_age)), _) => Some(origin),
@@ -839,7 +839,7 @@ impl RecordBuilder {
                 // Note: recv are first
                 let (recv_header, recv_body, recv_total,
                      sent_header, sent_body, sent_total) =
-                    try!(vsl.parse_data(slt_req_acct));
+                    vsl.parse_data(slt_req_acct)?;
 
                 self.accounting = Some(Accounting {
                     recv_header: recv_header,
@@ -854,7 +854,7 @@ impl RecordBuilder {
                 // Note: sent are first
                 let (sent_header, sent_body, sent_total,
                     recv_header, recv_body, recv_total) =
-                    try!(vsl.parse_data(slt_bereq_acct));
+                    vsl.parse_data(slt_bereq_acct)?;
 
                 self.accounting = Some(Accounting {
                     sent_header: sent_header,
@@ -875,7 +875,7 @@ impl RecordBuilder {
             SLT_PipeAcct => {
                 let (client_request_headers, _backend_request_headers,
                      piped_from_client, piped_to_client) =
-                    try!(vsl.parse_data(slt_pipe_acct));
+                    vsl.parse_data(slt_pipe_acct)?;
 
                 self.pipe_accounting = Some(PipeAccounting {
                     recv_total: client_request_headers + piped_from_client,
@@ -884,7 +884,7 @@ impl RecordBuilder {
             }
             SLT_BackendOpen => {
                 let (fd, name, opt_remote, (local_addr, local_port)) =
-                    try!(vsl.parse_data(slt_backend_open));
+                    vsl.parse_data(slt_backend_open)?;
 
                 self.backend_connection = Some(BackendConnection {
                     fd: fd,
@@ -906,7 +906,7 @@ impl RecordBuilder {
             SLT_BereqURL | SLT_ReqURL |
             SLT_BereqHeader | SLT_ReqHeader |
             SLT_BereqUnset | SLT_ReqUnset => {
-                try!(self.http_request.apply(vsl));
+                self.http_request.apply(vsl)?;
             }
 
             // Response
@@ -915,7 +915,7 @@ impl RecordBuilder {
             SLT_BerespReason | SLT_RespReason |
             SLT_BerespHeader | SLT_RespHeader |
             SLT_BerespUnset | SLT_RespUnset => {
-                try!(self.http_response.apply(vsl));
+                self.http_response.apply(vsl)?;
             }
 
             // Cache Object
@@ -928,13 +928,13 @@ impl RecordBuilder {
                     self.cache_object = Some(MutBuilderState::new(HttpResponseBuilder::new()))
                 }
                 let cache_object = self.cache_object.as_mut().expect("cache object response builder");
-                try!(cache_object.apply(vsl));
+                cache_object.apply(vsl)?;
             }
 
             // Session
             SLT_SessOpen => {
                 let (remote_address, _listen_sock, local_address, timestamp, _fd)
-                    = try!(vsl.parse_data(slt_sess_open));
+                    = vsl.parse_data(slt_sess_open)?;
 
                 let remote_address = (remote_address.0.to_string(), remote_address.1);
                 let local_address = local_address.map(|(ip, port)| (ip.to_string(), port));
@@ -945,7 +945,7 @@ impl RecordBuilder {
             }
             SLT_Proxy => {
                 let (version, client_address, server_address)
-                    = try!(vsl.parse_data(slt_proxy));
+                    = vsl.parse_data(slt_proxy)?;
 
                 let client_address = (client_address.0.to_string(), client_address.1);
                 let server_address = (server_address.0.to_string(), server_address.1);
@@ -956,24 +956,24 @@ impl RecordBuilder {
             }
 
             SLT_Hit => {
-                let object_ident = try!(vsl.parse_data(slt_hit));
+                let object_ident = vsl.parse_data(slt_hit)?;
 
                 self.handling = Some(Handling::Hit(object_ident));
             }
 
             SLT_HitPass => {
-                let object_ident = try!(vsl.parse_data(slt_hit_pass));
+                let object_ident = vsl.parse_data(slt_hit_pass)?;
 
                 self.handling = Some(Handling::HitPass(object_ident));
             }
             SLT_HitMiss => {
-                let (object_ident, remaining_ttl) = try!(vsl.parse_data(slt_hit_miss));
+                let (object_ident, remaining_ttl) = vsl.parse_data(slt_hit_miss)?;
 
                 self.handling = Some(Handling::HitMiss(object_ident, remaining_ttl));
             }
 
             SLT_VCL_call => {
-                let method = try!(vsl.parse_data(slt_vcl_call));
+                let method = vsl.parse_data(slt_vcl_call)?;
 
                 match method {
                     "RECV" => self.http_request.complete(),
@@ -1026,7 +1026,7 @@ impl RecordBuilder {
             }
 
             SLT_VCL_return => {
-                let action = try!(vsl.parse_data(slt_vcl_return));
+                let action = vsl.parse_data(slt_vcl_return)?;
 
                 match action {
                     "restart" => if let RecordType::ClientAccess {
@@ -1095,7 +1095,7 @@ impl RecordBuilder {
             }
             SLT_Gzip => {
                 // Note: direction and ESI values will be known form context
-                match try!(vsl.parse_data(slt_gzip)) {
+                match vsl.parse_data(slt_gzip)? {
                     Ok((operation, _direction, _esi,
                        bytes_in, bytes_out,
                        _bit_first, _bit_last, _bit_len)) => self.compression = Some(Compression {
@@ -1107,7 +1107,7 @@ impl RecordBuilder {
                 }
             }
             SLT_Fetch_Body => {
-                let (_fetch_mode, fetch_mode_name, streamed) = try!(vsl.parse_data(slt_fetch_body));
+                let (_fetch_mode, fetch_mode_name, streamed) = vsl.parse_data(slt_fetch_body)?;
 
                 self.fetch_body = Some(FetchBody {
                     mode: fetch_mode_name.to_string(),
@@ -1127,9 +1127,9 @@ impl RecordBuilder {
             RecordType::Session => {
                 let proxy = if self.sess_proxy_version.is_some() {
                     Some(Proxy {
-                        version: try!(self.sess_proxy_version.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_version"))),
-                        client: try!(self.sess_proxy_client.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_client"))),
-                        server: try!(self.sess_proxy_server.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_server"))),
+                        version: self.sess_proxy_version.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_version"))?,
+                        client: self.sess_proxy_client.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_client"))?,
+                        server: self.sess_proxy_server.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_server"))?,
                     })
                 } else {
                     None
@@ -1137,9 +1137,9 @@ impl RecordBuilder {
 
                 let record = SessionHead {
                     ident: self.ident,
-                    open: try!(self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))),
+                    open: self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))?,
                     local: self.sess_local,
-                    remote: try!(self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))),
+                    remote: self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))?,
                     proxy,
                     client_records: self.client_records,
                     duration: None,
@@ -1158,22 +1158,22 @@ impl RecordBuilder {
                                 self.http_response.complete();
 
                                 ClientAccessTransaction::Full {
-                                    request: try!(self.http_request.build()),
-                                    response: try!(self.http_response.build()),
+                                    request: self.http_request.build()?,
+                                    response: self.http_response.build()?,
                                     esi_records: self.client_records,
                                     backend_record: self.backend_record,
                                     process: self.req_process,
                                     fetch: self.resp_fetch,
-                                    ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
-                                    serve: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
-                                    accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
+                                    ttfb: self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))?,
+                                    serve: self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))?,
+                                    accounting: self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))?,
                                 }
                             },
                             ClientAccessTransactionType::RestartedEarly => {
                                 ClientAccessTransaction::RestartedEarly {
-                                    request: try!(self.http_request.build()),
+                                    request: self.http_request.build()?,
                                     process: self.req_process,
-                                    restart_record: try!(self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))),
+                                    restart_record: self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))?,
                                 }
                             },
                             ClientAccessTransactionType::RestartedLate => {
@@ -1182,11 +1182,11 @@ impl RecordBuilder {
                                 self.http_response.complete();
 
                                 ClientAccessTransaction::RestartedLate {
-                                    request: try!(self.http_request.build()),
-                                    response: try!(self.http_response.build()),
+                                    request: self.http_request.build()?,
+                                    response: self.http_response.build()?,
                                     backend_record: self.backend_record,
                                     process: self.req_process,
-                                    restart_record: try!(self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))),
+                                    restart_record: self.restart_record.ok_or(RecordBuilderError::RecordIncomplete("restart_record"))?,
                                 }
                             },
                             ClientAccessTransactionType::Bad => {
@@ -1196,20 +1196,20 @@ impl RecordBuilder {
 
                                 ClientAccessTransaction::Bad {
                                     request: self.http_request.build().ok(), // we may not have workable request at
-                                    response: try!(self.http_response.build()),
+                                    response: self.http_response.build()?,
                                     // req_process is all I have
-                                    ttfb: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
-                                    serve: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
-                                    accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
+                                    ttfb: self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))?,
+                                    serve: self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))?,
+                                    accounting: self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))?,
                                 }
                             },
                             ClientAccessTransactionType::Piped => {
                                 ClientAccessTransaction::Piped {
-                                    request: try!(self.http_request.build()),
-                                    backend_record: try!(self.backend_record.ok_or(RecordBuilderError::RecordIncomplete("backend_record"))),
+                                    request: self.http_request.build()?,
+                                    backend_record: self.backend_record.ok_or(RecordBuilderError::RecordIncomplete("backend_record"))?,
                                     process: self.req_process,
                                     ttfb: self.resp_ttfb,
-                                    accounting: try!(self.pipe_accounting.ok_or(RecordBuilderError::RecordIncomplete("pipe_accounting"))),
+                                    accounting: self.pipe_accounting.ok_or(RecordBuilderError::RecordIncomplete("pipe_accounting"))?,
                                 }
                             },
                         };
@@ -1236,7 +1236,7 @@ impl RecordBuilder {
                             reason,
                             remote,
                             transaction: transaction,
-                            start: try!(self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))),
+                            start: self.req_start.ok_or(RecordBuilderError::RecordIncomplete("req_start"))?,
                             end: self.resp_end,
                             handling: self.handling.unwrap_or(Handling::Synth), // bad request won't have handling
                             compression: self.compression,
@@ -1252,13 +1252,13 @@ impl RecordBuilder {
                                     debug!("Completing cache_object on final build of BackendAccess Full record type: {:?}", cache_object);
                                     // safet to complete late
                                     cache_object.complete();
-                                    Some(try!(cache_object.build()))
+                                    Some(cache_object.build()?)
                                 } else {
                                     None
                                 };
 
-                                let obj_storage = try!(self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage")));
-                                let obj_ttl = try!(self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl")));
+                                let obj_storage = self.obj_storage.ok_or(RecordBuilderError::RecordIncomplete("obj_storage"))?;
+                                let obj_ttl = self.obj_ttl.ok_or(RecordBuilderError::RecordIncomplete("obj_ttl"))?;
 
                                 let (fetch_mode, fetch_streamed) = match self.fetch_body {
                                     Some(f) => (Some(f.mode), Some(f.streamed)),
@@ -1280,15 +1280,15 @@ impl RecordBuilder {
 
                                 debug!("Building http_response on final build of BackendAccess Full record type");
                                 BackendAccessTransaction::Full {
-                                    request: try!(self.http_request.build()),
-                                    response: try!(self.http_response.build()),
-                                    backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
+                                    request: self.http_request.build()?,
+                                    response: self.http_response.build()?,
+                                    backend_connection: self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))?,
                                     cache_object: cache_object,
-                                    send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
-                                    wait: try!(self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))),
-                                    ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
-                                    fetch: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
-                                    accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
+                                    send: self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))?,
+                                    wait: self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))?,
+                                    ttfb: self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))?,
+                                    fetch: self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))?,
+                                    accounting: self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))?,
                                 }
                             }
                             BackendAccessTransactionType::Failed => {
@@ -1298,34 +1298,34 @@ impl RecordBuilder {
                                 self.http_response.complete();
 
                                 BackendAccessTransaction::Failed {
-                                    request: try!(self.http_request.build()),
-                                    synth_response: try!(self.http_response.build()),
+                                    request: self.http_request.build()?,
+                                    synth_response: self.http_response.build()?,
                                     retry_record: self.retry_record,
-                                    synth: try!(self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))),
-                                    accounting: try!(self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))),
+                                    synth: self.req_took.ok_or(RecordBuilderError::RecordIncomplete("req_took"))?,
+                                    accounting: self.accounting.ok_or(RecordBuilderError::RecordIncomplete("accounting"))?,
                                 }
                             }
                             BackendAccessTransactionType::Aborted => {
                                 BackendAccessTransaction::Aborted {
-                                    request: try!(self.http_request.build()),
+                                    request: self.http_request.build()?,
                                 }
                             }
                             BackendAccessTransactionType::Abandoned => {
                                 BackendAccessTransaction::Abandoned {
-                                    request: try!(self.http_request.build()),
-                                    response: try!(self.http_response.build()),
-                                    backend_connection: try!(self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))),
+                                    request: self.http_request.build()?,
+                                    response: self.http_response.build()?,
+                                    backend_connection: self.backend_connection.ok_or(RecordBuilderError::RecordIncomplete("backend_connection"))?,
                                     retry_record: self.retry_record,
-                                    send: try!(self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))),
-                                    wait: try!(self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))),
-                                    ttfb: try!(self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))),
+                                    send: self.req_process.ok_or(RecordBuilderError::RecordIncomplete("req_process"))?,
+                                    wait: self.resp_fetch.ok_or(RecordBuilderError::RecordIncomplete("resp_fetch"))?,
+                                    ttfb: self.resp_ttfb.ok_or(RecordBuilderError::RecordIncomplete("resp_ttfb"))?,
                                     fetch: self.req_took,
                                 }
                             }
                             BackendAccessTransactionType::Piped => {
                                 self.http_request.complete();
                                 BackendAccessTransaction::Piped {
-                                    request: try!(self.http_request.build()),
+                                    request: self.http_request.build()?,
                                     backend_connection: self.backend_connection,
                                 }
                             }
@@ -1363,8 +1363,8 @@ impl RecordBuilder {
 mod tests {
     pub use super::*;
     pub use super::super::super::test_helpers::*;
-    pub use access_log::record::*;
-    pub use vsl::record::*;
+    pub use crate::access_log::record::*;
+    pub use crate::vsl::record::*;
 
     impl Record {
         // fn is_client_access(&self) -> bool {

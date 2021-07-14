@@ -11,7 +11,7 @@ use chrono::NaiveDateTime;
 use linked_hash_map::LinkedHashMap;
 use boolinator::Boolinator;
 
-use access_log::record::{
+use crate::access_log::record::{
     Address,
     Handling,
     HttpRequest,
@@ -35,8 +35,8 @@ use access_log::record::{
 };
 
 mod ser {
-    use access_log::record::LogEntry as VslLogEntry;
-    use access_log::record::AclResult as VslAclResult;
+    use crate::access_log::record::LogEntry as VslLogEntry;
+    use crate::access_log::record::AclResult as VslAclResult;
     include!(concat!(env!("OUT_DIR"), "/serde_types.rs"));
 }
 
@@ -280,9 +280,9 @@ impl<T: AsRef<str>> Display for NcsaEscaped<T> {
         let mut iter = self.0.as_ref().split('"').peekable();
         loop {
             match (iter.next(), iter.peek()) {
-                (Some(i), Some(_)) => try!(write!(f, "{}\\\"", i)),
+                (Some(i), Some(_)) => write!(f, "{}\\\"", i)?,
                 (Some(i), None) => {
-                    try!(write!(f, "{}", i));
+                    write!(f, "{}", i)?;
                     break
                 }
                 _ => unreachable!()
@@ -315,35 +315,35 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
         match *format {
             Format::Json |
             Format::JsonPretty => {
-                try!(write_entry(out, &log_entry));
+                write_entry(out, &log_entry)?;
 
-                try!(writeln!(out, ""));
+                writeln!(out, "")?;
             }
             Format::NcsaJson => {
                 // 192.168.1.115 - - [25/Aug/2016:11:56:55 +0000] "GET http://staging.eod.whatclinic.net/ HTTP/1.1" 503 1366
                 let date_time = NaiveDateTime::from_timestamp(log_entry.timestamp() as i64, 0);
 
-                try!(write!(out, "{} {} - [{}]",
+                write!(out, "{} {} - [{}]",
                             log_entry.remote_ip(),
                             log_entry.type_name(),
-                            date_time.format("%d/%b/%Y:%H:%M:%S +0000")));
+                            date_time.format("%d/%b/%Y:%H:%M:%S +0000"))?;
 
                 if let (Some(method), Some(url), Some(protocol)) = (log_entry.request_method(), log_entry.request_url(), log_entry.request_protocol()) {
-                    try!(write!(out, " \"{} {} {}\"", 
+                    write!(out, " \"{} {} {}\"",
                         NcsaEscaped(method),
                         NcsaEscaped(url),
-                        NcsaEscaped(protocol)));
+                        NcsaEscaped(protocol))?;
                 } else {
-                    try!(write!(out, " -"));
+                    write!(out, " -")?;
                 }
 
-                try!(write!(out, " {} {} ",
+                write!(out, " {} {} ",
                             NcsaOption(log_entry.response_status()),
-                            NcsaOption(log_entry.response_bytes())));
+                            NcsaOption(log_entry.response_bytes()))?;
 
-                try!(write_entry(out, &log_entry));
+                write_entry(out, &log_entry)?;
 
-                try!(writeln!(out, ""));
+                writeln!(out, "")?;
             }
         }
         Ok(())
@@ -762,7 +762,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                         if let Some(esi_records) = esi_records {
                             for esi_record_link in esi_records {
                                 if let Some(esi_record) = esi_record_link.get_resolved() {
-                                    try!(log_client_access_record(format, out, esi_record, "esi_subrequest", config));
+                                    log_client_access_record(format, out, esi_record, "esi_subrequest", config)?;
                                 } else {
                                     warn!("Found unresolved ESI record link {:?} in:\n{:#?}", esi_record_link, record);
                                 }
@@ -771,7 +771,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
 
                         let ber = backend_record.or(restarted_backend_record);
 
-                        try!(flatten_linked_backend_log_record(record, ber, 0, |backend_log_record| {
+                        flatten_linked_backend_log_record(record, ber, 0, |backend_log_record| {
                             // backend record
                             // Need to live up to write()
                             let mut log_index = None;
@@ -918,7 +918,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                                 response_header_index: (config.keep_raw_headers & !config.no_header_indexing).as_some_from(|| response_header_index.as_ref().unwrap().as_ser()),
                             };
                             write(format, out, &client_access)
-                        }));
+                        })?;
                         Ok(())
                     },
                     FlatClientAccessRecord::PipeSession {
@@ -992,4 +992,3 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
 
     log_client_access_record(format, out, client_record, "client_request", config)
 }
-

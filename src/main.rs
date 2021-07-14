@@ -113,7 +113,7 @@ impl ProcessingError {
 
 fn try_read_vsl_tag<R: Read>(stream: &mut ReadStreamBuf<R>) -> Result<(), ProcessingError> {
     loop {
-        match try!(stream.fill_apply(binary_vsl_tag)) {
+        match stream.fill_apply(binary_vsl_tag)? {
             None => continue,
             Some(Some(_)) => {
                 info!("Found VSL tag");
@@ -134,7 +134,7 @@ fn process_vsl_records<R, W, P>(stream: &mut ReadStreamBuf<R>, mut writer: P, ou
     loop {
         match stream.fill_apply(vsl_record_v4).map_err(ProcessingError::from) {
             Ok(None) => continue,
-            Ok(Some(record)) => try!(writer.write_record(record, output)),
+            Ok(Some(record)) => writer.write_record(record, output)?,
             Err(err) => {
                 //TODO: need better tracking of orphan records and other stats
                 if err.is_brokend_pipe() {
@@ -150,7 +150,7 @@ fn process_vsl_stream<R, W>(input: R, mut output: W, stream_buf_size: usize, out
     //TODO: make buffer size configurable
     let mut stream = ReadStreamBuf::with_capacity(input, stream_buf_size);
 
-    try!(try_read_vsl_tag(&mut stream));
+    try_read_vsl_tag(&mut stream)?;
 
     match output_format {
         OutputFormat::Log => process_vsl_records(&mut stream, LogWriter::default(), &mut output),
@@ -277,7 +277,7 @@ arg_enum! {
 }
 
 fn validate_max_record_slots(value: String) -> Result<(), String> {
-    let v = try!(value.parse::<usize>().map_err(|_| format!("max-record-slots expected to be an integer; got: {:?}", value)));
+    let v = value.parse::<usize>().map_err(|_| format!("max-record-slots expected to be an integer; got: {:?}", value))?;
 
     if !(v > 0) {
         Err(format!("max-record-slots must be greater than zero; got: {}", v))
@@ -287,7 +287,7 @@ fn validate_max_record_slots(value: String) -> Result<(), String> {
 }
 
 fn validate_max_epoch_diff(value: String) -> Result<(), String> {
-    let v = try!(value.parse::<u64>().map_err(|_| format!("max-epoch-diff expected to be an integer; got: {:?}", value)));
+    let v = value.parse::<u64>().map_err(|_| format!("max-epoch-diff expected to be an integer; got: {:?}", value))?;
 
     if !(v > 0) {
         Err(format!("max-epoch-diff must be greater than zero; got: {}", v))
@@ -297,7 +297,7 @@ fn validate_max_epoch_diff(value: String) -> Result<(), String> {
 }
 
 fn validate_evict_factor(value: String) -> Result<(), String> {
-    let v = try!(value.parse::<f32>().map_err(|_| format!("evict-factor expected to be an integer; got: {:?}", value)));
+    let v = value.parse::<f32>().map_err(|_| format!("evict-factor expected to be an integer; got: {:?}", value))?;
 
     if !(v > 0.0) {
         Err(format!("evict-factor must be greater than zero; got: {}", v))
@@ -307,7 +307,7 @@ fn validate_evict_factor(value: String) -> Result<(), String> {
 }
 
 fn validate_stat_epoch_inverval(value: String) -> Result<(), String> {
-    let v = try!(value.parse::<u64>().map_err(|_| format!("stat-epoch-interval expected to be an integer; got: {:?}", value)));
+    let v = value.parse::<u64>().map_err(|_| format!("stat-epoch-interval expected to be an integer; got: {:?}", value))?;
 
     if !(v > 0) {
         Err(format!("stat-epoch-interval must be greater than zero; got: {}", v))

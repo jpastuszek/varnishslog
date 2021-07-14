@@ -22,12 +22,12 @@ pub trait StreamBuf<O> {
         C: Fn(&'b [O]) -> nom::IResult<&'b [O], CO, E> {
 
         match self.needed() {
-            Some(nom::Needed::Size(bytes)) => try!(self.fill(bytes)),
-            Some(nom::Needed::Unknown) => try!(self.fill(1)),
+            Some(nom::Needed::Size(bytes)) => self.fill(bytes)?,
+            Some(nom::Needed::Unknown) => self.fill(1)?,
             None => ()
         }
 
-        Ok(try!(self.apply(combinator)))
+        Ok(self.apply(combinator)?)
     }
 }
 

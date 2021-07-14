@@ -71,10 +71,10 @@
 //     6 SLT_SessClose      REM_CLOSE 0.008
 //     6 SLT_End
 
-use store::VslStore;
-use store::Config as StoreConfig;
-use access_log::record_state::RecordState;
-use access_log::record::{
+use crate::store::VslStore;
+use crate::store::Config as StoreConfig;
+use crate::access_log::record_state::RecordState;
+use crate::access_log::record::{
     AccessRecord,
     ClientAccessRecord,
     ClientAccessTransaction,
@@ -82,7 +82,7 @@ use access_log::record::{
     BackendAccessTransaction,
     Link,
 };
-use vsl::record::VslRecord;
+use crate::vsl::record::VslRecord;
 
 #[derive(Debug)]
 pub struct SessionState {
@@ -344,7 +344,7 @@ impl SessionState {
 mod tests {
     pub use super::*;
     pub use super::super::test_helpers::*;
-    pub use access_log::record::*;
+    pub use crate::access_log::record::*;
 
     //TODO: testing too much here; should only test session state related structures and how they
     //are put together

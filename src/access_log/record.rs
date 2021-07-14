@@ -1,7 +1,7 @@
-use vsl::record::{
+use crate::vsl::record::{
     VslIdent,
 };
-pub use vsl::record::message::{
+pub use crate::vsl::record::message::{
     TimeStamp,
     Duration,
     ByteCount,
