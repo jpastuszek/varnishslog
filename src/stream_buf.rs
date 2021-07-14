@@ -59,7 +59,7 @@ impl Error for FillError {
             FillError::BufferOverflow(_, _) => "buffer overflow",
         }
     }
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         match *self {
             FillError::Io(ref e) => Some(e),
             FillError::BufferOverflow(_, _) => None,
@@ -101,7 +101,7 @@ impl<I, E> Error for FillApplyError<I, E> where I: Debug + Display + Any, E: Err
             FillApplyError::FillError(_) => "buffer fill error",
         }
     }
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         match *self {
             FillApplyError::Parser(_) => None, // e contains reference to data
             FillApplyError::FillError(ref e) => Some(e),

@@ -23,7 +23,7 @@ mod test_helpers {
         }
     }
 
-    static LOGGER: Once = ONCE_INIT;
+    static LOGGER: Once = Once::new();
 
     pub fn log() {
         use env_logger;

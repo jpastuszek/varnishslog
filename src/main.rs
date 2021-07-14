@@ -11,7 +11,7 @@ extern crate varnishslog;
 use std::io::{self, stdin, Read, Write};
 use std::fs::File;
 use std::error::Error;
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::num::Wrapping;
 use std::time::Duration;
 use std::thread;
@@ -28,7 +28,7 @@ use varnishslog::serialization::{log_client_record, Config, Format, OutputError,
 
 mod program;
 
-static EPOCH: AtomicUsize = ATOMIC_USIZE_INIT;
+static EPOCH: AtomicUsize = AtomicUsize::new(0);
 
 fn spawn_epoch_timer() -> thread::JoinHandle<()> {
     thread::Builder::new()
