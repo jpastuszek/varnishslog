@@ -15,7 +15,6 @@
 
 use std::str::{FromStr, from_utf8};
 use nom::{non_empty, space, eof};
-
 use crate::vsl::record::VslIdent;
 use crate::maybe_string::MaybeStr;
 

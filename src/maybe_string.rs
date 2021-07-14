@@ -27,7 +27,7 @@ impl MaybeStr {
 }
 
 impl Debug for MaybeStr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         if let Ok(string) = from_utf8(self.as_bytes()) {
             write!(f, "{:?}", string)
         } else {
@@ -37,7 +37,7 @@ impl Debug for MaybeStr {
 }
 
 impl Display for MaybeStr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", String::from_utf8_lossy(&self.as_bytes()))
     }
 }
@@ -81,13 +81,13 @@ impl Deref for MaybeString {
 }
 
 impl Debug for MaybeString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{:?}", self.as_maybe_str())
     }
 }
 
 impl Display for MaybeString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", self.as_maybe_str())
     }
 }

@@ -7,7 +7,7 @@ use std::io::Cursor;
 use std::io::{Seek, SeekFrom};
 use std::io::{Read, ErrorKind};
 
-extern crate varnishslog;
+
 
 use varnishslog::stream_buf::{ReadStreamBuf, StreamBuf, FillApplyError, FillError};
 use varnishslog::vsl::record::parser::{binary_vsl_tag, vsl_record_v4};

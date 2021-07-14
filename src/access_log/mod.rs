@@ -7,13 +7,13 @@ mod test_helpers {
 
     pub use crate::vsl::record::VslRecordTag::*;
 
-    pub fn vsl(tag: VslRecordTag, ident: VslIdent, message: &str) -> VslRecord {
+    pub fn vsl(tag: VslRecordTag, ident: VslIdent, message: &str) -> VslRecord<'_> {
         VslRecord::from_str(tag, ident, message)
     }
 
     use crate::vsl::record::Marker;
     impl<'s> VslRecord<'s> {
-        pub fn from_str(tag: VslRecordTag, ident: VslIdent, message: &str) -> VslRecord {
+        pub fn from_str(tag: VslRecordTag, ident: VslIdent, message: &str) -> VslRecord<'_> {
             VslRecord {
                 tag: tag,
                 marker: Marker::VSL_CLIENTMARKER,

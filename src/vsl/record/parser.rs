@@ -25,7 +25,7 @@
 
 use std::mem;
 
-use nom::{self, le_u32};
+use nom::{self, le_u32, chain, named};
 
 use super::{
     VslRecord,
@@ -64,7 +64,7 @@ fn to_vsl_record_tag(num: u8) -> VslRecordTag {
     unsafe { mem::transmute(num as u32) }
 }
 
-pub fn vsl_record_v4(input: &[u8]) -> nom::IResult<&[u8], VslRecord, u32> {
+pub fn vsl_record_v4(input: &[u8]) -> nom::IResult<&[u8], VslRecord<'_>, u32> {
     chain!(
         input,
         header: vsl_record_header ~

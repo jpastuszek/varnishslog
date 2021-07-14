@@ -1,19 +1,13 @@
-extern crate flexi_logger;
-extern crate time;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate quick_error;
-#[macro_use]
-extern crate clap;
-extern crate varnishslog;
-
 use std::io::{self, stdin, Read, Write};
 use std::fs::File;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::num::Wrapping;
 use std::time::Duration;
 use std::thread;
+
+use log::{error, warn, info, log};
+use quick_error::quick_error;
+use clap::{arg_enum, value_t, crate_authors, crate_version};
 
 use clap::{Arg, App};
 
@@ -120,7 +114,7 @@ fn try_read_vsl_tag<R: Read>(stream: &mut ReadStreamBuf<R>) -> Result<(), Proces
 }
 
 trait WriteRecord {
-    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write;
+    fn write_record<W>(&mut self, record: VslRecord<'_>, output: &mut W) -> Result<(), ProcessingError> where W: Write;
     fn log_reports(&self) {}
 }
 
@@ -160,7 +154,7 @@ fn process_vsl_stream<R, W>(input: R, mut output: W, stream_buf_size: usize, out
 #[derive(Default)]
 struct LogWriter;
 impl WriteRecord for LogWriter {
-    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+    fn write_record<W>(&mut self, record: VslRecord<'_>, output: &mut W) -> Result<(), ProcessingError> where W: Write {
         writeln!(output, "{:#}", record).map_err(From::from)
     }
 }
@@ -168,7 +162,7 @@ impl WriteRecord for LogWriter {
 #[derive(Default)]
 struct LogDebugWriter;
 impl WriteRecord for LogDebugWriter {
-    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+    fn write_record<W>(&mut self, record: VslRecord<'_>, output: &mut W) -> Result<(), ProcessingError> where W: Write {
         writeln!(output, "{:#?}", record).map_err(From::from)
     }
 }
@@ -186,7 +180,7 @@ impl RecordDebugWriter {
 }
 
 impl WriteRecord for RecordDebugWriter {
-    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+    fn write_record<W>(&mut self, record: VslRecord<'_>, output: &mut W) -> Result<(), ProcessingError> where W: Write {
         if let Some(record) = self.state.apply(&record) {
             writeln!(output, "{:#?}", record).map_err(From::from)
         } else {
@@ -208,7 +202,7 @@ impl SessionDebugWriter {
 }
 
 impl WriteRecord for SessionDebugWriter {
-    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+    fn write_record<W>(&mut self, record: VslRecord<'_>, output: &mut W) -> Result<(), ProcessingError> where W: Write {
         if let Some(record) = self.state.apply(&record) {
             writeln!(output, "{:#?}", record).map_err(From::from)
         } else {
@@ -234,7 +228,7 @@ impl SerdeWriter {
 }
 
 impl WriteRecord for SerdeWriter {
-    fn write_record<W>(&mut self, record: VslRecord, output: &mut W) -> Result<(), ProcessingError> where W: Write {
+    fn write_record<W>(&mut self, record: VslRecord<'_>, output: &mut W) -> Result<(), ProcessingError> where W: Write {
         if let Some(client) = self.state.apply(&record) {
             log_client_record(&client, &self.format, output, &self.config).map_err(From::from)
         } else {

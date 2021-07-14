@@ -1,8 +1,9 @@
 use flexi_logger::{init as log_init, LogConfig, LogRecord};
 use time;
 use std;
+use log::{error, log};
 
-fn app_format(record: &LogRecord) -> String {
+fn app_format(record: &LogRecord<'_>) -> String {
     //2016-02-09 10:20:15,784 [varnishband] INFO  src/varnishband.rs - Processing update events
     let tm = time::at(time::get_time());
     let time: String = time::strftime("%Y-%m-%d %H:%M:%S,%f", &tm).unwrap();
@@ -24,4 +25,3 @@ pub fn exit_with_error(msg: &str, code: i32) -> ! {
     error!("Exiting: {}", msg);
     std::process::exit(code);
 }
-

@@ -17,7 +17,7 @@ pub trait EntryType: Serialize {
 }
 
 #[derive(Serialize, Debug)]
-pub struct ClientAccess<'a: 'i, 'i> {
+pub struct ClientAccess<'a, 'i> {
     pub record_type: &'a str,
     pub vxid: u32,
     pub session: Option<SessionInfo<'a>>,
@@ -78,7 +78,7 @@ impl<'a: 'i, 'i> EntryType for ClientAccess<'a, 'i> {
 }
 
 #[derive(Serialize, Debug)]
-pub struct BackendAccess<'a: 'i, 'i> {
+pub struct BackendAccess<'a, 'i> {
     pub vxid: u32,
     pub start_timestamp: Option<f64>,
     pub end_timestamp: Option<f64>,
@@ -110,7 +110,7 @@ pub struct BackendAccess<'a: 'i, 'i> {
 }
 
 #[derive(Serialize, Debug)]
-pub struct PipeSession<'a: 'i, 'i> {
+pub struct PipeSession<'a, 'i> {
     pub record_type: &'a str,
     pub vxid: u32,
     pub remote_address: Address<'a>,
@@ -164,7 +164,7 @@ pub struct Address<'a> {
 }
 
 #[derive(Debug)]
-pub enum Headers<'a: 'i, 'i> {
+pub enum Headers<'a, 'i> {
     Raw(&'a [(String, String)]),
     Indexed(Index<'a, 'i>)
 }
@@ -195,7 +195,7 @@ pub struct SessionInfo<'a> {
 }
 
 #[derive(Serialize, Debug)]
-pub struct HttpRequest<'a: 'i, 'i> {
+pub struct HttpRequest<'a, 'i> {
     pub protocol: &'a str,
     pub method: &'a str,
     pub url: &'a str,
@@ -203,7 +203,7 @@ pub struct HttpRequest<'a: 'i, 'i> {
 }
 
 #[derive(Serialize, Debug)]
-pub struct HttpResponse<'a: 'i, 'i> {
+pub struct HttpResponse<'a, 'i> {
     pub status: u32,
     pub reason: &'a str,
     pub protocol: &'a str,
@@ -218,7 +218,7 @@ pub struct Compression {
 }
 
 #[derive(Serialize, Debug)]
-pub struct Log<'a: 'i, 'i> {
+pub struct Log<'a, 'i> {
     #[serde(skip_serializing_if="Option::is_none")]
     pub raw_log: Option<RawLog<'a>>,
     #[serde(skip_serializing_if="Option::is_none")]
@@ -270,7 +270,7 @@ impl<'a> Serialize for RawLog<'a> {
 }
 
 #[derive(Debug)]
-pub struct Index<'a: 'i, 'i>(pub &'i LinkedHashMap<String, Vec<&'a str>>);
+pub struct Index<'a, 'i>(pub &'i LinkedHashMap<String, Vec<&'a str>>);
 
 impl<'a: 'i, 'i> Serialize for Index<'a, 'i> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
@@ -284,7 +284,7 @@ impl<'a: 'i, 'i> Serialize for Index<'a, 'i> {
 }
 
 #[derive(Debug)]
-pub struct LogVarsIndex<'a: 'i, 'i>(pub &'i LinkedHashMap<&'a str, &'a str>);
+pub struct LogVarsIndex<'a, 'i>(pub &'i LinkedHashMap<&'a str, &'a str>);
 
 impl<'a: 'i, 'i> Serialize for LogVarsIndex<'a, 'i> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
@@ -300,7 +300,7 @@ impl<'a: 'i, 'i> Serialize for LogVarsIndex<'a, 'i> {
 pub type LogMessages<'a, 'i> = &'i [&'a str];
 
 #[derive(Serialize, Debug)]
-pub struct CacheObject<'a: 'i, 'i> {
+pub struct CacheObject<'a, 'i> {
     pub storage_type: &'a str,
     pub storage_name: &'a str,
     pub ttl_duration: Option<f64>,

@@ -9,6 +9,8 @@ pub mod parser;
 use std::fmt::{self, Debug, Display};
 use quick_error::ResultExt;
 use nom;
+use quick_error::quick_error;
+use bitflags::bitflags;
 
 use crate::maybe_string::MaybeStr;
 pub use self::tag_e::VSL_tag_e as VslRecordTag;
@@ -21,7 +23,7 @@ bitflags! {
 }
 
 impl Display for Marker {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "[{}{}]",
                if self.contains(Marker::VSL_CLIENTMARKER) { "C" } else { " " },
                if self.contains(Marker::VSL_BACKENDMARKER) { "B" } else { " " })
@@ -75,7 +77,7 @@ impl<'b> VslRecord<'b> {
 }
 
 impl<'b> Debug for VslRecord<'b> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         f.debug_struct("VSL Record")
             .field("tag", &self.tag)
             .field("marker", &self.marker)
@@ -86,7 +88,7 @@ impl<'b> Debug for VslRecord<'b> {
 }
 
 impl<'b> Display for VslRecord<'b> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let tag = format!("{:?}", self.tag);
 
         if f.alternate() {

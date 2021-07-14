@@ -12,6 +12,8 @@
 // To constrain memory we just set a limit of how many slots are available at any given
 // time. To constraint time we can count VSL records in u64 or smaller wrapping integer
 // so we can tell if two VslIdent's are from two different times.
+use quick_error::quick_error;
+use log::{warn, info, log};
 
 use linked_hash_map::{self, LinkedHashMap};
 use std::cmp::min;
@@ -62,7 +64,7 @@ impl Stats {
 }
 
 impl Display for Stats {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "records inserted: {} removed: {} expired: {} nuked: {} slots used: {} free: {}",
                self.inserted, self.removed, self.expired, self.nuked, self.max_slots - self.slots_free, self.slots_free)
     }
@@ -128,7 +130,7 @@ type Callback<T> = fn(&str, Wrapping<u64>, Wrapping<u64>, VslIdent, &T) -> ();
 // Wrapper that implements Debug
 struct DebugCallback<T>(T);
 impl<T> fmt::Debug for DebugCallback<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<Callback>")
     }
 }
@@ -226,7 +228,7 @@ impl<T: Debug> VslStore<T> {
         val
     }
 
-    pub fn values(&self) -> Values<T> {
+    pub fn values(&self) -> Values<'_, T> {
         Values(self.store.values())
     }
 
@@ -262,7 +264,7 @@ impl<T: Debug> VslStore<T> {
     }
 }
 
-pub struct Values<'a, T: 'a>(linked_hash_map::Values<'a, VslIdent, (Wrapping<u64>, T)>);
+pub struct Values<'a, T>(linked_hash_map::Values<'a, VslIdent, (Wrapping<u64>, T)>);
 
 impl<'a, T> Iterator for Values<'a, T> {
     type Item = &'a T;

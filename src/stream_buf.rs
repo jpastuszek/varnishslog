@@ -5,6 +5,7 @@ use std::cell::Cell;
 use std::io::Read;
 use std::io;
 use std::ptr::copy;
+use log::{log, trace};
 use nom;
 
 pub const DEFAULT_BUF_SIZE: usize = 256 * 1024;
@@ -44,7 +45,7 @@ impl From<io::Error> for FillError {
 }
 
 impl Display for FillError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             FillError::Io(ref e) => write!(f, "Failed to read data: {}", e),
             FillError::BufferOverflow(needed, capacity) => write!(f, "Cannot fill buffer of size {} bytes with {} bytes of data", capacity, needed),
@@ -86,7 +87,7 @@ impl<I, E> From<FillError> for FillApplyError<I, E> {
 }
 
 impl<I, E> Display for FillApplyError<I, E> where I: Debug, E: Debug {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             FillApplyError::Parser(ref e) => write!(f, "Failed to parse data: {}", e),
             FillApplyError::FillError(ref e) => write!(f, "Failed to fill buffer with amout of data requested by parser: {}", e),

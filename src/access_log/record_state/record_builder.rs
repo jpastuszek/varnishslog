@@ -111,6 +111,8 @@
 //     5 SLT_End
 //
 
+use quick_error::quick_error;
+use log::{warn, debug, log};
 use std::rc::Rc;
 use std::cell::RefCell;
 use crate::maybe_string::{MaybeStr, MaybeString};
@@ -186,7 +188,7 @@ pub struct SessionHead {
 }
 
 impl SessionHead {
-    pub fn update(&mut self, vsl: &VslRecord) -> Result<bool, RecordBuilderError> {
+    pub fn update(&mut self, vsl: &VslRecord<'_>) -> Result<bool, RecordBuilderError> {
         match vsl.tag {
             SLT_Link => {
                 let (reason, child_ident, child_type) = vsl.parse_data(slt_link)?;
@@ -575,7 +577,7 @@ pub struct RecordBuilder {
 }
 
 impl RecordBuilder {
-    pub fn new(vsl: &VslRecord) -> Result<RecordBuilder, RecordBuilderError> {
+    pub fn new(vsl: &VslRecord<'_>) -> Result<RecordBuilder, RecordBuilderError> {
         let record_type = match vsl.tag {
             SLT_Begin => {
                 let (record_type, parent_ident, reason) = vsl.parse_data(slt_begin)?;
@@ -1365,6 +1367,7 @@ mod tests {
     pub use super::super::super::test_helpers::*;
     pub use crate::access_log::record::*;
     pub use crate::vsl::record::*;
+    use assert_matches::assert_matches;
 
     impl Record {
         // fn is_client_access(&self) -> bool {

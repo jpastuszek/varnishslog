@@ -1,4 +1,5 @@
 mod record_builder;
+use log::{error, warn, debug, log};
 use self::record_builder::{RecordBuilder, RecordBuilderError, SessionHead, Record};
 use crate::store::VslStore;
 use crate::store::Config as StoreConfig;
@@ -61,7 +62,7 @@ impl RecordState {
         VslStore::log_expire(store_name, current_epoch, record_epoch, record_ident, record);
     }
 
-    pub fn apply(&mut self, vsl: &VslRecord) -> Option<AccessRecord> {
+    pub fn apply(&mut self, vsl: &VslRecord<'_>) -> Option<AccessRecord> {
         // Do not store 0 SLT_CLI Rd ping etc.
         if ! (vsl.is_client() || vsl.is_backend()) {
             debug!("Skipping non-client/backend record: {}", vsl);
@@ -179,6 +180,7 @@ mod tests {
     pub use super::super::test_helpers::*;
     pub use crate::access_log::record::*;
     pub use crate::vsl::record::*;
+    use assert_matches::assert_matches;
 
     use super::record_builder::RecordBuilder;
     use super::Slot;
@@ -186,7 +188,7 @@ mod tests {
         fn get(&self, ident: VslIdent) -> Option<&RecordBuilder> {
             match self.builders.get(&ident) {
                 Some(&Slot::Builder(ref builder)) => return Some(builder),
-                Some(&Slot::Session(ref session)) => panic!("Found Session: {:#?}", session), 
+                Some(&Slot::Session(ref session)) => panic!("Found Session: {:#?}", session),
                 Some(&Slot::Tombstone(ref err)) => panic!("Found Tombstone; inscription: {}", err),
                 None => None,
             }
@@ -492,7 +494,7 @@ mod tests {
                 assert_eq!(local, &("127.0.0.1".to_string(), 1080));
                 assert_eq!(remote, &("192.168.1.10".to_string(), 40078));
                 assert_eq!(client_records, &[
-                    Link::Unresolved(32773, "rxreq".to_string()), 
+                    Link::Unresolved(32773, "rxreq".to_string()),
                     Link::Unresolved(32774, "rxreq".to_string())]);
                 assert_eq!(version, "2");
                 assert_eq!(client, &("10.1.1.85".to_string(), 41504));

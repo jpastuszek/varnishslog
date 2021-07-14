@@ -270,7 +270,7 @@ impl SessionState {
         }
     }
 
-    pub fn apply(&mut self, vsl: &VslRecord) -> Option<ClientAccessRecord> {
+    pub fn apply(&mut self, vsl: &VslRecord<'_>) -> Option<ClientAccessRecord> {
         match self.record_state.apply(vsl) {
             Some(AccessRecord::ClientAccess(mut record)) => {
                 if record.root {
@@ -345,6 +345,7 @@ mod tests {
     pub use super::*;
     pub use super::super::test_helpers::*;
     pub use crate::access_log::record::*;
+    use assert_matches::assert_matches;
 
     //TODO: testing too much here; should only test session state related structures and how they
     //are put together
@@ -474,9 +475,9 @@ mod tests {
             }
         );
 
-        assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
-                backend_record: Some(ref backend_record), 
-                .. 
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
+                backend_record: Some(ref backend_record),
+                ..
             } => {
                 let backend_record = backend_record.get_resolved().unwrap();
 
@@ -713,9 +714,9 @@ mod tests {
         let client_record = apply_final!(state, 65538, SLT_End, "");
 
         // We will have esi_transactions in client request
-        assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
-                ref esi_records, 
-                .. 
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
+                ref esi_records,
+                ..
             } => {
                 assert_eq!(esi_records[0].get_resolved().unwrap().reason, "esi".to_string());
                 assert_matches!(esi_records[0].get_resolved().unwrap().transaction, ClientAccessTransaction::Full {
@@ -799,9 +800,9 @@ mod tests {
        let client_record = apply_final!(state, 65541, SLT_End, "");
 
        // It is handled as ususal; only difference is backend request reason
-       assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
-                backend_record: Some(ref backend_record), 
-                .. 
+       assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
+                backend_record: Some(ref backend_record),
+                ..
             } =>
            assert_eq!(backend_record.get_resolved().unwrap().reason, "bgfetch".to_string())
        );
@@ -897,9 +898,9 @@ mod tests {
         let client_record = apply_final!(state, 32772, SLT_End, "");
 
         // We should have restarted transaction
-        assert_matches!(client_record.transaction, ClientAccessTransaction::RestartedEarly { 
-                ref restart_record, 
-                .. 
+        assert_matches!(client_record.transaction, ClientAccessTransaction::RestartedEarly {
+                ref restart_record,
+                ..
             } =>
             assert_matches!(restart_record.get_resolved().unwrap().transaction, ClientAccessTransaction::Full { .. })
         );
@@ -998,9 +999,9 @@ mod tests {
         let client_record = apply_final!(state, 7, SLT_End, "");
 
         // It is handled as ususal; only difference is backend request reason
-        assert_matches!(client_record.transaction, ClientAccessTransaction::Full { 
-                backend_record: Some(ref backend_record), 
-                .. 
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Full {
+                backend_record: Some(ref backend_record),
+                ..
             } => {
                 let backend_record = backend_record.get_resolved().unwrap();
 
@@ -1010,7 +1011,7 @@ mod tests {
                             ref url,
                             ..
                         },
-                        retry_record: Some(ref retry_record), 
+                        retry_record: Some(ref retry_record),
                         ..
                     } =>  {
                         assert_eq!(url, "/retry");
@@ -1024,7 +1025,7 @@ mod tests {
                                     ..
                                 },
                                 ..
-                            } => 
+                            } =>
                             assert_eq!(url, "/iss/v2/thumbnails/foo/4006450256177f4a/bar.jpg")
                         );
                     }
@@ -1080,9 +1081,9 @@ mod tests {
 
         let client_record = apply_final!(state, 4, SLT_End, "");
 
-        assert_matches!(client_record.transaction, ClientAccessTransaction::Piped { 
-                ref backend_record, 
-                .. 
+        assert_matches!(client_record.transaction, ClientAccessTransaction::Piped {
+                ref backend_record,
+                ..
             } =>
             assert_matches!(backend_record.get_resolved().unwrap().transaction, BackendAccessTransaction::Piped { .. })
         );

@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Cursor;
 use std::io::{Read, ErrorKind};
 
-extern crate varnishslog;
+
 
 use varnishslog::stream_buf::{ReadStreamBuf, StreamBuf, FillApplyError, FillError};
 use varnishslog::vsl::record::VslRecord;
@@ -15,7 +15,7 @@ use varnishslog::access_log::session_state::SessionState;
 use varnishslog::access_log::record_state::RecordState;
 use varnishslog::serialization::{log_client_record, Format, Config};
 
-fn parse_each_vsl_record<R: Read, C>(mut rfb: ReadStreamBuf<R>, mut block: C) where C: FnMut(&VslRecord) {
+fn parse_each_vsl_record<R: Read, C>(mut rfb: ReadStreamBuf<R>, mut block: C) where C: FnMut(&VslRecord<'_>) {
     rfb.fill_apply(binary_vsl_tag).unwrap();
 
     loop {

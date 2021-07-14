@@ -2,6 +2,8 @@ use std::io::Write;
 use std::io::Error as IoError;
 use std::fmt;
 use std::fmt::Display;
+use quick_error::quick_error;
+use log::{warn, log};
 
 pub use serde_json::error::Error as JsonError;
 use serde_json::ser::to_writer as write_json;
@@ -274,7 +276,7 @@ impl<'a: 'i, 'i> AsSerIndexed<'a, 'i> for CacheObject {
 struct NcsaEscaped<T: AsRef<str>>(T);
 
 impl<T: AsRef<str>> Display for NcsaEscaped<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut iter = self.0.as_ref().split('"').peekable();
         loop {
             match (iter.next(), iter.peek()) {
@@ -293,7 +295,7 @@ impl<T: AsRef<str>> Display for NcsaEscaped<T> {
 struct NcsaOption<T: Display>(Option<T>);
 
 impl<T: Display> Display for NcsaOption<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(t) = self.0.as_ref() {
             write!(f, "{}", t)
         } else {
@@ -398,7 +400,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
         acl_not_matched: Vec<&'a str>,
     }
 
-    fn index_log(logs: &[LogEntry]) -> LogIndex {
+    fn index_log(logs: &[LogEntry]) -> LogIndex<'_> {
         let mut vars = LinkedHashMap::new();
         let mut messages = Vec::new();
         let mut acl_matched = Vec::new();
@@ -487,7 +489,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
         client_record: &ClientAccessRecord,
         maybe_record_link: Option<&Link<BackendAccessRecord>>,
         retry: usize,
-        block: F) -> R where F: FnOnce(Option<&FlatBackendAccessRecord>) -> R {
+        block: F) -> R where F: FnOnce(Option<&FlatBackendAccessRecord<'_>>) -> R {
         if let Some(record_link) = maybe_record_link {
             if let Some(record) = record_link.get_resolved() {
                 match record.transaction {
@@ -577,7 +579,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
 
     fn flatten_client_log_record<F, R>(
         record: &ClientAccessRecord,
-        block: F) -> R where F: FnOnce(Option<&FlatClientAccessRecord>) -> R {
+        block: F) -> R where F: FnOnce(Option<&FlatClientAccessRecord<'_>>) -> R {
         if let Some((final_record, restart_count)) = follow_restarts(record, 0) {
             // Note: we skip all the intermediate restart records
             match (&record.transaction, &final_record.transaction) {
