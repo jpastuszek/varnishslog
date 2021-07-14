@@ -584,7 +584,6 @@ impl RecordBuilder {
                         reason: reason.to_owned(),
                         parent: parent_ident,
                         transaction: match reason {
-                            // in Varnish 6.6.1 we can only tell by reason that backend access is Piped
                             "pipe" => BackendAccessTransactionType::Piped,
                             _ => BackendAccessTransactionType::Full,
                         },
@@ -1070,7 +1069,6 @@ impl RecordBuilder {
                         return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return retry"))
                     },
                     "pipe" => match self.record_type {
-                        // return from call RECV
                         RecordType::ClientAccess {
                             transaction: ref mut transaction @ ClientAccessTransactionType::Full,
                             ..
@@ -1078,18 +1076,16 @@ impl RecordBuilder {
                             *transaction = ClientAccessTransactionType::Piped;
                             self.handling = Some(Handling::Pipe);
                         }
-                        // return from call PIPE
+                        // possble return from call PIPE
                         RecordType::ClientAccess {
                             transaction: ClientAccessTransactionType::Piped,
                             ..
                         } => (),
-                        // backend access uses reason to determine if it is Piped
+                        // possble return from call PIPE
                         RecordType::BackendAccess {
                             transaction: BackendAccessTransactionType::Piped,
                             ..
-                        } => {
-                            self.http_request.complete();
-                        }
+                        } => (),
                         _ => return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return pipe"))
                     },
                     "synth" => self.http_response = MutBuilderState::new(HttpResponseBuilder::new()),
@@ -1327,7 +1323,7 @@ impl RecordBuilder {
                                 }
                             }
                             BackendAccessTransactionType::Piped => {
-                                self.http_request.complete(); // in Varnish 6.6.1 there is no call to PIPE so END is what completes the backend request
+                                self.http_request.complete();
                                 BackendAccessTransaction::Piped {
                                     request: try!(self.http_request.build()),
                                     backend_connection: self.backend_connection,
