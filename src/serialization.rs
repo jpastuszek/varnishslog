@@ -35,9 +35,7 @@ use crate::access_log::record::{
 };
 
 mod ser {
-    use crate::access_log::record::LogEntry as VslLogEntry;
-    use crate::access_log::record::AclResult as VslAclResult;
-    include!(concat!(env!("OUT_DIR"), "/serde_types.rs"));
+    pub use crate::serde_types::*;
 }
 
 pub struct Config {
@@ -315,7 +313,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
         match *format {
             Format::Json |
             Format::JsonPretty => {
-                write_entry(out, &log_entry)?;
+                write_entry(&mut *out, &log_entry)?;
 
                 writeln!(out, "")?;
             }
@@ -341,7 +339,7 @@ pub fn log_client_record<W>(client_record: &ClientAccessRecord, format: &Format,
                             NcsaOption(log_entry.response_status()),
                             NcsaOption(log_entry.response_bytes()))?;
 
-                write_entry(out, &log_entry)?;
+                write_entry(&mut *out, &log_entry)?;
 
                 writeln!(out, "")?;
             }

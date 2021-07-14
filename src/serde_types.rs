@@ -1,5 +1,8 @@
-use serde::ser::Serialize;
-use serde::ser::Serializer;
+use serde::{Serialize, Serializer};
+use serde::ser::{SerializeSeq, SerializeMap};
+use crate::access_log::record::LogEntry as VslLogEntry;
+use crate::access_log::record::AclResult as VslAclResult;
+
 use linked_hash_map::LinkedHashMap;
 
 pub trait EntryType: Serialize {
@@ -167,7 +170,7 @@ pub enum Headers<'a: 'i, 'i> {
 }
 
 impl<'a: 'i, 'i> Serialize for Headers<'a, 'i> {
-    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         match self {
             &Headers::Raw(slice) => slice.serialize(serializer),
             &Headers::Indexed(ref index) => index.serialize(serializer),
@@ -240,8 +243,8 @@ pub struct RawLogEntry<'a> {
 }
 
 impl<'a> Serialize for RawLog<'a> {
-    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_seq(Some(self.0.len())));
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_seq(Some(self.0.len()))?;
         for log_entry in self.0 {
             let (entry_type, message, detail) = match log_entry {
                 &VslLogEntry::Vcl(ref msg) => ("VCL", msg.as_str(), None),
@@ -256,14 +259,13 @@ impl<'a> Serialize for RawLog<'a> {
                 },
             };
 
-            try!(serializer.serialize_seq_elt(&mut state, &RawLogEntry {
+            state.serialize_element(&RawLogEntry {
                 entry_type: entry_type,
                 message: message,
                 detail: detail,
-            }));
+            })?;
         }
-        try!(serializer.serialize_seq_end(state));
-        Ok(())
+        state.end()
     }
 }
 
@@ -271,14 +273,13 @@ impl<'a> Serialize for RawLog<'a> {
 pub struct Index<'a: 'i, 'i>(pub &'i LinkedHashMap<String, Vec<&'a str>>);
 
 impl<'a: 'i, 'i> Serialize for Index<'a, 'i> {
-    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_map(Some(self.0.len())));
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_map(Some(self.0.len()))?;
         for (ref key, ref values) in self.0 {
-            try!(serializer.serialize_map_key(&mut state, key));
-            try!(serializer.serialize_map_value(&mut state, values));
+            state.serialize_key(key)?;
+            state.serialize_value(values)?;
         }
-        try!(serializer.serialize_map_end(state));
-        Ok(())
+        state.end()
     }
 }
 
@@ -286,14 +287,13 @@ impl<'a: 'i, 'i> Serialize for Index<'a, 'i> {
 pub struct LogVarsIndex<'a: 'i, 'i>(pub &'i LinkedHashMap<&'a str, &'a str>);
 
 impl<'a: 'i, 'i> Serialize for LogVarsIndex<'a, 'i> {
-    fn serialize<S>(&self, serializer: &mut S) -> Result<(), S::Error> where S: Serializer {
-        let mut state = try!(serializer.serialize_map(Some(self.0.len())));
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let mut state = serializer.serialize_map(Some(self.0.len()))?;
         for (key, value) in self.0 {
-            try!(serializer.serialize_map_key(&mut state, key));
-            try!(serializer.serialize_map_value(&mut state, value));
+            state.serialize_key(key)?;
+            state.serialize_value(value)?;
         }
-        try!(serializer.serialize_map_end(state));
-        Ok(())
+        state.end()
     }
 }
 

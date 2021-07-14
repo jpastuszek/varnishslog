@@ -5,7 +5,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate quick_error; 
+extern crate quick_error;
 #[cfg(test)]
 #[macro_use]
 extern crate assert_matches;
@@ -26,4 +26,5 @@ pub mod maybe_string;
 pub mod store;
 pub mod vsl;
 pub mod access_log;
+pub mod serde_types;
 pub mod serialization;

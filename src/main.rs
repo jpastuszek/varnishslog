@@ -24,7 +24,7 @@ use varnishslog::vsl::record::parser::{binary_vsl_tag, vsl_record_v4};
 use varnishslog::store::Config as StoreConfig;
 use varnishslog::access_log::session_state::SessionState;
 use varnishslog::access_log::record_state::RecordState;
-use varnishslog::serialization::{log_client_record, Config, Format, OutputError, JsonError};
+use varnishslog::serialization::{log_client_record, Config, Format, OutputError};
 
 mod program;
 
@@ -83,7 +83,6 @@ impl<'b> From<FillApplyError<&'b[u8], u32>> for ProcessingError {
 impl From<OutputError> for ProcessingError {
     fn from(err: OutputError) -> ProcessingError {
         match err {
-            OutputError::JsonSerialization(JsonError::Io(err)) |
             OutputError::Io(err) => ProcessingError::IO(err),
             err => ProcessingError::Serialization(format!("Serialization error: {}", err)),
         }
