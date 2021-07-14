@@ -14,17 +14,17 @@ use crate::maybe_string::MaybeStr;
 pub use self::tag_e::VSL_tag_e as VslRecordTag;
 
 bitflags! {
-    pub flags Marker: u8 {
-        const VSL_CLIENTMARKER  = 0b0000_0001,
-        const VSL_BACKENDMARKER = 0b0000_0010,
+    pub struct Marker: u8 {
+        const VSL_CLIENTMARKER  = 0b0000_0001;
+        const VSL_BACKENDMARKER = 0b0000_0010;
     }
 }
 
 impl Display for Marker {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "[{}{}]",
-               if self.contains(VSL_CLIENTMARKER) { "C" } else { " " },
-               if self.contains(VSL_BACKENDMARKER) { "B" } else { " " })
+               if self.contains(Marker::VSL_CLIENTMARKER) { "C" } else { " " },
+               if self.contains(Marker::VSL_BACKENDMARKER) { "B" } else { " " })
     }
 }
 
@@ -66,11 +66,11 @@ impl<'b> VslRecord<'b> {
     }
 
     pub fn is_client(&self) -> bool {
-        self.marker.contains(VSL_CLIENTMARKER)
+        self.marker.contains(Marker::VSL_CLIENTMARKER)
     }
 
     pub fn is_backend(&self) -> bool {
-        self.marker.contains(VSL_BACKENDMARKER)
+        self.marker.contains(Marker::VSL_BACKENDMARKER)
     }
 }
 

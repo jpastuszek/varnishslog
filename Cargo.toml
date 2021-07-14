@@ -22,7 +22,7 @@ name = "access_log"
 
 [dependencies]
 assert_matches = "1.2.0"
-bitflags = "0.7.0"
+bitflags = "1.2.1"
 boolinator = "0.1.0"
 chrono = "0.2.25"
 clap = "2.30.0"

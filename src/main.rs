@@ -10,7 +10,6 @@ extern crate varnishslog;
 
 use std::io::{self, stdin, Read, Write};
 use std::fs::File;
-use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::num::Wrapping;
 use std::time::Duration;
@@ -432,7 +431,7 @@ fn main() {
             info!("Broken pipe")
         } else {
             error!("{}", err);
-            program::exit_with_error(err.description(), err.to_exit_code())
+            program::exit_with_error(&err.to_string(), err.to_exit_code())
         }
     }
 

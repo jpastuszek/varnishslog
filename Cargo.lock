@@ -40,15 +40,9 @@ checksum = "f8cebcc66a7c86de233f4c37873f258cb844bb2bf3632135c588d2ca348b384c"
 
 [[package]]
 name = "bitflags"
-version = "0.7.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aad18937a628ec6abcd26d1489012cc0e18c21798210f491af69ded9b881106d"
-
-[[package]]
-name = "bitflags"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3c30d3802dfb7281680d6285f2ccdaa8c2d8fee41f93805dba5c4cf50dc23cf"
+checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
 name = "boolinator"
@@ -74,7 +68,7 @@ checksum = "1c07b9257a00f3fc93b7f3c417fc15607ec7a56823bc2c37ec744e266387de5b"
 dependencies = [
  "ansi_term",
  "atty",
- "bitflags 1.0.1",
+ "bitflags",
  "strsim",
  "textwrap",
  "unicode-width",
@@ -386,7 +380,7 @@ version = "0.7.2-alpha.0"
 dependencies = [
  "assert_matches",
  "bencher",
- "bitflags 0.7.0",
+ "bitflags",
  "boolinator",
  "chrono",
  "clap",
