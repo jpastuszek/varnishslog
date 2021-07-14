@@ -583,7 +583,11 @@ impl RecordBuilder {
                     "bereq" => RecordType::BackendAccess {
                         reason: reason.to_owned(),
                         parent: parent_ident,
-                        transaction: BackendAccessTransactionType::Full,
+                        transaction: match reason {
+                            // in Varnish 6.6.1 we can only tell by reason that backend access is Piped
+                            "pipe" => BackendAccessTransactionType::Piped,
+                            _ => BackendAccessTransactionType::Full,
+                        },
                     },
                     "req" => RecordType::ClientAccess {
                         reason: reason.to_owned(),
@@ -1066,6 +1070,7 @@ impl RecordBuilder {
                         return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return retry"))
                     },
                     "pipe" => match self.record_type {
+                        // return from call RECV
                         RecordType::ClientAccess {
                             transaction: ref mut transaction @ ClientAccessTransactionType::Full,
                             ..
@@ -1073,12 +1078,17 @@ impl RecordBuilder {
                             *transaction = ClientAccessTransactionType::Piped;
                             self.handling = Some(Handling::Pipe);
                         }
+                        // return from call PIPE
+                        RecordType::ClientAccess {
+                            transaction: ClientAccessTransactionType::Piped,
+                            ..
+                        } => (),
+                        // backend access uses reason to determine if it is Piped
                         RecordType::BackendAccess {
-                            transaction: ref mut transaction @ BackendAccessTransactionType::Full,
+                            transaction: BackendAccessTransactionType::Piped,
                             ..
                         } => {
                             self.http_request.complete();
-                            *transaction = BackendAccessTransactionType::Piped;
                         }
                         _ => return Err(RecordBuilderError::UnexpectedTransition("SLT_VCL_return pipe"))
                     },
@@ -1216,7 +1226,7 @@ impl RecordBuilder {
                         if root && session.is_none() {
                             warn!("Root client request {} without session", self.ident);
                         }
-                        
+
                         let remote = session.as_ref().and_then(|session| session.proxy.as_ref().map(|proxy| proxy.client.clone()))
                                 .or_else(|| session.as_ref().map(|session| session.remote.clone()))
                                 .or_else(|| client_addr)
@@ -1317,6 +1327,7 @@ impl RecordBuilder {
                                 }
                             }
                             BackendAccessTransactionType::Piped => {
+                                self.http_request.complete(); // in Varnish 6.6.1 there is no call to PIPE so END is what completes the backend request
                                 BackendAccessTransaction::Piped {
                                     request: try!(self.http_request.build()),
                                     backend_connection: self.backend_connection,
@@ -1431,7 +1442,7 @@ mod tests {
         }};
     }
 
-    fn set_stub_session(builder: &mut RecordBuilder) { 
+    fn set_stub_session(builder: &mut RecordBuilder) {
         let ident = builder.session_ident().expect("set_stub_session called on non-client access record");
         builder.set_session(Rc::new(RefCell::new(SessionHead {
             ident,
