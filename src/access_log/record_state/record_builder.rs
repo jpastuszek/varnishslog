@@ -1758,7 +1758,7 @@ mod tests {
 
         builder.apply(&VslRecord {
             tag: SLT_BereqURL,
-            marker: VSL_BACKENDMARKER,
+            marker: Marker::VSL_BACKENDMARKER,
             ident: 123,
             data: &[0, 159, 146, 150]
         }).unwrap();
@@ -1769,7 +1769,7 @@ mod tests {
 
         builder.apply(&VslRecord {
             tag: SLT_BereqHeader,
-            marker: VSL_BACKENDMARKER,
+            marker: Marker::VSL_BACKENDMARKER,
             ident: 123,
             data: &[72, 111, 115, 116, 58, 32, 0, 159, 146, 150]
         }).unwrap();

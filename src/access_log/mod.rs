@@ -11,12 +11,12 @@ mod test_helpers {
         VslRecord::from_str(tag, ident, message)
     }
 
-    use crate::vsl::record::VSL_CLIENTMARKER;
+    use crate::vsl::record::Marker;
     impl<'s> VslRecord<'s> {
         pub fn from_str(tag: VslRecordTag, ident: VslIdent, message: &str) -> VslRecord {
             VslRecord {
                 tag: tag,
-                marker: VSL_CLIENTMARKER,
+                marker: Marker::VSL_CLIENTMARKER,
                 ident: ident,
                 data: message.as_ref()
             }
@@ -26,8 +26,6 @@ mod test_helpers {
     static LOGGER: Once = Once::new();
 
     pub fn log() {
-        use env_logger;
-
         LOGGER.call_once(|| {
             env_logger::init().unwrap();
         });
@@ -69,7 +67,7 @@ mod test_helpers {
 
     macro_rules! parse {
         ($e:expr) => {
-            ::std::str::FromStr::from_str($e).expect(&format!("failed to parse '{:?}'", $e))
+            $e.parse::<f64>().expect(&format!("failed to parse '{:?}'", $e))
         }
     }
 }
