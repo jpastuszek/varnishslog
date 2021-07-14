@@ -49,21 +49,17 @@ quick_error! {
     #[derive(Debug)]
     pub enum ProcessingError {
         IO(err: io::Error) {
-            display("IO Error while processing records: {}", err)
-            description("I/O error")
+            display("I/O error: IO Error while processing records: {}", err)
             from()
         }
         InputBuffer(err: FillError) {
-            display("Failed to fill parsing buffer: {}", err)
-            description("Input buffer error")
+            display("Input buffer error: Failed to fill parsing buffer: {}", err)
         }
         Parsing(err: String) {
-            display("Failed to parse VSL record: {}", err)
-            description("Parser error")
+            display("Parser error: Failed to parse VSL record: {}", err)
         }
         Serialization(err: String) {
-            display("Failed to serialize log record: {}", err)
-            description("Serialization error")
+            display("Serialization error: Failed to serialize log record: {}", err)
         }
     }
 }

@@ -78,16 +78,16 @@ quick_error! {
     #[derive(Debug)]
     pub enum ConfigError {
         InvalidMaxSlots {
-            description("Max slots must be greater than 0")
+            display("Max slots must be greater than 0")
         }
         InvalidMaxEpochDiff {
-            description("Max epoch diff must be greater then 0")
+            display("Max epoch diff must be greater then 0")
         }
         InvalidEvictFactor {
-            description("Evict factor must yield evict count greater then 0")
+            display("Evict factor must yield evict count greater then 0")
         }
         InvalidStatEpochInterval {
-            description("Stat eposh interval must be greater then 0")
+            display("Stat eposh interval must be greater then 0")
         }
     }
 }
@@ -123,7 +123,7 @@ impl Config {
     }
 }
 
-type Callback<T> = fn(&str, Wrapping<u64>, Wrapping<u64>, VslIdent, &T) -> (); 
+type Callback<T> = fn(&str, Wrapping<u64>, Wrapping<u64>, VslIdent, &T) -> ();
 
 // Wrapper that implements Debug
 struct DebugCallback<T>(T);
