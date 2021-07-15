@@ -1116,6 +1116,7 @@ impl RecordBuilder {
                     streamed: streamed,
                 });
             }
+            SLT_VCL_use => (), // TODO: Records the name of the VCL being used
             SLT_End => return Ok(true),
             SLT__Bogus | SLT__Reserved | SLT__Batch => warn!("Ignoring bogus tag: {:?}", vsl.tag),
             _ => debug!("Ignoring unmatched VSL tag: {:?}", vsl.tag)
