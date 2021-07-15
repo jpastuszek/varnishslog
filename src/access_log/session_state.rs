@@ -74,6 +74,9 @@
 use crate::store::VslStore;
 use crate::store::Config as StoreConfig;
 use crate::access_log::record_state::RecordState;
+use crate::access_log::record_state::record_builder::{RecordBuilder, SessionHead};
+use std::rc::Rc;
+use std::cell::RefCell;
 use crate::access_log::record::{
     AccessRecord,
     ClientAccessRecord,
@@ -332,6 +335,14 @@ impl SessionState {
 
     pub fn unresolved_backend_access_records(&self) -> Vec<&BackendAccessRecord> {
         self.backend.values().collect()
+    }
+
+    pub fn unresolved_record_builders_records(&self) -> Vec<&RecordBuilder> {
+        self.record_state.builders().collect()
+    }
+
+    pub fn unresolved_record_sessions_records(&self) -> Vec<Rc<RefCell<SessionHead>>> {
+        self.record_state.sessions().collect()
     }
 
     #[cfg(test)]

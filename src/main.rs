@@ -237,16 +237,34 @@ impl WriteRecord for SerdeWriter {
     }
 
     fn log_reports(&self) {
+        let mut all_finished = true;
         for client in self.state.unresolved_root_client_access_records() {
+            all_finished = false;
             warn!("Root ClientAccessRecord left unresolved:\n{:#?}", client)
         }
 
         for client in self.state.unresolved_client_access_records() {
+            all_finished = false;
             warn!("ClientAccessRecord left unresolved:\n{:#?}", client)
         }
 
         for backend in self.state.unresolved_backend_access_records() {
+            all_finished = false;
             warn!("BackendAccessRecord left unresolved:\n{:#?}", backend)
+        }
+
+        for builder in self.state.unresolved_record_builders_records() {
+            all_finished = false;
+            warn!("RecordBuilder left unfinished:\n{:#?}", builder)
+        }
+
+        for session in self.state.unresolved_record_sessions_records() {
+            all_finished = false;
+            warn!("SessionHead left unfinished:\n{:#?}", session.borrow())
+        }
+
+        if all_finished {
+            info!("No unresolved or unfinished records left")
         }
     }
 }

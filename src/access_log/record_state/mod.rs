@@ -1,4 +1,4 @@
-mod record_builder;
+pub mod record_builder;
 use log::{error, warn, debug};
 use self::record_builder::{RecordBuilder, RecordBuilderError, SessionHead, Record};
 use crate::store::VslStore;
@@ -47,6 +47,20 @@ impl Default for RecordState {
 impl RecordState {
     pub fn new() -> RecordState {
         RecordState::with_config(&Default::default())
+    }
+
+    pub fn builders(&self) -> impl Iterator<Item = &RecordBuilder> {
+        self.builders.values().filter_map(|slot| match slot {
+            Slot::Builder(builder) => Some(builder),
+            _ => None,
+        })
+    }
+
+    pub fn sessions<'i>(&'i self) -> impl Iterator<Item = Rc<RefCell<SessionHead>>> + 'i {
+        self.builders.values().filter_map(|slot| match slot {
+            Slot::Session(session) => Some(session.clone()),
+            _ => None,
+        })
     }
 
     pub fn with_config(store_config: &StoreConfig) -> RecordState {
