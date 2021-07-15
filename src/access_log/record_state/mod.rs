@@ -124,6 +124,8 @@ impl RecordState {
                 let session = match self.builders.remove(&vsl.ident).unwrap() {
                     Builder(builder) => match builder.build() {
                         Ok(Record::Session(session)) => {
+                            // Note: session can be build erarly on SLT_Link or late on SLT_End
+                            // if no SLT_Link was present meaning we have an empty session
                             if session.client_records.is_empty() {
                                 debug!("Dropping empty session: {:#?}", session);
                                 // drop empty sessions

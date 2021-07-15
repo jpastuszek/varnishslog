@@ -565,6 +565,8 @@ pub struct RecordBuilder {
     sess_proxy_version: Option<String>,
     sess_proxy_client: Option<Address>,
     sess_proxy_server: Option<Address>,
+    sess_duration: Option<Duration>,
+    sess_close_reason: Option<String>,
     client_records: Vec<Link<ClientAccessRecord>>,
     backend_record: Option<Link<BackendAccessRecord>>,
     restart_record: Option<Link<ClientAccessRecord>>,
@@ -630,6 +632,8 @@ impl RecordBuilder {
             sess_proxy_version: None,
             sess_proxy_client: None,
             sess_proxy_server: None,
+            sess_duration: None,
+            sess_close_reason: None,
             client_records: Vec::new(),
             backend_record: None,
             restart_record: None,
@@ -945,6 +949,13 @@ impl RecordBuilder {
                 self.sess_remote = Some(remote_address);
                 self.sess_local = local_address;
             }
+            // Late Session with no links
+            SLT_SessClose => {
+                let (reason, duration) = vsl.parse_data(slt_sess_close)?;
+
+                self.sess_duration = Some(duration);
+                self.sess_close_reason = Some(reason.to_owned());
+            }
             SLT_Proxy => {
                 let (version, client_address, server_address)
                     = vsl.parse_data(slt_proxy)?;
@@ -1145,8 +1156,8 @@ impl RecordBuilder {
                     remote: self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))?,
                     proxy,
                     client_records: self.client_records,
-                    duration: None,
-                    close_reason: None,
+                    duration: self.sess_duration,
+                    close_reason: self.sess_close_reason,
                 };
 
                 Ok(Record::Session(record))
