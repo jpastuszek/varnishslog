@@ -112,7 +112,7 @@
 //
 
 use quick_error::quick_error;
-use log::{warn, debug, log};
+use log::{warn, debug};
 use std::rc::Rc;
 use std::cell::RefCell;
 use crate::maybe_string::{MaybeStr, MaybeString};

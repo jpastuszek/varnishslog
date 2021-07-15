@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::io::Read;
 use std::io;
 use std::ptr::copy;
-use log::{log, trace};
+use log::trace;
 use nom;
 
 pub const DEFAULT_BUF_SIZE: usize = 256 * 1024;

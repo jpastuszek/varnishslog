@@ -5,7 +5,7 @@ use std::num::Wrapping;
 use std::time::Duration;
 use std::thread;
 
-use log::{error, warn, info, log};
+use log::{error, warn, info};
 use quick_error::quick_error;
 use clap::{arg_enum, value_t, crate_authors, crate_version};
 

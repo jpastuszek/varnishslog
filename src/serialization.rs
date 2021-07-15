@@ -3,7 +3,7 @@ use std::io::Error as IoError;
 use std::fmt;
 use std::fmt::Display;
 use quick_error::quick_error;
-use log::{warn, log};
+use log::warn;
 
 pub use serde_json::error::Error as JsonError;
 use serde_json::ser::to_writer as write_json;

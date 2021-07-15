@@ -27,7 +27,7 @@ mod test_helpers {
 
     pub fn log() {
         LOGGER.call_once(|| {
-            env_logger::init().unwrap();
+            env_logger::init();
         });
     }
 

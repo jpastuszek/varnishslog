@@ -13,7 +13,7 @@
 // time. To constraint time we can count VSL records in u64 or smaller wrapping integer
 // so we can tell if two VslIdent's are from two different times.
 use quick_error::quick_error;
-use log::{warn, info, log};
+use log::{warn, info};
 
 use linked_hash_map::{self, LinkedHashMap};
 use std::cmp::min;

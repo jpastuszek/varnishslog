@@ -1,5 +1,5 @@
 mod record_builder;
-use log::{error, warn, debug, log};
+use log::{error, warn, debug};
 use self::record_builder::{RecordBuilder, RecordBuilderError, SessionHead, Record};
 use crate::store::VslStore;
 use crate::store::Config as StoreConfig;
