@@ -169,7 +169,7 @@ impl<R: Read> StreamBuf<u8> for ReadStreamBuf<R> {
         // using set_len instead of resize as we will initialize the extra space in the vec with
         // read; this yields 100% improvement in stream_buf bench
         // this depends on the buf to be of size cap; also note unsafe in relocate
-        trace!("reading exactly {} bytes into buf blocking: {}..{} ({}); have: {} will have: {}", needed, len, len + needed, self.buf[len..len + needed].len(), have, have + needed);
+        trace!("reading exactly {} bytes into buf blocking: {}..{}; have: {} will have: {}", needed, len, len + needed, have, have + needed);
 
         unsafe { self.buf.set_len(len + needed) };
         if let Err(err) = self.reader.read_exact(&mut self.buf[len..len + needed]) {
