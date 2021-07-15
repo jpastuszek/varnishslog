@@ -18,6 +18,7 @@ enum Slot {
 }
 use self::Slot::*;
 
+#[derive(Debug)]
 enum SlotAction {
     New(RecordBuilder),
     Finalize,
@@ -122,7 +123,14 @@ impl RecordState {
             Finalize => {
                 let session = match self.builders.remove(&vsl.ident).unwrap() {
                     Builder(builder) => match builder.build() {
-                        Ok(Record::Session(session)) => session,
+                        Ok(Record::Session(session)) => {
+                            if session.client_records.is_empty() {
+                                debug!("Dropping empty session: {:#?}", session);
+                                // drop empty sessions
+                                return None
+                            }
+                            session
+                        }
                         Ok(Record::ClientAccess(record)) => return Some(AccessRecord::ClientAccess(record)),
                         Ok(Record::BackendAccess(record)) => return Some(AccessRecord::BackendAccess(record)),
                         Err(err) => {
@@ -520,6 +528,22 @@ mod tests {
     }
 
     #[test]
+    fn apply_record_state_session_empty() {
+        log();
+        let mut state = RecordState::new();
+
+        apply_all!(state,
+                69, SLT_Begin,          "sess 0 PROXY";
+                69, SLT_SessOpen,       "127.0.0.1 32786 a1 127.0.0.1 2443 1542622357.198996 82";
+                //69, SLT_Link,           "req 32774 rxreq";
+                69, SLT_ReqAcct,        "126 22 148 351 6 357";
+                69, SLT_SessClose,      "REQ_CLOSE 0.000";
+            );
+
+        apply!(state, 69, SLT_End, ""); // no session
+    }
+
+    #[test]
     fn apply_record_state_session_rx_junk() {
         log();
         let mut state = RecordState::new();
@@ -527,6 +551,7 @@ mod tests {
         apply_all!(state,
                 69, SLT_Begin,          "sess 0 PROXY";
                 69, SLT_SessOpen,       "127.0.0.1 32786 a1 127.0.0.1 2443 1542622357.198996 82";
+                69, SLT_Link,           "req 32774 rxreq";
                 69, SLT_ReqAcct,        "126 22 148 351 6 357";
                 69, SLT_End,            ""; // NOTE: spurious End
                 69, SLT_SessClose,      "RX_JUNK 2.059";
