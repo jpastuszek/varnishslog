@@ -190,6 +190,21 @@ pub struct SessionHead {
 impl SessionHead {
     pub fn update(&mut self, vsl: &VslRecord<'_>) -> Result<bool, RecordBuilderError> {
         match vsl.tag {
+            // Handled before SessionHead is built by RecordBuilder of type Session
+            SLT_SessOpen => return Err(RecordBuilderError::UnexpectedTransition("SessOpen")),
+            SLT_Proxy => {
+                let (version, client_address, server_address)
+                    = vsl.parse_data(slt_proxy)?;
+
+                let client_address = (client_address.0.to_string(), client_address.1);
+                let server_address = (server_address.0.to_string(), server_address.1);
+
+                self.proxy = Some(Proxy {
+                    version: version.to_string(),
+                    client: client_address,
+                    server: server_address,
+                });
+            }
             SLT_Link => {
                 let (reason, child_ident, child_type) = vsl.parse_data(slt_link)?;
 
@@ -562,11 +577,6 @@ pub struct RecordBuilder {
     sess_open: Option<TimeStamp>,
     sess_remote: Option<Address>,
     sess_local: Option<Address>,
-    sess_proxy_version: Option<String>,
-    sess_proxy_client: Option<Address>,
-    sess_proxy_server: Option<Address>,
-    sess_duration: Option<Duration>,
-    sess_close_reason: Option<String>,
     client_records: Vec<Link<ClientAccessRecord>>,
     backend_record: Option<Link<BackendAccessRecord>>,
     restart_record: Option<Link<ClientAccessRecord>>,
@@ -629,11 +639,6 @@ impl RecordBuilder {
             sess_open: None,
             sess_remote: None,
             sess_local: None,
-            sess_proxy_version: None,
-            sess_proxy_client: None,
-            sess_proxy_server: None,
-            sess_duration: None,
-            sess_close_reason: None,
             client_records: Vec::new(),
             backend_record: None,
             restart_record: None,
@@ -709,12 +714,6 @@ impl RecordBuilder {
                             warn!("Already have restart client request link with ident {}; replacing with {}", link.get_unresolved().as_ref().unwrap(), child_ident);
                         }
                         self.restart_record = Some(Link::Unresolved(child_ident, child_type.to_owned()));
-                    }
-                    ("req", "rxreq") if self.record_type == RecordType::Session => {
-                        self.client_records.push(Link::Unresolved(child_ident, child_type.to_owned()));
-                        // TODO: use enum instead of bool
-                        // Build SessionHead early
-                        return Ok(true)
                     }
                     ("req", _) => {
                         self.client_records.push(Link::Unresolved(child_ident, child_type.to_owned()));
@@ -948,25 +947,13 @@ impl RecordBuilder {
                 self.sess_open = Some(timestamp);
                 self.sess_remote = Some(remote_address);
                 self.sess_local = local_address;
-            }
-            // Late Session with no links
-            SLT_SessClose => {
-                let (reason, duration) = vsl.parse_data(slt_sess_close)?;
 
-                self.sess_duration = Some(duration);
-                self.sess_close_reason = Some(reason.to_owned());
+                // Build SessionHead early
+                return Ok(true)
             }
-            SLT_Proxy => {
-                let (version, client_address, server_address)
-                    = vsl.parse_data(slt_proxy)?;
-
-                let client_address = (client_address.0.to_string(), client_address.1);
-                let server_address = (server_address.0.to_string(), server_address.1);
-
-                self.sess_proxy_version = Some(version.to_string());
-                self.sess_proxy_client = Some(client_address);
-                self.sess_proxy_server = Some(server_address);
-            }
+            // Tags handled by SessionHead
+            SLT_SessClose => return Err(RecordBuilderError::UnexpectedTransition("SessClose")),
+            SLT_Proxy => return Err(RecordBuilderError::UnexpectedTransition("SessProxy")),
 
             SLT_Hit => {
                 let object_ident = vsl.parse_data(slt_hit)?;
@@ -1139,25 +1126,15 @@ impl RecordBuilder {
     pub fn build(mut self) -> Result<Record, RecordBuilderError> {
         match self.record_type {
             RecordType::Session => {
-                let proxy = if self.sess_proxy_version.is_some() {
-                    Some(Proxy {
-                        version: self.sess_proxy_version.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_version"))?,
-                        client: self.sess_proxy_client.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_client"))?,
-                        server: self.sess_proxy_server.ok_or(RecordBuilderError::RecordIncomplete("sess_proxy_server"))?,
-                    })
-                } else {
-                    None
-                };
-
                 let record = SessionHead {
                     ident: self.ident,
                     open: self.sess_open.ok_or(RecordBuilderError::RecordIncomplete("sess_open"))?,
                     local: self.sess_local,
                     remote: self.sess_remote.ok_or(RecordBuilderError::RecordIncomplete("sess_remote"))?,
-                    proxy,
+                    proxy: None,
                     client_records: self.client_records,
-                    duration: self.sess_duration,
-                    close_reason: self.sess_close_reason,
+                    duration: None,
+                    close_reason: None,
                 };
 
                 Ok(Record::Session(record))

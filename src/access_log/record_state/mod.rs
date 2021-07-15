@@ -123,16 +123,7 @@ impl RecordState {
             Finalize => {
                 let session = match self.builders.remove(&vsl.ident).unwrap() {
                     Builder(builder) => match builder.build() {
-                        Ok(Record::Session(session)) => {
-                            // Note: session can be build erarly on SLT_Link or late on SLT_End
-                            // if no SLT_Link was present meaning we have an empty session
-                            if session.client_records.is_empty() {
-                                debug!("Dropping empty session: {:#?}", session);
-                                // drop empty sessions
-                                return None
-                            }
-                            session
-                        }
+                        Ok(Record::Session(session)) => session,
                         Ok(Record::ClientAccess(record)) => return Some(AccessRecord::ClientAccess(record)),
                         Ok(Record::BackendAccess(record)) => return Some(AccessRecord::BackendAccess(record)),
                         Err(err) => {
@@ -542,7 +533,10 @@ mod tests {
                 69, SLT_SessClose,      "REQ_CLOSE 0.000";
             );
 
-        apply!(state, 69, SLT_End, ""); // no session
+        let record = apply_final!(state, 69, SLT_End, "");
+
+        // Session should be built
+        assert!(record.is_session());
     }
 
     #[test]
