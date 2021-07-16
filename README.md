@@ -260,6 +260,8 @@ This data is then flattened down and serialised as JSON like this one:
 
 It can also prepend it with NCSA like log line to make it more compatible with standard access log processing tools.
 
+See also [varnishslog-types](https://github.com/jpastuszek/varnishslog-types/) for deserialization into Rust types with `serde`.
+
 Compatibility
 ----
 
@@ -275,13 +277,15 @@ Compatibility
 
 `varnishslog` v0.7.1 was tested with Varnish v6.2.0.
 
+`varnishslog` v0.8.0 was tested with Varnish v6.6.1. Fixes PIPE request log handling.
+
 Usage
 -----
 
-To install it you will need recent Rust compiler (tested on rustc 1.27.2):
+To install you will need a recent Rust compiler (tested on rustc 1.50.0):
 `cargo install varnishslog`
 
-To run build from source with:
+To run from source:
 `cargo run --release`
 
 Running:
