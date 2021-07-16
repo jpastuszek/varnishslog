@@ -388,7 +388,7 @@ checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
 
 [[package]]
 name = "varnishslog"
-version = "0.8.0"
+version = "0.8.1-alpha.0"
 dependencies = [
  "assert_matches",
  "bencher",
