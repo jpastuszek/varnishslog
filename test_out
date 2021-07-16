@@ -1,0 +1,2 @@
+#!/bin/fish
+ls logs*/* | sort | while read l; echo $l; target/debug/varnishslog -d warn $l; end
