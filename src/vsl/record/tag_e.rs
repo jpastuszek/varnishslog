@@ -15,6 +15,8 @@ pub const VSL_IDENTMASK: i64 = -3221225473;
 pub const VSL_LENMASK: u32 = 65535;
 pub const SLT__MAX: u32 = 256;
 pub const NODEF_NOTICE: &'static [u8; 44usize] = b"NB: This log record is masked by default.\n\n\0";
+pub const NOSUP_NOTICE : & 'static [ u8 ; 171usize ] = b"NOTE: This tag is currently not in use in the Varnish log.\nIt is mentioned here to document legacy versions of the log,\nor reserved for possible use in future versions.\n\n\0" ;
+pub const HEADER_NOTICE : & 'static [ u8 ; 189usize ] = b"NOTE: HTTP header fields are free form records and not strictly\nmade of 2 fields. Accessing a specific header with the prefix\nnotation helps treating the header value as a single string.\n\n\0" ;
 pub const SLT_F_UNUSED: u32 = 1;
 pub const SLT_F_UNSAFE: u32 = 2;
 pub const SLT_F_BINARY: u32 = 4;
@@ -116,6 +118,8 @@ pub enum VSL_tag_e {
     SLT_Filters = 92,
     SLT_SessError = 93,
     SLT_VCL_use = 94,
+    SLT_Notice = 95,
+    SLT_VdpAcct = 96,
     SLT__Reserved = 254,
     SLT__Batch = 255,
 }

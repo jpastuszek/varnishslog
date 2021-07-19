@@ -6,6 +6,8 @@
  * Author: Poul-Henning Kamp <phk@phk.freebsd.dk>
  * Author: Martin Blix Grydeland <martin@varnish-software.com>
  *
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -109,7 +111,7 @@ enum VSL_reason_e {
 };
 
 struct VSL_transaction {
-	unsigned		level;
+	int			level;
 	uint32_t		vxid;
 	uint32_t		vxid_parent;
 	enum VSL_transaction_e	type;

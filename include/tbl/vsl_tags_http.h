@@ -4,6 +4,8 @@
  *
  * Author: Poul-Henning Kamp <phk@phk.freebsd.dk>
  *
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -43,6 +45,11 @@
  *
  */
 
+#define HEADER_NOTICE \
+    "NOTE: HTTP header fields are free form records and not strictly\n" \
+    "made of 2 fields. Accessing a specific header with the prefix\n" \
+    "notation helps treating the header value as a single string.\n\n"
+
 /*lint -save -e525 -e539 -e835 */
 
 SLTH(Method,	HTTP_HDR_METHOD,	1, 0, "method",
@@ -58,11 +65,11 @@ SLTH(Protocol,	HTTP_HDR_PROTO,		1, 1, "protocol",
 )
 
 SLTH(Status,	HTTP_HDR_STATUS,	0, 1, "status",
-	"The HTTP status code received.\n\n"
+	"The HTTP response status code.\n\n"
 )
 
-SLTH(Reason,	HTTP_HDR_REASON,	0, 1, "response",
-	"The HTTP response string received.\n\n"
+SLTH(Reason,	HTTP_HDR_REASON,	0, 1, "reason",
+	"The HTTP response reason string.\n\n"
 )
 
 SLTH(Header,	HTTP_HDR_FIRST,		1, 1, "header",
@@ -73,6 +80,7 @@ SLTH(Header,	HTTP_HDR_FIRST,		1, 1, "header",
 	"\t|   +- Header value\n"
 	"\t+----- Header name\n"
 	"\n"
+	HEADER_NOTICE
 )
 
 SLTH(Unset,	HTTP_HDR_UNSET,		0, 0, "unset header",
@@ -83,12 +91,14 @@ SLTH(Unset,	HTTP_HDR_UNSET,		0, 0, "unset header",
 	"\t|   +- Header value\n"
 	"\t+----- Header name\n"
 	"\n"
+	HEADER_NOTICE
 )
 
 SLTH(Lost,	HTTP_HDR_LOST,		0, 0, "lost header",
 	""
 )
 
+#undef HEADER_NOTICE
 #undef SLTH
 
 /*lint -restore */

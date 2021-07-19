@@ -5,6 +5,8 @@
  *
  * Author: Poul-Henning Kamp <phk@phk.freebsd.dk>
  *
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -33,7 +35,6 @@
  * page) whenever this list changes.
  *
  * XXX: Please add new entries a the end to not break saved log-segments.
- * XXX: we can resort them when we have a major release.
  *
  * Arguments:
  *	Tag-Name
@@ -47,12 +48,22 @@
 #define NODEF_NOTICE \
     "NB: This log record is masked by default.\n\n"
 
+/*
+ * REL_20190915 remove after VSLng
+ * kept for now for VSL binary compatibility
+ */
+#define NOSUP_NOTICE \
+    "NOTE: This tag is currently not in use in the Varnish log.\n" \
+    "It is mentioned here to document legacy versions of the log,\n" \
+    "or reserved for possible use in future versions.\n\n"
+
 SLTM(Debug, SLT_F_UNSAFE, "Debug messages",
 	"Debug messages can normally be ignored, but are sometimes"
 	" helpful during trouble-shooting.  Most debug messages must"
 	" be explicitly enabled with parameters.\n\n"
 	"Debug messages may be added, changed or removed without"
 	" prior notice and shouldn't be considered stable.\n\n"
+	NODEF_NOTICE
 )
 
 SLTM(Error, 0, "Error messages",
@@ -69,14 +80,15 @@ SLTM(SessOpen, 0, "Client connection opened",
 	"The first record for a client connection, with the socket-endpoints"
 	" of the connection.\n\n"
 	"The format is::\n\n"
-	"\t%s %d %s %s %s %d\n"
-	"\t|  |  |  |  |  |\n"
-	"\t|  |  |  |  |  +- File descriptor number\n"
-	"\t|  |  |  |  +---- Local TCP port / 0 for UDS\n"
-	"\t|  |  |  +------- Local IPv4/6 address / 0.0.0.0 for UDS\n"
-	"\t|  |  +---------- Socket name (from -a argument)\n"
-	"\t|  +------------- Remote TCP port / 0 for UDS\n"
-	"\t+---------------- Remote IPv4/6 address / 0.0.0.0 for UDS\n"
+	"\t%s %d %s %s %s %f %d\n"
+	"\t|  |  |  |  |  |  |\n"
+	"\t|  |  |  |  |  |  +- File descriptor number\n"
+	"\t|  |  |  |  |  +---- Session start time (unix epoch)\n"
+	"\t|  |  |  |  +------- Local TCP port / 0 for UDS\n"
+	"\t|  |  |  +---------- Local IPv4/6 address / 0.0.0.0 for UDS\n"
+	"\t|  |  +------------- Socket name (from -a argument)\n"
+	"\t|  +---------------- Remote TCP port / 0 for UDS\n"
+	"\t+------------------- Remote IPv4/6 address / 0.0.0.0 for UDS\n"
 	"\n"
 )
 
@@ -95,14 +107,15 @@ SLTM(SessClose, 0, "Client connection closed",
 SLTM(BackendOpen, 0, "Backend connection opened",
 	"Logged when a new backend connection is opened.\n\n"
 	"The format is::\n\n"
-	"\t%d %s %s %s %s %s\n"
-	"\t|  |  |  |  |  |\n"
-	"\t|  |  |  |  |  +- Local port\n"
-	"\t|  |  |  |  +---- Local address\n"
-	"\t|  |  |  +------- Remote port\n"
-	"\t|  |  +---------- Remote address\n"
-	"\t|  +------------- Backend display name\n"
-	"\t+---------------- Connection file descriptor\n"
+	"\t%d %s %s %s %s %s %s\n"
+	"\t|  |  |  |  |  |  |\n"
+	"\t|  |  |  |  |  |  +- \"connect\" or \"reuse\"\n"
+	"\t|  |  |  |  |  +---- Local port\n"
+	"\t|  |  |  |  +------- Local address\n"
+	"\t|  |  |  +---------- Remote port\n"
+	"\t|  |  +------------- Remote address\n"
+	"\t|  +---------------- Backend display name\n"
+	"\t+------------------- Connection file descriptor\n"
 	"\n"
 )
 
@@ -115,16 +128,18 @@ SLTM(BackendReuse, 0, "Backend connection put up for reuse",
 	"\t|  +- Backend display name\n"
 	"\t+---- Connection file descriptor\n"
 	"\n"
+	NOSUP_NOTICE
 )
 
 SLTM(BackendClose, 0, "Backend connection closed",
 	"Logged when a backend connection is closed.\n\n"
 	"The format is::\n\n"
-	"\t%d %s [ %s ]\n"
-	"\t|  |    |\n"
-	"\t|  |    +- Optional reason\n"
-	"\t|  +------ Backend display name\n"
-	"\t+--------- Connection file descriptor\n"
+	"\t%d %s %s [ %s ]\n"
+	"\t|  |  |    |\n"
+	"\t|  |  |    +- Optional reason\n"
+	"\t|  |  +------ \"close\" or \"recycle\"\n"
+	"\t|  +--------- Backend display name\n"
+	"\t+------------ Connection file descriptor\n"
 	"\n"
 )
 
@@ -160,11 +175,8 @@ SLTM(Backend, 0, "Backend selected",
 	"\t|  |  +- Backend display name\n"
 	"\t|  +---- VCL name\n"
 	"\t+------- Connection file descriptor\n"
-	"\t\n"
-	"\tNOTE: This tag is currently not in use in the Varnish log.\n"
-	"\tIt is mentioned here to document legacy versions of the log,\n"
-	"\tand reserved for possible use in future versions.\n"
 	"\n"
+	NOSUP_NOTICE
 )
 
 SLTM(Length, 0, "Size of object body",
@@ -185,7 +197,7 @@ SLTM(Length, 0, "Size of object body",
 
 SLTM(FetchError, 0, "Error while fetching object",
 	"Logs the error message of a failed fetch operation.\n\n"
-	"Error messages should be self-explanatory, yet the http connection"
+	"Error messages should be self-explanatory, yet the http connection\n"
 	"(HTC) class of errors is reported with these symbols:\n\n"
 	"\t* junk (-5): Received unexpected data\n"
 	"\t* close (-4): Connection closed\n"
@@ -223,7 +235,7 @@ SLTM(FetchError, 0, "Error while fetching object",
 #undef SLTH
 
 #define SLTH(tag, ind, req, resp, sdesc, ldesc) \
-	SLTM(Obj##tag, (resp ? 0 : SLT_F_UNUSED), "Object  " sdesc, ldesc)
+	SLTM(Obj##tag, (resp ? 0 : SLT_F_UNUSED), "Object " sdesc, ldesc)
 #include "tbl/vsl_tags_http.h"
 #undef SLTH
 
@@ -266,16 +278,28 @@ SLTM(TTL, 0, "TTL set on object",
 SLTM(Fetch_Body, 0, "Body fetched from backend",
 	"Ready to fetch body from backend.\n\n"
 	"The format is::\n\n"
-	"\t%d (%s) %s\n"
-	"\t|   |    |\n"
-	"\t|   |    +---- 'stream' or '-'\n"
-	"\t|   +--------- Text description of body fetch mode\n"
-	"\t+------------- Body fetch mode\n"
+	"\t%d %s %s\n"
+	"\t|  |  |\n"
+	"\t|  |  +---- 'stream' or '-'\n"
+	"\t|  +------- Text description of body fetch mode\n"
+	"\t+---------- Body fetch mode\n"
 	"\n"
 )
 
 SLTM(VCL_acl, 0, "VCL ACL check results",
 	"Logs VCL ACL evaluation results.\n\n"
+	"The format is::\n\n"
+	"\t%s [%s [%s [fixed: %s]]]\n"
+	"\t|   |   |          |\n"
+	"\t|   |   |          +- Fixed entry (see vcc_acl_pedantic parameter)\n"
+	"\t|   |   +------------ Matching entry (only for MATCH)\n"
+	"\t|   +---------------- Name of the ACL for MATCH or NO_MATCH\n"
+	"\t+-------------------- MATCH, NO_MATCH or NO_FAM\n"
+	"\n"
+	"MATCH denotes an ACL match\n"
+	"NO_MATCH denotes that a checked ACL has not matched\n"
+	"NO_FAM denotes a missing address family and should not occur.\n"
+	"\n"
 )
 
 SLTM(VCL_call, 0, "VCL method called",
@@ -432,14 +456,18 @@ SLTM(Backend_health, 0, "Backend health check",
 	"\n"
 
 	"Probe window bits are::\n\n"
-	"\t" "'4'" ": " "Good IPv4" "\n"
-	"\t" "'6'" ": " "Good IPv6" "\n"
-	"\t" "'U'" ": " "Good UNIX" "\n"
-	"\t" "'x'" ": " "Error Xmit" "\n"
-	"\t" "'X'" ": " "Good Xmit" "\n"
-	"\t" "'r'" ": " "Error Recv" "\n"
-	"\t" "'R'" ": " "Good Recv" "\n"
-	"\t" "'H'" ": " "Happy" "\n"
+	"\t'-': Could not connect\n"
+	"\t'4': Good IPv4\n"
+	"\t'6': Good IPv6\n"
+	"\t'U': Good UNIX\n"
+	"\t'x': Error Xmit\n"
+	"\t'X': Good Xmit\n"
+	"\t'r': Error Recv\n"
+	"\t'R': Good Recv\n"
+	"\t'H': Happy\n"
+	"\n"
+	"When the backend is just created, the window bits for health check\n"
+	"slots that haven't run yet appear as '-' like failures to connect.\n"
 	"\n"
 )
 
@@ -601,6 +629,7 @@ SLTM(BackendStart, 0, "Backend request start",
 	"\t|  +- Backend Port number\n"
 	"\t+---- Backend IP4/6 address\n"
 	"\n"
+	NOSUP_NOTICE
 )
 
 SLTM(H2RxHdr, SLT_F_BINARY, "Received HTTP2 frame header",
@@ -658,6 +687,34 @@ SLTM(VCL_use, 0, "VCL in use",
 	"\n"
 )
 
+SLTM(Notice, 0, "Informational messages about request handling",
+	"Informational log messages on events occurred during request"
+	" handling.\n\n"
+	"The format is::\n\n"
+	"\t%s: %s\n"
+	"\t|   |\n"
+	"\t|   +- Short description of the notice message\n"
+	"\t+----- Manual page containing the detailed description\n"
+	"\n"
+	"See the NOTICE MESSAGES section below or the individual VMOD manual"
+	" pages for detailed information of notice messages.\n"
+	"\n"
+)
+
+SLTM(VdpAcct, 0, "Deliver filter accounting",
+	"Contains name of VDP and statistics.\n\n"
+	"The format is::\n\n"
+	"\t%s %d %d\n"
+	"\t|  |  |\n"
+	"\t|  |  +- Total bytes produced\n"
+	"\t|  +---- Number of calls made\n"
+	"\t+------- Name of filter\n"
+	"\n"
+	NODEF_NOTICE
+)
+
+
+#undef NOSUP_NOTICE
 #undef NODEF_NOTICE
 #undef SLTM
 

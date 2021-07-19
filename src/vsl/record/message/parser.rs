@@ -143,7 +143,7 @@ named!(pub slt_sess_open<&[u8], ((&str, Port), &str, Option<(&str, Port)>, TimeS
             some: map!(peek!(tuple!(token, token)), |(ip, port)| { ip != b"-" && port != b"-" }) ~
             addr: cond!(some, tuple!(symbol, port)),
             || { addr }),
-        time_stamp,             // Time stamp (undocumented)
+        time_stamp,             // Time stamp
         file_descriptor));      // File descriptor number
 
 named!(pub slt_proxy<&[u8], (&str, (&str, Port), (&str, Port))>, tuple!(

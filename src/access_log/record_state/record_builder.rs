@@ -748,6 +748,11 @@ impl RecordBuilder {
 
                 self.log.push(LogEntry::Debug(log_entry.to_lossy_string()));
             }
+            SLT_Notice => {
+                let log_entry = vsl.parse_data(slt_vcl_log)?;
+
+                self.log.push(LogEntry::Warning(log_entry.to_lossy_string()));
+            }
             SLT_Error => {
                 let log_entry = vsl.parse_data(slt_vcl_log)?;
 
@@ -898,9 +903,10 @@ impl RecordBuilder {
                     local: (local_addr.to_string(), local_port),
                 });
             }
-            SLT_BackendStart | SLT_BackendReuse | SLT_BackendClose => {
-                // SLT_BackendStart: Start of backend processing. Logs the backend IP address and port
-                // SLT_BackendReuse: Logged when a backend connection is put up for reuse by a later
+            SLT_Backend | SLT_BackendStart | SLT_BackendReuse | SLT_BackendClose => {
+                // SLT_Backend: Logged when a connection is selected for handling a backend; Not in use in 6.6.1
+                // SLT_BackendStart: Start of backend processing. Logs the backend IP address and port; Not in use in 6.6.1
+                // SLT_BackendReuse: Logged when a backend connection is put up for reuse by a later; Not used in 6.6.1
                 // SLT_BackendClose: Logged when a backend connection is closed
                 // Not much more than in SLT_BackendOpen
             }
